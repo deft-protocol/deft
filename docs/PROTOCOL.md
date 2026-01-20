@@ -1,10 +1,10 @@
-# 📡 RIFT Protocol Specification
+# 📡 FlowPact Protocol Specification
 
-Technical specification of the RIFT wire protocol.
+Technical specification of the FlowPact wire protocol.
 
 ## Overview
 
-RIFT (Reliable Interoperable File Transfer) is a text-based protocol over TLS for secure B2B file transfers.
+FlowPact (Reliable Interoperable File Transfer) is a text-based protocol over TLS for secure B2B file transfers.
 
 - **Transport**: TCP + TLS 1.3 (mTLS required)
 - **Default Port**: 7741
@@ -26,19 +26,19 @@ RIFT (Reliable Interoperable File Transfer) is a text-based protocol over TLS fo
      │──── TLS Handshake (mTLS) ─────>│
      │<─── TLS Established ───────────│
      │                                │
-     │──── RIFT HELLO 1.0 ... ───────>│
-     │<─── RIFT WELCOME 1.0 ... ──────│
+     │──── FlowPact HELLO 1.0 ... ───────>│
+     │<─── FlowPact WELCOME 1.0 ... ──────│
      │                                │
-     │──── RIFT AUTH partner-id ─────>│
-     │<─── RIFT AUTH_OK ... ──────────│
+     │──── FlowPact AUTH partner-id ─────>│
+     │<─── FlowPact AUTH_OK ... ──────────│
      │                                │
      │     [Session Established]      │
      │                                │
      │──── Commands... ──────────────>│
      │<─── Responses... ──────────────│
      │                                │
-     │──── RIFT BYE ─────────────────>│
-     │<─── RIFT GOODBYE ──────────────│
+     │──── FlowPact BYE ─────────────────>│
+     │<─── FlowPact GOODBYE ──────────────│
      │                                │
      └────────────────────────────────┘
 ```
@@ -47,14 +47,14 @@ RIFT (Reliable Interoperable File Transfer) is a text-based protocol over TLS fo
 
 ## Commands
 
-All commands start with `RIFT ` prefix.
+All commands start with `FlowPact ` prefix.
 
 ### HELLO
 
 Initiates session with capability negotiation.
 
 ```
-RIFT HELLO <version> [capabilities] [WINDOW_SIZE:<n>]
+FlowPact HELLO <version> [capabilities] [WINDOW_SIZE:<n>]
 ```
 
 | Parameter | Required | Description |
@@ -65,7 +65,7 @@ RIFT HELLO <version> [capabilities] [WINDOW_SIZE:<n>]
 
 **Example:**
 ```
-RIFT HELLO 1.0 CHUNKED,PARALLEL,RESUME,COMPRESS WINDOW_SIZE:128
+FlowPact HELLO 1.0 CHUNKED,PARALLEL,RESUME,COMPRESS WINDOW_SIZE:128
 ```
 
 ### AUTH
@@ -73,12 +73,12 @@ RIFT HELLO 1.0 CHUNKED,PARALLEL,RESUME,COMPRESS WINDOW_SIZE:128
 Authenticates partner identity.
 
 ```
-RIFT AUTH <partner-id>
+FlowPact AUTH <partner-id>
 ```
 
 **Example:**
 ```
-RIFT AUTH acme-corp
+FlowPact AUTH acme-corp
 ```
 
 ### DISCOVER
@@ -86,7 +86,7 @@ RIFT AUTH acme-corp
 Lists available virtual files.
 
 ```
-RIFT DISCOVER
+FlowPact DISCOVER
 ```
 
 ### DESCRIBE
@@ -94,12 +94,12 @@ RIFT DISCOVER
 Gets metadata for a virtual file.
 
 ```
-RIFT DESCRIBE <virtual-file>
+FlowPact DESCRIBE <virtual-file>
 ```
 
 **Example:**
 ```
-RIFT DESCRIBE daily-orders
+FlowPact DESCRIBE daily-orders
 ```
 
 ### GET
@@ -107,7 +107,7 @@ RIFT DESCRIBE daily-orders
 Downloads chunks from a virtual file.
 
 ```
-RIFT GET <virtual-file> CHUNKS <range>
+FlowPact GET <virtual-file> CHUNKS <range>
 ```
 
 | Range Format | Description |
@@ -118,7 +118,7 @@ RIFT GET <virtual-file> CHUNKS <range>
 
 **Example:**
 ```
-RIFT GET daily-orders CHUNKS 0-99
+FlowPact GET daily-orders CHUNKS 0-99
 ```
 
 ### PUT
@@ -126,7 +126,7 @@ RIFT GET daily-orders CHUNKS 0-99
 Uploads a chunk to a virtual file.
 
 ```
-RIFT PUT <virtual-file> CHUNK <index> SIZE:<size> HASH:<hash> [NONCE:<nonce>] [COMPRESSED]
+FlowPact PUT <virtual-file> CHUNK <index> SIZE:<size> HASH:<hash> [NONCE:<nonce>] [COMPRESSED]
 ```
 
 | Parameter | Required | Description |
@@ -140,7 +140,7 @@ RIFT PUT <virtual-file> CHUNK <index> SIZE:<size> HASH:<hash> [NONCE:<nonce>] [C
 
 **Example:**
 ```
-RIFT PUT invoices CHUNK 0 SIZE:262144 HASH:abc123... NONCE:1705756800 COMPRESSED
+FlowPact PUT invoices CHUNK 0 SIZE:262144 HASH:abc123... NONCE:1705756800 COMPRESSED
 [binary data follows]
 ```
 
@@ -149,26 +149,26 @@ RIFT PUT invoices CHUNK 0 SIZE:262144 HASH:abc123... NONCE:1705756800 COMPRESSED
 Closes the session gracefully.
 
 ```
-RIFT BYE
+FlowPact BYE
 ```
 
 ---
 
 ## Responses
 
-All responses start with `RIFT ` prefix.
+All responses start with `FlowPact ` prefix.
 
 ### WELCOME
 
 Session established response.
 
 ```
-RIFT WELCOME <version> [capabilities] [WINDOW_SIZE:<n>] <session-id>
+FlowPact WELCOME <version> [capabilities] [WINDOW_SIZE:<n>] <session-id>
 ```
 
 **Example:**
 ```
-RIFT WELCOME 1.0 CHUNKED,PARALLEL,RESUME WINDOW_SIZE:64 sess_20260120_001
+FlowPact WELCOME 1.0 CHUNKED,PARALLEL,RESUME WINDOW_SIZE:64 sess_20260120_001
 ```
 
 ### AUTH_OK
@@ -176,12 +176,12 @@ RIFT WELCOME 1.0 CHUNKED,PARALLEL,RESUME WINDOW_SIZE:64 sess_20260120_001
 Authentication successful.
 
 ```
-RIFT AUTH_OK "<partner-name>" VF:<virtual-files>
+FlowPact AUTH_OK "<partner-name>" VF:<virtual-files>
 ```
 
 **Example:**
 ```
-RIFT AUTH_OK "ACME Corporation" VF:daily-orders,invoices
+FlowPact AUTH_OK "ACME Corporation" VF:daily-orders,invoices
 ```
 
 ### FILES
@@ -189,14 +189,14 @@ RIFT AUTH_OK "ACME Corporation" VF:daily-orders,invoices
 List of available files (follows DISCOVER).
 
 ```
-RIFT FILES <count>
+FlowPact FILES <count>
 <name> <size> <direction> <timestamp>
 ...
 ```
 
 **Example:**
 ```
-RIFT FILES 2
+FlowPact FILES 2
 daily-orders 1048576 SEND 1705756800
 product-catalog 524288 SEND 1705753200
 ```
@@ -206,14 +206,14 @@ product-catalog 524288 SEND 1705753200
 File metadata (follows DESCRIBE).
 
 ```
-RIFT FILE_INFO <name> SIZE:<size> CHUNKS:<count> CHUNK_SIZE:<size> HASH:<hash>
+FlowPact FILE_INFO <name> SIZE:<size> CHUNKS:<count> CHUNK_SIZE:<size> HASH:<hash>
 CHUNK <index> SIZE:<size> HASH:<hash>
 ...
 ```
 
 **Example:**
 ```
-RIFT FILE_INFO daily-orders SIZE:1048576 CHUNKS:4 CHUNK_SIZE:262144 HASH:abc123...
+FlowPact FILE_INFO daily-orders SIZE:1048576 CHUNKS:4 CHUNK_SIZE:262144 HASH:abc123...
 CHUNK 0 SIZE:262144 HASH:def456...
 CHUNK 1 SIZE:262144 HASH:789012...
 CHUNK 2 SIZE:262144 HASH:345678...
@@ -225,7 +225,7 @@ CHUNK 3 SIZE:262144 HASH:901234...
 Chunk data (follows GET).
 
 ```
-RIFT CHUNK_DATA <virtual-file> <index> SIZE:<size>
+FlowPact CHUNK_DATA <virtual-file> <index> SIZE:<size>
 [binary data]
 ```
 
@@ -234,13 +234,13 @@ RIFT CHUNK_DATA <virtual-file> <index> SIZE:<size>
 Acknowledgment for PUT.
 
 ```
-RIFT CHUNK_ACK <virtual-file> <index> OK|ERROR [reason]
+FlowPact CHUNK_ACK <virtual-file> <index> OK|ERROR [reason]
 ```
 
 **Examples:**
 ```
-RIFT CHUNK_ACK invoices 0 OK
-RIFT CHUNK_ACK invoices 1 ERROR Hash mismatch
+FlowPact CHUNK_ACK invoices 0 OK
+FlowPact CHUNK_ACK invoices 1 ERROR Hash mismatch
 ```
 
 ### CHUNK_ACK_BATCH
@@ -248,12 +248,12 @@ RIFT CHUNK_ACK invoices 1 ERROR Hash mismatch
 Batch acknowledgment (optimization).
 
 ```
-RIFT CHUNK_ACK_BATCH <virtual-file> <ranges>
+FlowPact CHUNK_ACK_BATCH <virtual-file> <ranges>
 ```
 
 **Example:**
 ```
-RIFT CHUNK_ACK_BATCH invoices 0-4,6-9
+FlowPact CHUNK_ACK_BATCH invoices 0-4,6-9
 ```
 
 ### TRANSFER_COMPLETE
@@ -261,12 +261,12 @@ RIFT CHUNK_ACK_BATCH invoices 0-4,6-9
 Transfer finished with receipt.
 
 ```
-RIFT TRANSFER_COMPLETE <virtual-file> HASH:<hash> SIZE:<size> CHUNKS:<count> [SIG:<signature>]
+FlowPact TRANSFER_COMPLETE <virtual-file> HASH:<hash> SIZE:<size> CHUNKS:<count> [SIG:<signature>]
 ```
 
 **Example:**
 ```
-RIFT TRANSFER_COMPLETE invoices HASH:abc123... SIZE:1048576 CHUNKS:4 SIG:ed25519:base64...
+FlowPact TRANSFER_COMPLETE invoices HASH:abc123... SIZE:1048576 CHUNKS:4 SIG:ed25519:base64...
 ```
 
 ### ERROR
@@ -274,7 +274,7 @@ RIFT TRANSFER_COMPLETE invoices HASH:abc123... SIZE:1048576 CHUNKS:4 SIG:ed25519
 Error response.
 
 ```
-RIFT ERROR <code> <message>
+FlowPact ERROR <code> <message>
 ```
 
 ### GOODBYE
@@ -282,7 +282,7 @@ RIFT ERROR <code> <message>
 Session closed response.
 
 ```
-RIFT GOODBYE
+FlowPact GOODBYE
 ```
 
 ---
@@ -425,7 +425,7 @@ When `COMPRESS` capability is negotiated:
 5. Receiver decompresses after verification
 
 ```
-RIFT PUT invoices CHUNK 0 SIZE:180000 HASH:... COMPRESSED
+FlowPact PUT invoices CHUNK 0 SIZE:180000 HASH:... COMPRESSED
 [180000 bytes of gzip compressed data]
 ```
 
@@ -448,45 +448,45 @@ This is handled at application level, not protocol level.
 ```
 [TLS Handshake Complete]
 
-C: RIFT HELLO 1.0 CHUNKED,PARALLEL,COMPRESS WINDOW_SIZE:64
-S: RIFT WELCOME 1.0 CHUNKED,PARALLEL,COMPRESS WINDOW_SIZE:32 sess_001
+C: FlowPact HELLO 1.0 CHUNKED,PARALLEL,COMPRESS WINDOW_SIZE:64
+S: FlowPact WELCOME 1.0 CHUNKED,PARALLEL,COMPRESS WINDOW_SIZE:32 sess_001
 
-C: RIFT AUTH acme-corp
-S: RIFT AUTH_OK "ACME Corporation" VF:orders,invoices
+C: FlowPact AUTH acme-corp
+S: FlowPact AUTH_OK "ACME Corporation" VF:orders,invoices
 
-C: RIFT DISCOVER
-S: RIFT FILES 2
+C: FlowPact DISCOVER
+S: FlowPact FILES 2
    orders 1048576 SEND 1705756800
    invoices 524288 RECEIVE 1705753200
 
-C: RIFT DESCRIBE orders
-S: RIFT FILE_INFO orders SIZE:1048576 CHUNKS:4 CHUNK_SIZE:262144 HASH:abc...
+C: FlowPact DESCRIBE orders
+S: FlowPact FILE_INFO orders SIZE:1048576 CHUNKS:4 CHUNK_SIZE:262144 HASH:abc...
    CHUNK 0 SIZE:262144 HASH:def...
    CHUNK 1 SIZE:262144 HASH:123...
    CHUNK 2 SIZE:262144 HASH:456...
    CHUNK 3 SIZE:262144 HASH:789...
 
-C: RIFT GET orders CHUNKS 0-3
-S: RIFT CHUNK_DATA orders 0 SIZE:262144
+C: FlowPact GET orders CHUNKS 0-3
+S: FlowPact CHUNK_DATA orders 0 SIZE:262144
    [binary data...]
-S: RIFT CHUNK_DATA orders 1 SIZE:262144
+S: FlowPact CHUNK_DATA orders 1 SIZE:262144
    [binary data...]
-S: RIFT CHUNK_DATA orders 2 SIZE:262144
+S: FlowPact CHUNK_DATA orders 2 SIZE:262144
    [binary data...]
-S: RIFT CHUNK_DATA orders 3 SIZE:262144
+S: FlowPact CHUNK_DATA orders 3 SIZE:262144
    [binary data...]
 
-C: RIFT PUT invoices CHUNK 0 SIZE:200000 HASH:aaa... NONCE:12345 COMPRESSED
+C: FlowPact PUT invoices CHUNK 0 SIZE:200000 HASH:aaa... NONCE:12345 COMPRESSED
    [compressed binary data...]
-S: RIFT CHUNK_ACK invoices 0 OK
+S: FlowPact CHUNK_ACK invoices 0 OK
 
-C: RIFT PUT invoices CHUNK 1 SIZE:180000 HASH:bbb... NONCE:12346 COMPRESSED
+C: FlowPact PUT invoices CHUNK 1 SIZE:180000 HASH:bbb... NONCE:12346 COMPRESSED
    [compressed binary data...]
-S: RIFT CHUNK_ACK invoices 1 OK
-S: RIFT TRANSFER_COMPLETE invoices HASH:xyz... SIZE:524288 CHUNKS:2 SIG:ed25519:...
+S: FlowPact CHUNK_ACK invoices 1 OK
+S: FlowPact TRANSFER_COMPLETE invoices HASH:xyz... SIZE:524288 CHUNKS:2 SIG:ed25519:...
 
-C: RIFT BYE
-S: RIFT GOODBYE
+C: FlowPact BYE
+S: FlowPact GOODBYE
 
 [Connection Closed]
 ```

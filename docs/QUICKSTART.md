@@ -1,6 +1,6 @@
 # ⚡ Quick Start
 
-Get RIFT running in 5 minutes.
+Get FlowPact running in 5 minutes.
 
 ## Prerequisites
 
@@ -10,7 +10,7 @@ Get RIFT running in 5 minutes.
 ## 1. Build
 
 ```bash
-git clone https://github.com/yourorg/rift.git
+git clone https://github.com/flowpact/flowpact.git
 cd rift
 cargo build --release
 ```
@@ -24,7 +24,7 @@ mkdir -p test-certs
 # Generate CA
 openssl genrsa -out test-certs/ca.key 4096
 openssl req -new -x509 -days 365 -key test-certs/ca.key \
-    -out test-certs/ca.crt -subj "/CN=RIFT Test CA"
+    -out test-certs/ca.crt -subj "/CN=FlowPact Test CA"
 
 # Generate server certificate
 openssl genrsa -out test-certs/server.key 2048
@@ -93,15 +93,15 @@ direction = "receive"
 mkdir -p /tmp/rift-test
 
 # Start daemon
-./target/release/riftd --config test-config.toml
+./target/release/flowpactd --config test-config.toml
 ```
 
 You should see:
 ```
-INFO riftd: RIFT Daemon starting...
-INFO riftd: Metrics server started on port 9090
-INFO riftd: API server started on 127.0.0.1:7742
-INFO riftd::server: Server listening on 127.0.0.1:7741
+INFO flowpactd: FlowPact Daemon starting...
+INFO flowpactd: Metrics server started on port 9090
+INFO flowpactd: API server started on 127.0.0.1:7742
+INFO flowpactd::server: Server listening on 127.0.0.1:7741
 ```
 
 ## 5. Test the Dashboard
@@ -112,10 +112,10 @@ Open http://localhost:7742 in your browser to see the web dashboard.
 
 ```bash
 # Create a test file
-echo "Hello RIFT!" > /tmp/test-file.txt
+echo "Hello FlowPact!" > /tmp/test-file.txt
 
 # Send it
-./target/release/riftd --config test-config.toml \
+./target/release/flowpactd --config test-config.toml \
     send test-partner test-files /tmp/test-file.txt
 ```
 
@@ -148,4 +148,4 @@ curl http://localhost:9090/metrics | grep rift_
 
 ---
 
-Need help? Check the [full documentation](GETTING_STARTED.md) or [open an issue](https://github.com/yourorg/rift/issues).
+Need help? Check the [full documentation](GETTING_STARTED.md) or [open an issue](https://github.com/flowpact/flowpact/issues).

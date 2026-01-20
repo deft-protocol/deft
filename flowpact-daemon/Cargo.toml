@@ -1,0 +1,36 @@
+[package]
+name = "flowpact-daemon"
+version.workspace = true
+edition.workspace = true
+description = "FlowPact daemon - unified server and client"
+
+[[bin]]
+name = "flowpactd"
+path = "src/main.rs"
+
+[dependencies]
+flowpact-protocol.workspace = true
+flowpact-common.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["json"] }
+flate2 = "1.0"
+rand = "0.8"
+prometheus = "0.13"
+lazy_static = "1.4"
+ring = "0.17"
+base64 = "0.21"
+clap.workspace = true
+chrono.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to RIFT will be documented in this file.
+All notable changes to FlowPact will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -112,6 +112,6 @@ api_listen = "127.0.0.1:7742"
 
 ---
 
-[1.0.0]: https://github.com/yourorg/rift/releases/tag/v1.0.0
-[0.2.0]: https://github.com/yourorg/rift/releases/tag/v0.2.0
-[0.1.0]: https://github.com/yourorg/rift/releases/tag/v0.1.0
+[1.0.0]: https://github.com/flowpact/flowpact/releases/tag/v1.0.0
+[0.2.0]: https://github.com/flowpact/flowpact/releases/tag/v0.2.0
+[0.1.0]: https://github.com/flowpact/flowpact/releases/tag/v0.1.0

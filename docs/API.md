@@ -1,6 +1,6 @@
 # 📊 REST API Reference
 
-RIFT provides a REST API for monitoring and management.
+FlowPact provides a REST API for monitoring and management.
 
 ## Enabling the API
 
@@ -279,7 +279,7 @@ The built-in dashboard at `http://localhost:7742/` provides:
 
 ```
 ┌─────────────────────────────────────────────────┐
-│ ⚡ RIFT Admin                    [Connected]    │
+│ ⚡ FlowPact Admin                    [Connected]    │
 ├─────────────────────────────────────────────────┤
 │ [Dashboard] [Partners] [Transfers] [Config]    │
 ├─────────────────────────────────────────────────┤

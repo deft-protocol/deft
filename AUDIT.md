@@ -1,4 +1,4 @@
-# Audit Complet du Protocole RIFT
+# Audit Complet du Protocole FlowPact
 
 **Date** : 20 janvier 2026  
 **Version** : 0.1.0
@@ -11,21 +11,21 @@
 
 ```
 rift/
-├── rift-protocol/   # Définition du protocole (1.9K lignes)
-│   ├── command.rs   # Commandes RIFT
-│   ├── response.rs  # Réponses RIFT
+├── flowpact-protocol/   # Définition du protocole (1.9K lignes)
+│   ├── command.rs   # Commandes FlowPact
+│   ├── response.rs  # Réponses FlowPact
 │   ├── parser.rs    # Parsing bidirectionnel
 │   ├── capability.rs # Négociation des capacités
 │   └── endpoint.rs  # Gestion multi-endpoints
-├── rift-daemon/     # Serveur et client (3.5K lignes)
+├── flowpact-daemon/     # Serveur et client (3.5K lignes)
 │   ├── server.rs    # Serveur TLS
 │   ├── client.rs    # Client TLS (mode peer)
 │   ├── handler.rs   # Gestionnaire de commandes
 │   ├── transfer.rs  # Logique de transfert
 │   ├── chunk_store.rs # Stockage des chunks
 │   └── receipt.rs   # Reçus cryptographiques
-├── rift-cli/        # Client CLI (630 lignes)
-└── rift-common/     # Utilitaires partagés (260 lignes)
+├── flowpact-cli/        # Client CLI (630 lignes)
+└── flowpact-common/     # Utilitaires partagés (260 lignes)
 ```
 
 **Total : ~6,500 lignes de code Rust**
@@ -37,7 +37,7 @@ rift/
 | Compilation | ✅ | Zero erreurs, 22 warnings mineurs |
 | Tests unitaires | ✅ | 47 tests passent (40 protocol + 7 integration) |
 | Tests intégration | ✅ | Transferts end-to-end validés |
-| Documentation | ⚠️ | Partielle (README, rift.md) |
+| Documentation | ⚠️ | Partielle (README, flowpact.md) |
 | Error handling | ✅ | `anyhow` + types d'erreur custom |
 | Async/await | ✅ | Tokio runtime |
 | Type safety | ✅ | Strongly typed, enums pour états |
@@ -120,11 +120,11 @@ tokio = "1.43"
 
 ---
 
-## 3. Pertinence du Protocole RIFT
+## 3. Pertinence du Protocole FlowPact
 
 ### 3.1 Cas d'Usage Cibles
 
-RIFT est conçu pour les **échanges B2B de fichiers volumineux** :
+FlowPact est conçu pour les **échanges B2B de fichiers volumineux** :
 - EDI (Electronic Data Interchange)
 - Échange de factures/rapports
 - Synchronisation inter-entreprises
@@ -132,7 +132,7 @@ RIFT est conçu pour les **échanges B2B de fichiers volumineux** :
 
 ### 3.2 Problèmes Résolus
 
-| Problème | Solution RIFT |
+| Problème | Solution FlowPact |
 |----------|---------------|
 | Transferts interrompus | Reprise au chunk exact |
 | Fichiers corrompus | Hash par chunk + global |
@@ -160,7 +160,7 @@ RIFT est conçu pour les **échanges B2B de fichiers volumineux** :
 
 ### 4.1 Tableau Comparatif Complet
 
-| Critère | RIFT | OFTP2 (Odette) | AS2 | AS3 | AS4 | SFTP | MFT |
+| Critère | FlowPact | OFTP2 (Odette) | AS2 | AS3 | AS4 | SFTP | MFT |
 |---------|------|----------------|-----|-----|-----|------|-----|
 | **Identité & Standards** |
 | Organisme | - | Odette Int'l | IETF | IETF | OASIS | IETF | Vendors |
@@ -189,33 +189,33 @@ RIFT est conçu pour les **échanges B2B de fichiers volumineux** :
 - **Usage** : Standard de facto dans l'industrie automobile européenne
 - **Forces** : Reprise native, reçus signés (EERP), compression, priorités
 - **Faiblesses** : Complexe, licences coûteuses, moins flexible
-- **vs RIFT** : OFTP2 est plus mature et standardisé, RIFT plus simple et moderne
+- **vs FlowPact** : OFTP2 est plus mature et standardisé, FlowPact plus simple et moderne
 
 #### AS2 (Applicability Statement 2)
 - **Usage** : EDI B2B, retail (Walmart, Target exigent AS2)
 - **Forces** : Standard RFC, MDN pour non-répudiation, large adoption
 - **Faiblesses** : Pas de reprise, S/MIME complexe, overhead HTTP
-- **vs RIFT** : AS2 mieux pour conformité EDI, RIFT mieux pour fichiers volumineux
+- **vs FlowPact** : AS2 mieux pour conformité EDI, FlowPact mieux pour fichiers volumineux
 
 #### AS3 (Applicability Statement 3)
 - **Usage** : AS2 sur FTP (moins courant)
 - **Forces** : Combine AS2 sécurité + FTP familiarité
 - **Faiblesses** : Peu adopté, FTP limitations
-- **vs RIFT** : RIFT supérieur sur presque tous les critères
+- **vs FlowPact** : FlowPact supérieur sur presque tous les critères
 
 #### AS4 (Applicability Statement 4)
 - **Usage** : Web services B2B, e-invoicing EU (PEPPOL)
 - **Forces** : ebMS 3.0, WS-Security, moderne, EU mandaté
 - **Faiblesses** : Complexité SOAP/XML, overhead
-- **vs RIFT** : AS4 pour conformité EU, RIFT pour performance brute
+- **vs FlowPact** : AS4 pour conformité EU, FlowPact pour performance brute
 
 #### MFT (Managed File Transfer)
 - **Exemples** : IBM Sterling, Axway, GoAnywhere
 - **Forces** : GUI, monitoring, workflows, compliance
 - **Faiblesses** : Coût élevé, vendor lock-in
-- **vs RIFT** : MFT pour enterprises établies, RIFT comme alternative open-source
+- **vs FlowPact** : MFT pour enterprises établies, FlowPact comme alternative open-source
 
-### 4.3 Avantages de RIFT
+### 4.3 Avantages de FlowPact
 
 1. **Reprise granulaire** : Seuls les chunks manquants sont retransmis
 2. **Intégrité vérifiable** : Chaque chunk est validé indépendamment
@@ -226,7 +226,7 @@ RIFT est conçu pour les **échanges B2B de fichiers volumineux** :
 7. **Open-source** : Pas de licence, pas de vendor lock-in
 8. **Léger** : ~7K lignes Rust, déploiement simple
 
-### 4.4 Inconvénients de RIFT
+### 4.4 Inconvénients de FlowPact
 
 1. **Non-standard** : Pas de RFC, interopérabilité limitée
 2. **Nouveau** : Pas encore battle-tested en production
@@ -240,8 +240,8 @@ RIFT est conçu pour les **échanges B2B de fichiers volumineux** :
 | Conformité EDI US (retail) | **AS2** |
 | Conformité EU (PEPPOL, e-invoicing) | **AS4** |
 | Industrie automobile | **OFTP2** |
-| Fichiers volumineux, reprise critique | **RIFT** ou OFTP2 |
-| Budget limité, équipe technique | **RIFT** ou SFTP |
+| Fichiers volumineux, reprise critique | **FlowPact** ou OFTP2 |
+| Budget limité, équipe technique | **FlowPact** ou SFTP |
 | Enterprise avec support vendor | **MFT** (Sterling, Axway) |
 | Synchronisation incrémentale | **rsync** |
 | Usage interne simple | **SFTP** |
@@ -253,7 +253,7 @@ RIFT est conçu pour les **échanges B2B de fichiers volumineux** :
                     Sécurité
                        ↑
                        │
-         AS2 ●─────────┼────● RIFT
+         AS2 ●─────────┼────● FlowPact
                        │
     FTPS ●─────────────┼─────────● SFTP
                        │
@@ -264,7 +264,7 @@ RIFT est conçu pour les **échanges B2B de fichiers volumineux** :
                   rsync ●
 ```
 
-**RIFT se positionne entre AS2 (B2B formel) et SFTP (technique)** avec un focus sur :
+**FlowPact se positionne entre AS2 (B2B formel) et SFTP (technique)** avec un focus sur :
 - Reprise de transfert fiable
 - Traçabilité pour conformité
 - Sécurité moderne sans complexité AS2
@@ -309,19 +309,19 @@ RIFT est conçu pour les **échanges B2B de fichiers volumineux** :
 
 ```bash
 # Démarrer le daemon
-riftd daemon
+flowpactd daemon
 
 # Envoyer un fichier
-riftd send <partner> <virtual_file> <file>
+flowpactd send <partner> <virtual_file> <file>
 
 # Recevoir un fichier
-riftd get <partner> <virtual_file> <output>
+flowpactd get <partner> <virtual_file> <output>
 
 # Lister les fichiers disponibles
-riftd list <partner>
+flowpactd list <partner>
 
 # Surveiller un répertoire (auto-envoi)
-riftd watch <directory> <partner> <virtual_file> --pattern "*.xml" --interval 30
+flowpactd watch <directory> <partner> <virtual_file> --pattern "*.xml" --interval 30
 ```
 
 ### 5.4 Roadmap
@@ -363,7 +363,7 @@ v1.0 ✅ (Enterprise) - ACTUEL
 
 ### Verdict
 
-RIFT v1.0 est désormais **enterprise-ready** pour les environnements B2B exigeants :
+FlowPact v1.0 est désormais **enterprise-ready** pour les environnements B2B exigeants :
 
 | Critère | Statut |
 |---------|--------|

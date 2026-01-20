@@ -1,18 +1,18 @@
 [workspace]
 resolver = "2"
 members = [
-    "rift-protocol",
-    "rift-common",
-    "rift-daemon",
-    "rift-cli",
+    "flowpact-protocol",
+    "flowpact-common",
+    "flowpact-daemon",
+    "flowpact-cli",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
-authors = ["RIFT Contributors"]
+authors = ["FlowPact Contributors"]
 license = "MIT"
-repository = "https://github.com/rift-protocol/rift"
+repository = "https://github.com/flowpact/flowpact"
 
 [workspace.dependencies]
 # Async runtime
@@ -50,5 +50,5 @@ chrono = "0.4"
 tempfile = "3.10"
 
 # Internal crates
-rift-protocol = { path = "rift-protocol" }
-rift-common = { path = "rift-common" }
+flowpact-protocol = { path = "flowpact-protocol" }
+flowpact-common = { path = "flowpact-common" }

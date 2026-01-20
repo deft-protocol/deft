@@ -1,22 +1,22 @@
-# RIFT Protocol - Example Configuration
-# Copy to /etc/rift/config.toml and customize
+# FlowPact Protocol - Example Configuration
+# Copy to /etc/flowpact/config.toml and customize
 
 [server]
 enabled = true                    # Accept incoming connections
 listen = "0.0.0.0:7741"
-cert = "/etc/rift/certs/server.crt"
-key = "/etc/rift/certs/server.key"
-ca = "/etc/rift/certs/ca.crt"    # CA to validate client certificates
+cert = "/etc/flowpact/certs/server.crt"
+key = "/etc/flowpact/certs/server.key"
+ca = "/etc/flowpact/certs/ca.crt"    # CA to validate client certificates
 
 [client]
 enabled = true                    # Allow outgoing connections
-cert = "/etc/rift/certs/client.crt"
-key = "/etc/rift/certs/client.key"
-ca = "/etc/rift/certs/ca.crt"    # CA to validate server certificates
+cert = "/etc/flowpact/certs/client.crt"
+key = "/etc/flowpact/certs/client.key"
+ca = "/etc/flowpact/certs/ca.crt"    # CA to validate server certificates
 
 [storage]
 chunk_size = 262144              # 256 KB
-temp_dir = "/var/rift/tmp"
+temp_dir = "/var/flowpact/tmp"
 
 [limits]
 # Rate limiting
@@ -50,7 +50,7 @@ level = "info"                      # trace, debug, info, warn, error
 # Partner: Supplier Inc
 [[partners]]
 id = "supplier-inc"
-allowed_certs = ["/etc/rift/partners/supplier.crt"]
+allowed_certs = ["/etc/flowpact/partners/supplier.crt"]
 endpoints = ["supplier.example.com:7741"]
 
 [[partners.virtual_files]]
@@ -66,7 +66,7 @@ direction = "receive"            # This partner can push (we receive)
 # Partner: ACME Corporation
 [[partners]]
 id = "partner-acme-corp"
-allowed_certs = ["/etc/rift/partners/acme.crt"]
+allowed_certs = ["/etc/flowpact/partners/acme.crt"]
 endpoints = ["acme.example.com:7741", "acme-backup.example.com:7741"]
 
 [[partners.virtual_files]]

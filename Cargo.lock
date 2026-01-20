@@ -279,6 +279,70 @@ dependencies = [
 ]
 
 [[package]]
+name = "flowpact-cli"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "flowpact-common",
+ "flowpact-protocol",
+ "rustls",
+ "rustls-pemfile",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
+ "webpki-roots 0.26.11",
+]
+
+[[package]]
+name = "flowpact-common"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
+name = "flowpact-daemon"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "chrono",
+ "clap",
+ "flate2",
+ "flowpact-common",
+ "flowpact-protocol",
+ "lazy_static",
+ "prometheus",
+ "rand",
+ "ring",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-rustls",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "flowpact-protocol"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -622,70 +686,6 @@ name = "regex-syntax"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
-
-[[package]]
-name = "rift-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "rift-common",
- "rift-protocol",
- "rustls",
- "rustls-pemfile",
- "tokio",
- "tokio-rustls",
- "tracing",
- "tracing-subscriber",
- "webpki-roots 0.26.11",
-]
-
-[[package]]
-name = "rift-common"
-version = "0.1.0"
-dependencies = [
- "serde",
- "sha2",
- "thiserror",
-]
-
-[[package]]
-name = "rift-daemon"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "chrono",
- "clap",
- "flate2",
- "lazy_static",
- "prometheus",
- "rand",
- "rift-common",
- "rift-protocol",
- "ring",
- "rustls",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-rustls",
- "toml",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "rift-protocol"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror",
-]
 
 [[package]]
 name = "ring"
