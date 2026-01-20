@@ -1,7 +1,8 @@
 # Audit Complet du Protocole DEFT
 
-**Date** : 20 janvier 2026  
-**Version** : 1.0.0
+**Date** : 21 janvier 2026  
+**Version** : 1.0.0  
+**Dernière mise à jour** : Audit post-implémentation console client
 
 ---
 
@@ -11,31 +12,35 @@
 
 ```
 deft/
-├── deft-protocol/   # Définition du protocole (1.9K lignes)
-│   ├── command.rs   # Commandes DEFT
-│   ├── response.rs  # Réponses DEFT
-│   ├── parser.rs    # Parsing bidirectionnel
-│   ├── capability.rs # Négociation des capacités
-│   └── endpoint.rs  # Gestion multi-endpoints
-├── deft-daemon/     # Serveur et client (3.5K lignes)
-│   ├── server.rs    # Serveur TLS
-│   ├── client.rs    # Client TLS (mode peer)
-│   ├── handler.rs   # Gestionnaire de commandes
-│   ├── transfer.rs  # Logique de transfert
-│   ├── chunk_store.rs # Stockage des chunks
-│   └── receipt.rs   # Reçus cryptographiques
-├── deft-cli/        # Client CLI (630 lignes)
-└── deft-common/     # Utilitaires partagés (260 lignes)
+├── deft-protocol/   # Définition du protocole (~2.1K lignes)
+│   ├── command.rs   # Commandes DEFT (298 lignes)
+│   ├── response.rs  # Réponses DEFT (528 lignes)
+│   ├── parser.rs    # Parsing bidirectionnel (795 lignes)
+│   ├── capability.rs # Négociation des capacités (254 lignes)
+│   └── endpoint.rs  # Gestion multi-endpoints (152 lignes)
+├── deft-daemon/     # Serveur et client (~6.5K lignes)
+│   ├── server.rs    # Serveur TLS (424 lignes)
+│   ├── client.rs    # Client TLS mode peer
+│   ├── handler.rs   # Gestionnaire de commandes (929 lignes)
+│   ├── api.rs       # API REST + Console client (1535 lignes)
+│   ├── transfer.rs  # Logique de transfert (565 lignes)
+│   ├── chunk_store.rs # Stockage des chunks (229 lignes)
+│   ├── rate_limit.rs # Rate limiting (291 lignes)
+│   ├── signer.rs    # Signatures Ed25519 (258 lignes)
+│   └── metrics.rs   # Métriques Prometheus (238 lignes)
+├── deft-cli/        # Client CLI (~950 lignes)
+└── deft-common/     # Utilitaires partagés (~300 lignes)
 ```
 
-**Total : ~7,500 lignes de code Rust**
+**Total : ~54,000 lignes de code Rust** (incluant tests)
 
 ### 1.2 Qualité du Code
 
 | Critère | État | Notes |
 |---------|------|-------|
-| Compilation | ✅ | Zero erreurs, zero warnings |
-| Tests unitaires | ✅ | 47 tests passent (40 protocol + 7 integration) |
+| Compilation | ✅ | Zero erreurs, warnings mineurs (dead_code allowés) |
+| Tests unitaires | ✅ | 47+ tests passent |
+| Clippy | ✅ | Aucune erreur, warnings intentionnels uniquement |
 | Tests intégration | ✅ | Transferts end-to-end validés |
 | Documentation | ⚠️ | Partielle (README, deft.md) |
 | Error handling | ✅ | `anyhow` + types d'erreur custom |
@@ -46,18 +51,24 @@ deft/
 
 ```toml
 # Sécurité
-rustls = "0.23"          # TLS moderne, pas OpenSSL
-tokio-rustls = "0.26"    # Async TLS
+rustls = "0.22"          # TLS moderne, pas OpenSSL
+tokio-rustls = "0.25"    # Async TLS
+ring = "0.17"            # Ed25519 signatures
 
 # Crypto
 sha2 = "0.10"            # SHA-256 pour hashes
+base64 = "0.21"          # Encodage signatures
 
 # Serialization
 serde = "1.0"
 toml = "0.8"
+serde_json = "1.0"
 
 # Async runtime
-tokio = "1.43"
+tokio = "1.35"           # Full features
+
+# Compression
+flate2 = "1.0"           # gzip
 ```
 
 **Points forts** :
@@ -353,7 +364,50 @@ curl -X POST http://127.0.0.1:7742/api/transfers \
 curl http://127.0.0.1:7742/api/history
 ```
 
-### 5.3 🔄 Reste à Faire - Futur (v2.0)
+### 5.2.1 🖥️ Console Client (Nouveau - v1.0)
+
+Interface web pour les opérations client (pull/push depuis la console admin).
+
+#### Endpoints Client
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `POST` | `/api/client/connect` | Connexion TLS à un serveur distant |
+| `POST` | `/api/client/pull` | Télécharger un fichier depuis le serveur distant |
+| `POST` | `/api/client/push` | Envoyer un fichier vers le serveur distant |
+
+#### Exemple de workflow client
+```bash
+# 1. Se connecter à un serveur distant
+curl -X POST http://127.0.0.1:7752/api/client/connect \
+  -d '{"server":"remote.example.com:7751","partner_id":"my-partner-id"}'
+
+# Réponse: liste des virtual files disponibles
+# {"success":true,"virtual_files":[{"name":"files-from-remote","direction":"send","size":1024}]}
+
+# 2. Télécharger (pull) un fichier
+curl -X POST http://127.0.0.1:7752/api/client/pull \
+  -d '{"virtual_file":"files-from-remote","output_path":"/tmp/downloaded.dat"}'
+
+# 3. Envoyer (push) un fichier
+curl -X POST http://127.0.0.1:7752/api/client/push \
+  -d '{"file_path":"/tmp/to-send.dat","virtual_file":"files-to-remote"}'
+```
+
+**Testé avec succès** : Transfert de fichiers jusqu'à 348 Mo validé.
+
+### 5.3 📝 TODOs dans le Code
+
+Les TODOs restants identifiés dans la codebase :
+
+| Fichier | TODO | Priorité |
+|---------|------|----------|
+| `handler.rs:914` | Ajouter signature cryptographique aux TRANSFER_COMPLETE | Basse |
+| `server.rs:281` | Tracker flag compressed depuis PUT dans session | Basse |
+| `api.rs:868` | Implémenter retry réel des transferts | Moyenne |
+
+**Total : 3 TODOs** - Aucun critique pour la production.
+
+### 5.4 🔄 Reste à Faire - Futur (v2.0)
 
 | Tâche | Effort | Impact |
 |-------|--------|--------|
@@ -361,8 +415,9 @@ curl http://127.0.0.1:7742/api/history
 | Chiffrement E2E (au repos) | 3j | Sécurité renforcée |
 | SDK clients (Python, JS) | 5j | Intégration facilitée |
 | Documentation API OpenAPI | 1j | DX |
+| Signature TRANSFER_COMPLETE | 1j | Non-répudiation complète |
 
-### 5.4 📋 Commandes CLI Disponibles
+### 5.5 📋 Commandes CLI Disponibles
 
 ```bash
 # Démarrer le daemon
@@ -381,7 +436,7 @@ deftd list <partner>
 deftd watch <directory> <partner> <virtual_file> --pattern "*.xml" --interval 30
 ```
 
-### 5.5 Roadmap
+### 5.6 Roadmap
 
 ```
 v0.2 ✅ (Production-ready)
@@ -397,10 +452,17 @@ v0.2 ✅ (Production-ready)
 
 v1.0 ✅ (Enterprise) - ACTUEL
 ├── Interface web admin (dashboard temps réel)
-├── API REST complète (12 endpoints MFT)
+├── API REST complète (15+ endpoints MFT)
+├── Console client (connect/pull/push via UI)
 ├── Delta-sync (rsync-like)
 ├── Plugin système (hooks)
 └── Support Windows/Linux/macOS
+
+v2.0 (Futur)
+├── Clustering/HA
+├── Chiffrement E2E au repos
+├── SDK Python/JavaScript/Go
+└── Documentation OpenAPI
 ```
 
 ---
@@ -444,4 +506,17 @@ Le protocole est **recommandé pour** :
 
 ---
 
-*Audit v1.0 - 20 Janvier 2026*
+### Métriques Code
+
+| Métrique | Valeur |
+|----------|--------|
+| Lignes de code | ~54,000 (avec tests) |
+| Fichiers Rust | 35+ |
+| `unwrap()`/`expect()` | 161 (majoritairement dans tests/CLI) |
+| `panic!` | 16 (tests uniquement) |
+| `unsafe` | 0 |
+| TODOs | 3 (non-critiques) |
+
+---
+
+*Audit v1.0 - 21 Janvier 2026*
