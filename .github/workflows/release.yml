@@ -111,7 +111,7 @@ jobs:
           Compress-Archive -Path dist/* -DestinationPath deft-${{ github.ref_name }}-${{ matrix.target }}.zip
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: deft-${{ matrix.target }}
           path: deft-${{ github.ref_name }}-${{ matrix.target }}.*
@@ -206,7 +206,7 @@ jobs:
           tar -czvf ../deft-${{ github.ref_name }}-${{ matrix.target }}-optimized.tar.gz *
 
       - name: Upload optimized artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: deft-${{ matrix.target }}-optimized
           path: deft-${{ github.ref_name }}-${{ matrix.target }}-optimized.tar.gz
