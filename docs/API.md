@@ -125,6 +125,337 @@ curl http://localhost:7742/api/transfers
 
 ---
 
+### GET /api/transfers/:id
+
+Get details of a specific transfer.
+
+**Response:**
+
+```json
+{
+  "id": "tx-abc123",
+  "virtual_file": "daily-orders",
+  "partner_id": "acme-corp",
+  "direction": "send",
+  "status": "active",
+  "progress_percent": 75,
+  "bytes_transferred": 78643200,
+  "total_bytes": 104857600,
+  "started_at": "2026-01-20T11:55:00Z",
+  "updated_at": "2026-01-20T12:00:00Z"
+}
+```
+
+**Example:**
+
+```bash
+curl http://localhost:7742/api/transfers/tx-abc123
+```
+
+---
+
+### POST /api/transfers
+
+Start a new transfer.
+
+**Request:**
+
+```json
+{
+  "partner_id": "acme-corp",
+  "virtual_file": "daily-orders",
+  "source_path": "/data/orders.xml"
+}
+```
+
+**Response:**
+
+```json
+{
+  "status": "queued",
+  "message": "Transfer to acme-corp queued for daily-orders",
+  "transfer_id": "pending-1737392400000"
+}
+```
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:7742/api/transfers \
+  -H "Content-Type: application/json" \
+  -d '{"partner_id":"acme-corp","virtual_file":"daily-orders"}'
+```
+
+---
+
+### DELETE /api/transfers/:id
+
+Cancel an active transfer.
+
+**Response:**
+
+```json
+{
+  "status": "cancelled"
+}
+```
+
+**Example:**
+
+```bash
+curl -X DELETE http://localhost:7742/api/transfers/tx-abc123
+```
+
+---
+
+### POST /api/transfers/:id/retry
+
+Retry a failed transfer from history.
+
+**Response:**
+
+```json
+{
+  "status": "retry_queued"
+}
+```
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:7742/api/transfers/tx-abc123/retry
+```
+
+---
+
+### GET /api/history
+
+List completed transfers history.
+
+**Response:**
+
+```json
+[
+  {
+    "id": "tx-abc123",
+    "virtual_file": "daily-orders",
+    "partner_id": "acme-corp",
+    "direction": "send",
+    "status": "complete",
+    "total_bytes": 104857600,
+    "started_at": "2026-01-20T11:55:00Z",
+    "completed_at": "2026-01-20T12:05:00Z"
+  }
+]
+```
+
+**Example:**
+
+```bash
+curl http://localhost:7742/api/history
+```
+
+---
+
+### GET /api/virtual-files
+
+List all virtual files across all partners.
+
+**Response:**
+
+```json
+[
+  {
+    "name": "daily-orders",
+    "path": "/data/orders/",
+    "direction": "send",
+    "partner_id": "acme-corp"
+  },
+  {
+    "name": "invoices",
+    "path": "/data/invoices/",
+    "direction": "receive",
+    "partner_id": "acme-corp"
+  }
+]
+```
+
+**Example:**
+
+```bash
+curl http://localhost:7742/api/virtual-files
+```
+
+---
+
+### GET /api/virtual-files/:name
+
+Get details of a specific virtual file.
+
+**Response:**
+
+```json
+{
+  "name": "daily-orders",
+  "path": "/data/orders/",
+  "direction": "send",
+  "partner_id": "acme-corp"
+}
+```
+
+**Example:**
+
+```bash
+curl http://localhost:7742/api/virtual-files/daily-orders
+```
+
+---
+
+### POST /api/virtual-files
+
+Create a new virtual file.
+
+**Request:**
+
+```json
+{
+  "name": "reports",
+  "path": "/data/reports/",
+  "direction": "send",
+  "partner_id": "acme-corp"
+}
+```
+
+**Response:**
+
+```json
+{
+  "status": "created",
+  "name": "reports"
+}
+```
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:7742/api/virtual-files \
+  -H "Content-Type: application/json" \
+  -d '{"name":"reports","path":"/data/reports/","direction":"send","partner_id":"acme-corp"}'
+```
+
+---
+
+### PUT /api/virtual-files/:name
+
+Update an existing virtual file.
+
+**Request:**
+
+```json
+{
+  "name": "reports",
+  "path": "/data/new-reports/",
+  "direction": "receive",
+  "partner_id": "acme-corp"
+}
+```
+
+**Response:**
+
+```json
+{
+  "status": "updated"
+}
+```
+
+**Example:**
+
+```bash
+curl -X PUT http://localhost:7742/api/virtual-files/reports \
+  -H "Content-Type: application/json" \
+  -d '{"name":"reports","path":"/data/new-reports/","direction":"receive","partner_id":"acme-corp"}'
+```
+
+---
+
+### DELETE /api/virtual-files/:name
+
+Delete a virtual file.
+
+**Response:**
+
+```json
+{
+  "status": "deleted"
+}
+```
+
+**Example:**
+
+```bash
+curl -X DELETE http://localhost:7742/api/virtual-files/reports
+```
+
+---
+
+### GET /api/partners/:id/virtual-files
+
+List virtual files for a specific partner.
+
+**Response:**
+
+```json
+[
+  {
+    "name": "daily-orders",
+    "path": "/data/orders/",
+    "direction": "send",
+    "partner_id": "acme-corp"
+  }
+]
+```
+
+**Example:**
+
+```bash
+curl http://localhost:7742/api/partners/acme-corp/virtual-files
+```
+
+---
+
+### POST /api/partners/:id/virtual-files
+
+Add a virtual file to a partner.
+
+**Request:**
+
+```json
+{
+  "name": "new-feed",
+  "path": "/data/feed/",
+  "direction": "send"
+}
+```
+
+**Response:**
+
+```json
+{
+  "status": "created",
+  "name": "new-feed"
+}
+```
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:7742/api/partners/acme-corp/virtual-files \
+  -H "Content-Type: application/json" \
+  -d '{"name":"new-feed","path":"/data/feed/","direction":"send"}'
+```
+
+---
+
 ### GET /api/config
 
 Current configuration summary (sensitive values redacted).
