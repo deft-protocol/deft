@@ -291,21 +291,78 @@ DEFT est conçu pour les **échanges B2B de fichiers volumineux** :
 | Métriques Prometheus | `metrics.rs` | Endpoint HTTP :9090/metrics |
 | Mode watch/polling | `watcher.rs` | Surveillance répertoires |
 | Signature Ed25519 | `signer.rs` | Non-répudiation cryptographique |
-| Interface web admin | `api.rs` | Dashboard temps réel + API REST :7742 |
+| Interface web admin | `api.rs` | Dashboard temps réel :7742 |
+| API REST complète | `api.rs` | 12 endpoints pour intégration MFT |
 | Delta-sync | `delta.rs` | Transferts incrémentaux rsync-like |
 | Plugin hooks | `hooks.rs` | Scripts pre/post-transfer |
 | Support multi-plateforme | `platform.rs` | Windows/Linux/macOS |
 
-### 5.2 🔄 Reste à Faire - Futur (v2.0)
+### 5.2 🌐 API REST pour Intégration MFT
+
+L'API REST permet l'intégration avec des solutions MFT tierces (IBM Sterling, Axway, etc.).
+
+**Base URL** : `http://127.0.0.1:7742`
+
+#### Endpoints Système
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/api/status` | État du daemon (uptime, transfers actifs) |
+| `GET` | `/api/config` | Configuration résumée |
+| `GET` | `/api/metrics` | Métriques Prometheus en JSON |
+
+#### Endpoints Transferts
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/api/transfers` | Liste des transferts actifs |
+| `GET` | `/api/transfers/:id` | Détails d'un transfert |
+| `POST` | `/api/transfers` | Démarrer un transfert |
+| `DELETE` | `/api/transfers/:id` | Annuler un transfert |
+| `POST` | `/api/transfers/:id/retry` | Relancer un transfert échoué |
+| `GET` | `/api/history` | Historique des transferts |
+
+#### Endpoints Virtual Files
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/api/virtual-files` | Liste tous les virtual files |
+| `GET` | `/api/virtual-files/:name` | Détails d'un virtual file |
+| `POST` | `/api/virtual-files` | Créer un virtual file |
+| `PUT` | `/api/virtual-files/:name` | Modifier un virtual file |
+| `DELETE` | `/api/virtual-files/:name` | Supprimer un virtual file |
+
+#### Endpoints Partenaires
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/api/partners` | Liste des partenaires configurés |
+| `GET` | `/api/partners/:id/virtual-files` | Virtual files d'un partenaire |
+| `POST` | `/api/partners/:id/virtual-files` | Ajouter un VF à un partenaire |
+
+#### Exemple d'utilisation
+```bash
+# Lister les virtual files
+curl http://127.0.0.1:7742/api/virtual-files
+
+# Créer un virtual file
+curl -X POST http://127.0.0.1:7742/api/virtual-files \
+  -d '{"name":"invoices","path":"/data/invoices","direction":"send","partner_id":"acme"}'
+
+# Démarrer un transfert
+curl -X POST http://127.0.0.1:7742/api/transfers \
+  -d '{"partner_id":"acme","virtual_file":"invoices"}'
+
+# Consulter l'historique
+curl http://127.0.0.1:7742/api/history
+```
+
+### 5.3 🔄 Reste à Faire - Futur (v2.0)
 
 | Tâche | Effort | Impact |
 |-------|--------|--------|
 | Clustering/HA | 5j | Haute disponibilité |
 | Chiffrement E2E (au repos) | 3j | Sécurité renforcée |
 | SDK clients (Python, JS) | 5j | Intégration facilitée |
-| Documentation API OpenAPI | 2j | DX |
+| Documentation API OpenAPI | 1j | DX |
 
-### 5.3 � Commandes CLI Disponibles
+### 5.4 📋 Commandes CLI Disponibles
 
 ```bash
 # Démarrer le daemon
@@ -324,7 +381,7 @@ deftd list <partner>
 deftd watch <directory> <partner> <virtual_file> --pattern "*.xml" --interval 30
 ```
 
-### 5.4 Roadmap
+### 5.5 Roadmap
 
 ```
 v0.2 ✅ (Production-ready)
@@ -339,7 +396,8 @@ v0.2 ✅ (Production-ready)
 └── Mode watch/polling
 
 v1.0 ✅ (Enterprise) - ACTUEL
-├── Interface web admin (API REST + dashboard)
+├── Interface web admin (dashboard temps réel)
+├── API REST complète (12 endpoints MFT)
 ├── Delta-sync (rsync-like)
 ├── Plugin système (hooks)
 └── Support Windows/Linux/macOS
