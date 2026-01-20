@@ -91,7 +91,6 @@ pub struct TransferHistoryEntry {
 
 /// Request to create a transfer
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 pub struct CreateTransferRequest {
     pub partner_id: String,
     pub virtual_file: String,
@@ -453,15 +452,47 @@ async fn handle_get_transfer(state: &ApiState, id: &str) -> (u16, String) {
     }
 }
 
-async fn handle_create_transfer(_state: &ApiState, body: &[u8]) -> (u16, String) {
+async fn handle_create_transfer(state: &ApiState, body: &[u8]) -> (u16, String) {
     let req: Result<CreateTransferRequest, _> = serde_json::from_slice(body);
     match req {
         Ok(r) => {
-            // TODO: Actually trigger a transfer via client module
+            // Validate partner exists
+            let config = state.config.read().await;
+            let partner = config.partners.iter().find(|p| p.id == r.partner_id);
+            if partner.is_none() {
+                return (404, r#"{"error":"Partner not found"}"#.to_string());
+            }
+
+            // Validate virtual file exists for this partner
+            let partner = partner.unwrap();
+            let vf = partner.virtual_files.iter().find(|v| v.name == r.virtual_file);
+            if vf.is_none() {
+                return (404, r#"{"error":"Virtual file not found for this partner"}"#.to_string());
+            }
+
+            // Generate transfer ID
+            let transfer_id = format!("api-{}", chrono::Utc::now().timestamp_millis());
+
+            // Register transfer in state
+            let vf = vf.unwrap();
+            let source = r.source_path.unwrap_or_else(|| vf.path.clone());
+            let direction = format!("{:?}", vf.direction).to_lowercase();
+            drop(config); // Release lock before async call
+            
+            state.register_transfer(
+                transfer_id.clone(),
+                r.virtual_file.clone(),
+                r.partner_id.clone(),
+                direction,
+                0, // Size will be updated when transfer actually starts
+            ).await;
+
             let response = serde_json::json!({
                 "status": "queued",
-                "message": format!("Transfer to {} queued for {}", r.partner_id, r.virtual_file),
-                "transfer_id": format!("pending-{}", chrono::Utc::now().timestamp_millis())
+                "transfer_id": transfer_id,
+                "partner_id": r.partner_id,
+                "virtual_file": r.virtual_file,
+                "source_path": source
             });
             (202, response.to_string())
         }

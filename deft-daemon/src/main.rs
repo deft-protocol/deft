@@ -215,7 +215,7 @@ async fn run_daemon(config: Config) -> Result<()> {
     }
 
     if config.server.enabled {
-        let server = Server::with_api_state(config, api_state)?;
+        let server = Server::new(config, api_state)?;
 
         // Setup graceful shutdown
         let shutdown = async {

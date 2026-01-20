@@ -24,17 +24,10 @@ pub struct Server {
     tls_acceptor: TlsAcceptor,
     handler: Arc<CommandHandler>,
     rate_limiter: Arc<RateLimiter>,
-    #[allow(dead_code)]
-    api_state: Option<Arc<ApiState>>,
 }
 
 impl Server {
-    #[allow(dead_code)]
-    pub fn new(config: Config) -> Result<Self> {
-        Self::with_api_state(config, None)
-    }
-
-    pub fn with_api_state(config: Config, api_state: Option<Arc<ApiState>>) -> Result<Self> {
+    pub fn new(config: Config, api_state: Option<Arc<ApiState>>) -> Result<Self> {
         let tls_config = build_tls_config(&config)?;
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
         let handler = Arc::new(CommandHandler::with_api_state(
@@ -56,7 +49,6 @@ impl Server {
             tls_acceptor,
             handler,
             rate_limiter,
-            api_state,
         })
     }
 
