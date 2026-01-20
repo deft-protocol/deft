@@ -465,9 +465,15 @@ async fn handle_create_transfer(state: &ApiState, body: &[u8]) -> (u16, String) 
 
             // Validate virtual file exists for this partner
             let partner = partner.unwrap();
-            let vf = partner.virtual_files.iter().find(|v| v.name == r.virtual_file);
+            let vf = partner
+                .virtual_files
+                .iter()
+                .find(|v| v.name == r.virtual_file);
             if vf.is_none() {
-                return (404, r#"{"error":"Virtual file not found for this partner"}"#.to_string());
+                return (
+                    404,
+                    r#"{"error":"Virtual file not found for this partner"}"#.to_string(),
+                );
             }
 
             // Generate transfer ID
@@ -478,14 +484,16 @@ async fn handle_create_transfer(state: &ApiState, body: &[u8]) -> (u16, String) 
             let source = r.source_path.unwrap_or_else(|| vf.path.clone());
             let direction = format!("{:?}", vf.direction).to_lowercase();
             drop(config); // Release lock before async call
-            
-            state.register_transfer(
-                transfer_id.clone(),
-                r.virtual_file.clone(),
-                r.partner_id.clone(),
-                direction,
-                0, // Size will be updated when transfer actually starts
-            ).await;
+
+            state
+                .register_transfer(
+                    transfer_id.clone(),
+                    r.virtual_file.clone(),
+                    r.partner_id.clone(),
+                    direction,
+                    0, // Size will be updated when transfer actually starts
+                )
+                .await;
 
             let response = serde_json::json!({
                 "status": "queued",
