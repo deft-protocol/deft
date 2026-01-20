@@ -48,7 +48,7 @@ impl VirtualFileManager {
 
         let metadata = std::fs::metadata(&vf.physical_path).ok()?;
         let size = metadata.len();
-        let chunk_count = (size + self.chunk_size as u64 - 1) / self.chunk_size as u64;
+        let chunk_count = size.div_ceil(self.chunk_size as u64);
 
         let modified = metadata
             .modified()

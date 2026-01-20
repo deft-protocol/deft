@@ -17,6 +17,7 @@ use deft_protocol::{AckStatus, Capabilities, ChunkRange, Command, Parser, Respon
 use crate::chunk_ordering::ChunkOrderer;
 use crate::compression::{compress, is_compression_beneficial, CompressionLevel};
 use crate::config::{ClientConfig, PartnerConfig};
+use crate::metrics;
 
 /// RIFT client for outgoing connections
 pub struct Client {
@@ -57,7 +58,7 @@ impl Client {
         Ok(ClientConnection::new(tls_stream))
     }
 
-    /// Send a file to a partner
+    /// Send a file to a partner with endpoint failover
     pub async fn send_file(
         &self,
         partner: &PartnerConfig,
@@ -65,13 +66,31 @@ impl Client {
         file_path: &Path,
         chunk_size: u32,
     ) -> Result<TransferResult> {
-        // Find an available endpoint
-        let endpoint = partner
-            .endpoints
-            .first()
-            .ok_or_else(|| anyhow::anyhow!("No endpoints configured for partner {}", partner.id))?;
+        // Try each endpoint with failover
+        let mut last_error = None;
+        let mut conn = None;
+        let mut connected_endpoint = String::new();
 
-        let mut conn = self.connect(endpoint).await?;
+        for endpoint in &partner.endpoints {
+            match self.connect(endpoint).await {
+                Ok(c) => {
+                    conn = Some(c);
+                    connected_endpoint = endpoint.clone();
+                    break;
+                }
+                Err(e) => {
+                    warn!("Failed to connect to {}: {}", endpoint, e);
+                    metrics::record_error("connection_failed");
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        let mut conn = conn.ok_or_else(|| {
+            last_error.unwrap_or_else(|| anyhow::anyhow!("No endpoints configured for partner {}", partner.id))
+        })?;
+
+        info!("Connected to {} for partner {}", connected_endpoint, partner.id);
 
         // Handshake
         let welcome = conn.hello().await?;

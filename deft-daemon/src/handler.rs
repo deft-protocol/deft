@@ -8,8 +8,11 @@ use tracing::{debug, info, warn};
 
 use crate::chunk_store::ChunkStore;
 use crate::config::{Config, Direction};
+use crate::hooks::{HookContext, HookEvent, HookManager};
+use crate::metrics;
 use crate::receipt::ReceiptStore;
 use crate::session::{Session, SessionState};
+use crate::signer::ReceiptSigner;
 use crate::transfer::TransferManager;
 use crate::virtual_file::VirtualFileManager;
 
@@ -19,6 +22,8 @@ pub struct CommandHandler {
     transfer_manager: Arc<TransferManager>,
     receipt_store: Arc<ReceiptStore>,
     chunk_store: Arc<ChunkStore>,
+    hook_manager: Arc<HookManager>,
+    signer: Arc<ReceiptSigner>,
 }
 
 impl CommandHandler {
@@ -31,6 +36,17 @@ impl CommandHandler {
         );
         let chunk_store = Arc::new(
             ChunkStore::new(&config.storage.temp_dir).expect("Failed to initialize chunk store"),
+        );
+
+        // Initialize hook manager
+        let hook_manager = Arc::new(HookManager::new());
+
+        // Initialize receipt signer (try Ed25519, fallback to SHA256)
+        let signer = Arc::new(
+            ReceiptSigner::with_new_ed25519_key().unwrap_or_else(|_| {
+                warn!("Failed to generate Ed25519 key, using SHA256 for receipts");
+                ReceiptSigner::new()
+            }),
         );
 
         // Register virtual files for all partners
@@ -48,7 +64,22 @@ impl CommandHandler {
             transfer_manager,
             receipt_store,
             chunk_store,
+            hook_manager,
+            signer,
         }
+    }
+
+    /// Execute a hook asynchronously
+    fn execute_hook(&self, ctx: HookContext) {
+        let hook_manager = self.hook_manager.clone();
+        tokio::spawn(async move {
+            let results = hook_manager.execute(&ctx).await;
+            for result in results {
+                if !result.success {
+                    warn!("Hook failed: {}", result.stderr);
+                }
+            }
+        });
     }
 
     pub fn handle_line(&self, session: &mut Session, line: &str) -> Response {
@@ -302,6 +333,14 @@ impl CommandHandler {
             transfer_id, virtual_file, total_chunks, total_bytes
         );
 
+        // Execute pre-transfer hook
+        let ctx = HookContext::new(HookEvent::PreTransfer)
+            .with_transfer(&transfer_id)
+            .with_partner(session.partner_id.as_deref().unwrap_or("unknown"))
+            .with_virtual_file(&virtual_file)
+            .with_size(total_bytes);
+        self.execute_hook(ctx);
+
         Response::TransferAccepted {
             transfer_id,
             virtual_file,
@@ -515,12 +554,16 @@ impl CommandHandler {
                             "Failed to store chunk {} for transfer {}: {}",
                             chunk_index, id, e
                         );
+                        metrics::record_chunk_failed("io_error");
                         return Response::ChunkAck {
                             virtual_file: virtual_file.to_string(),
                             chunk_index,
                             status: AckStatus::Error(deft_protocol::AckErrorReason::IoError),
                         };
                     }
+                    metrics::record_chunk_received();
+                } else {
+                    metrics::record_chunk_failed("validation");
                 }
 
                 Response::ChunkAck {
@@ -577,12 +620,37 @@ impl CommandHandler {
             }
 
             // Complete the transfer and get the receipt
-            let receipt = self.transfer_manager.complete_transfer(&transfer_id)?;
+            let mut receipt = self.transfer_manager.complete_transfer(&transfer_id)?;
+
+            // Sign the receipt
+            let receipt_json = serde_json::to_string(&receipt).unwrap_or_default();
+            if let Some(sig) = self.signer.sign_receipt(&receipt_json) {
+                receipt.signature = Some(sig);
+            }
 
             // Store the receipt
             if let Err(e) = self.receipt_store.store(&receipt) {
                 warn!("Failed to store receipt: {}", e);
             }
+
+            // Record metrics
+            metrics::record_transfer_complete("receive", true, receipt.total_bytes, 0.0);
+
+            // Execute post-transfer hook
+            let ctx = HookContext::new(HookEvent::PostTransfer)
+                .with_transfer(&transfer_id)
+                .with_partner(session.partner_id.as_deref().unwrap_or("unknown"))
+                .with_virtual_file(&receipt.virtual_file)
+                .with_size(receipt.total_bytes);
+            self.execute_hook(ctx);
+
+            // Execute file_received hook
+            let ctx = HookContext::new(HookEvent::FileReceived)
+                .with_transfer(&transfer_id)
+                .with_partner(session.partner_id.as_deref().unwrap_or("unknown"))
+                .with_virtual_file(&receipt.virtual_file)
+                .with_size(receipt.total_bytes);
+            self.execute_hook(ctx);
 
             // Remove transfer from session
             session.remove_transfer(&transfer_id);

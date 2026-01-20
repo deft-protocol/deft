@@ -104,7 +104,7 @@ impl TransferStateStore {
         let file = File::create(&path)?;
         let writer = BufWriter::new(file);
         serde_json::to_writer_pretty(writer, state)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            .map_err(io::Error::other)?;
         debug!(
             "Saved transfer state: {} ({} chunks received)",
             state.transfer_id,
@@ -117,7 +117,7 @@ impl TransferStateStore {
         let path = self.state_path(transfer_id);
         let file = File::open(&path)?;
         let reader = BufReader::new(file);
-        serde_json::from_reader(reader).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        serde_json::from_reader(reader).map_err(io::Error::other)
     }
 
     pub fn exists(&self, transfer_id: &str) -> bool {
@@ -151,7 +151,7 @@ impl TransferStateStore {
     fn load_from_path(&self, path: &Path) -> io::Result<TransferState> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
-        serde_json::from_reader(reader).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        serde_json::from_reader(reader).map_err(io::Error::other)
     }
 
     pub fn list_incomplete(&self) -> io::Result<Vec<TransferState>> {
