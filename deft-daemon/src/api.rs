@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -7,7 +7,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
-use crate::config::Config;
+use crate::config::{Config, Direction, PartnerConfig, VirtualFileConfig};
 use crate::metrics;
 
 /// API Server configuration
@@ -67,19 +67,60 @@ pub struct SystemStatus {
     pub metrics_enabled: bool,
 }
 
+/// Virtual file info for API
+#[derive(Debug, Clone, Serialize)]
+pub struct VirtualFileInfo {
+    pub name: String,
+    pub path: String,
+    pub direction: String,
+    pub partner_id: String,
+}
+
+/// Transfer history entry
+#[derive(Debug, Clone, Serialize)]
+pub struct TransferHistoryEntry {
+    pub id: String,
+    pub virtual_file: String,
+    pub partner_id: String,
+    pub direction: String,
+    pub status: String,
+    pub total_bytes: u64,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+}
+
+/// Request to create a transfer
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateTransferRequest {
+    pub partner_id: String,
+    pub virtual_file: String,
+    pub source_path: Option<String>,
+}
+
+/// Request to create a virtual file
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateVirtualFileRequest {
+    pub name: String,
+    pub path: String,
+    pub direction: String,
+    pub partner_id: String,
+}
+
 /// API state shared across requests
 pub struct ApiState {
-    pub config: Config,
+    pub config: RwLock<Config>,
     pub start_time: std::time::Instant,
     pub transfers: RwLock<HashMap<String, TransferStatus>>,
+    pub history: RwLock<Vec<TransferHistoryEntry>>,
 }
 
 impl ApiState {
     pub fn new(config: Config) -> Self {
         Self {
-            config,
+            config: RwLock::new(config),
             start_time: std::time::Instant::now(),
             transfers: RwLock::new(HashMap::new()),
+            history: RwLock::new(Vec::new()),
         }
     }
 
@@ -119,10 +160,24 @@ impl ApiState {
     }
 
     pub async fn complete_transfer(&self, id: &str) {
-        if let Some(t) = self.transfers.write().await.get_mut(id) {
+        let mut transfers = self.transfers.write().await;
+        if let Some(t) = transfers.get_mut(id) {
             t.status = "complete".to_string();
             t.progress_percent = 100;
             t.updated_at = chrono::Utc::now().to_rfc3339();
+
+            // Add to history
+            let entry = TransferHistoryEntry {
+                id: t.id.clone(),
+                virtual_file: t.virtual_file.clone(),
+                partner_id: t.partner_id.clone(),
+                direction: t.direction.clone(),
+                status: "complete".to_string(),
+                total_bytes: t.total_bytes,
+                started_at: t.started_at.clone(),
+                completed_at: Some(t.updated_at.clone()),
+            };
+            self.history.write().await.push(entry);
         }
     }
 
@@ -212,13 +267,75 @@ async fn handle_request(
         }
     }
 
+    // Extract request body for POST/PUT
+    let body_start = request.find("\r\n\r\n").map(|i| i + 4).unwrap_or(n);
+    let request_body = if body_start < n {
+        &buf[body_start..n]
+    } else {
+        &[]
+    };
+
     // Route request
     let (status, body) = match (method, path) {
+        // System endpoints
         ("GET", "/api/status") => handle_status(&state).await,
-        ("GET", "/api/partners") => handle_partners(&state).await,
-        ("GET", "/api/transfers") => handle_transfers(&state).await,
-        ("GET", "/api/metrics") => handle_metrics().await,
         ("GET", "/api/config") => handle_config(&state).await,
+        ("GET", "/api/metrics") => handle_metrics().await,
+
+        // Partner endpoints
+        ("GET", "/api/partners") => handle_partners(&state).await,
+        ("GET", p) if p.starts_with("/api/partners/") && p.ends_with("/virtual-files") => {
+            let partner_id = p
+                .strip_prefix("/api/partners/")
+                .and_then(|s| s.strip_suffix("/virtual-files"))
+                .unwrap_or("");
+            handle_partner_virtual_files(&state, partner_id).await
+        }
+        ("POST", p) if p.starts_with("/api/partners/") && p.ends_with("/virtual-files") => {
+            let partner_id = p
+                .strip_prefix("/api/partners/")
+                .and_then(|s| s.strip_suffix("/virtual-files"))
+                .unwrap_or("");
+            handle_add_partner_virtual_file(&state, partner_id, request_body).await
+        }
+
+        // Transfer endpoints
+        ("GET", "/api/transfers") => handle_transfers(&state).await,
+        ("GET", "/api/history") => handle_history(&state).await,
+        ("POST", "/api/transfers") => handle_create_transfer(&state, request_body).await,
+        ("GET", p) if p.starts_with("/api/transfers/") && !p.contains("/retry") => {
+            let id = p.strip_prefix("/api/transfers/").unwrap_or("");
+            handle_get_transfer(&state, id).await
+        }
+        ("DELETE", p) if p.starts_with("/api/transfers/") => {
+            let id = p.strip_prefix("/api/transfers/").unwrap_or("");
+            handle_cancel_transfer(&state, id).await
+        }
+        ("POST", p) if p.ends_with("/retry") => {
+            let id = p
+                .strip_prefix("/api/transfers/")
+                .and_then(|s| s.strip_suffix("/retry"))
+                .unwrap_or("");
+            handle_retry_transfer(&state, id).await
+        }
+
+        // Virtual file endpoints
+        ("GET", "/api/virtual-files") => handle_virtual_files(&state).await,
+        ("POST", "/api/virtual-files") => handle_create_virtual_file(&state, request_body).await,
+        ("GET", p) if p.starts_with("/api/virtual-files/") => {
+            let name = p.strip_prefix("/api/virtual-files/").unwrap_or("");
+            handle_get_virtual_file(&state, name).await
+        }
+        ("PUT", p) if p.starts_with("/api/virtual-files/") => {
+            let name = p.strip_prefix("/api/virtual-files/").unwrap_or("");
+            handle_update_virtual_file(&state, name, request_body).await
+        }
+        ("DELETE", p) if p.starts_with("/api/virtual-files/") => {
+            let name = p.strip_prefix("/api/virtual-files/").unwrap_or("");
+            handle_delete_virtual_file(&state, name).await
+        }
+
+        // Static files
         ("GET", "/") | ("GET", "/index.html") => {
             send_html(&mut stream).await;
             return;
@@ -292,22 +409,22 @@ async fn send_static(stream: &mut TcpStream, path: &str) {
 }
 
 async fn handle_status(state: &ApiState) -> (u16, String) {
+    let config = state.config.read().await;
     let status = SystemStatus {
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_seconds: state.start_time.elapsed().as_secs(),
-        active_connections: 0, // TODO: track from metrics
+        active_connections: 0,
         active_transfers: state.transfers.read().await.len() as u64,
-        total_transfers: 0,
+        total_transfers: state.history.read().await.len() as u64,
         total_bytes: 0,
-        metrics_enabled: state.config.limits.metrics_enabled,
+        metrics_enabled: config.limits.metrics_enabled,
     };
-
     (200, serde_json::to_string(&status).unwrap_or_default())
 }
 
 async fn handle_partners(state: &ApiState) -> (u16, String) {
-    let partners: Vec<PartnerStatus> = state
-        .config
+    let config = state.config.read().await;
+    let partners: Vec<PartnerStatus> = config
         .partners
         .iter()
         .map(|p| PartnerStatus {
@@ -319,14 +436,62 @@ async fn handle_partners(state: &ApiState) -> (u16, String) {
             bytes_today: 0,
         })
         .collect();
-
     (200, serde_json::to_string(&partners).unwrap_or_default())
 }
 
 async fn handle_transfers(state: &ApiState) -> (u16, String) {
     let transfers: Vec<TransferStatus> = state.transfers.read().await.values().cloned().collect();
-
     (200, serde_json::to_string(&transfers).unwrap_or_default())
+}
+
+async fn handle_get_transfer(state: &ApiState, id: &str) -> (u16, String) {
+    if let Some(t) = state.transfers.read().await.get(id) {
+        (200, serde_json::to_string(t).unwrap_or_default())
+    } else {
+        (404, r#"{"error":"Transfer not found"}"#.to_string())
+    }
+}
+
+async fn handle_create_transfer(_state: &ApiState, body: &[u8]) -> (u16, String) {
+    let req: Result<CreateTransferRequest, _> = serde_json::from_slice(body);
+    match req {
+        Ok(r) => {
+            // TODO: Actually trigger a transfer via client module
+            let response = serde_json::json!({
+                "status": "queued",
+                "message": format!("Transfer to {} queued for {}", r.partner_id, r.virtual_file),
+                "transfer_id": format!("pending-{}", chrono::Utc::now().timestamp_millis())
+            });
+            (202, response.to_string())
+        }
+        Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
+    }
+}
+
+async fn handle_cancel_transfer(state: &ApiState, id: &str) -> (u16, String) {
+    let mut transfers = state.transfers.write().await;
+    if transfers.remove(id).is_some() {
+        (200, r#"{"status":"cancelled"}"#.to_string())
+    } else {
+        (404, r#"{"error":"Transfer not found"}"#.to_string())
+    }
+}
+
+async fn handle_retry_transfer(state: &ApiState, id: &str) -> (u16, String) {
+    if state.history.read().await.iter().any(|t| t.id == id) {
+        // TODO: Actually retry the transfer
+        (202, r#"{"status":"retry_queued"}"#.to_string())
+    } else {
+        (
+            404,
+            r#"{"error":"Transfer not found in history"}"#.to_string(),
+        )
+    }
+}
+
+async fn handle_history(state: &ApiState) -> (u16, String) {
+    let history = state.history.read().await.clone();
+    (200, serde_json::to_string(&history).unwrap_or_default())
 }
 
 async fn handle_metrics() -> (u16, String) {
@@ -335,25 +500,189 @@ async fn handle_metrics() -> (u16, String) {
 }
 
 async fn handle_config(state: &ApiState) -> (u16, String) {
+    let config = state.config.read().await;
     let config_summary = serde_json::json!({
         "server": {
-            "enabled": state.config.server.enabled,
-            "listen": state.config.server.listen,
+            "enabled": config.server.enabled,
+            "listen": config.server.listen,
         },
         "client": {
-            "enabled": state.config.client.enabled,
+            "enabled": config.client.enabled,
         },
         "storage": {
-            "chunk_size": state.config.storage.chunk_size,
+            "chunk_size": config.storage.chunk_size,
         },
         "limits": {
-            "max_connections_per_ip": state.config.limits.max_connections_per_ip,
-            "max_requests_per_partner": state.config.limits.max_requests_per_partner,
-            "parallel_chunks": state.config.limits.parallel_chunks,
-            "metrics_enabled": state.config.limits.metrics_enabled,
+            "max_connections_per_ip": config.limits.max_connections_per_ip,
+            "max_requests_per_partner": config.limits.max_requests_per_partner,
+            "parallel_chunks": config.limits.parallel_chunks,
+            "metrics_enabled": config.limits.metrics_enabled,
         },
-        "partners_count": state.config.partners.len(),
+        "partners_count": config.partners.len(),
     });
-
     (200, config_summary.to_string())
+}
+
+// Virtual file handlers
+async fn handle_virtual_files(state: &ApiState) -> (u16, String) {
+    let config = state.config.read().await;
+    let mut vfs: Vec<VirtualFileInfo> = Vec::new();
+    for partner in &config.partners {
+        for vf in &partner.virtual_files {
+            vfs.push(VirtualFileInfo {
+                name: vf.name.clone(),
+                path: vf.path.clone(),
+                direction: format!("{:?}", vf.direction).to_lowercase(),
+                partner_id: partner.id.clone(),
+            });
+        }
+    }
+    (200, serde_json::to_string(&vfs).unwrap_or_default())
+}
+
+async fn handle_get_virtual_file(state: &ApiState, name: &str) -> (u16, String) {
+    let config = state.config.read().await;
+    for partner in &config.partners {
+        for vf in &partner.virtual_files {
+            if vf.name == name {
+                let info = VirtualFileInfo {
+                    name: vf.name.clone(),
+                    path: vf.path.clone(),
+                    direction: format!("{:?}", vf.direction).to_lowercase(),
+                    partner_id: partner.id.clone(),
+                };
+                return (200, serde_json::to_string(&info).unwrap_or_default());
+            }
+        }
+    }
+    (404, r#"{"error":"Virtual file not found"}"#.to_string())
+}
+
+async fn handle_create_virtual_file(state: &ApiState, body: &[u8]) -> (u16, String) {
+    let req: Result<CreateVirtualFileRequest, _> = serde_json::from_slice(body);
+    match req {
+        Ok(r) => {
+            let direction = match r.direction.as_str() {
+                "send" => Direction::Send,
+                "receive" => Direction::Receive,
+                _ => {
+                    return (
+                        400,
+                        r#"{"error":"Invalid direction, use 'send' or 'receive'"}"#.to_string(),
+                    )
+                }
+            };
+            let vf = VirtualFileConfig {
+                name: r.name.clone(),
+                path: r.path,
+                direction,
+            };
+            let mut config = state.config.write().await;
+            if let Some(partner) = config.partners.iter_mut().find(|p| p.id == r.partner_id) {
+                partner.virtual_files.push(vf);
+                (
+                    201,
+                    serde_json::json!({"status":"created", "name": r.name}).to_string(),
+                )
+            } else {
+                (404, r#"{"error":"Partner not found"}"#.to_string())
+            }
+        }
+        Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
+    }
+}
+
+async fn handle_update_virtual_file(state: &ApiState, name: &str, body: &[u8]) -> (u16, String) {
+    let req: Result<CreateVirtualFileRequest, _> = serde_json::from_slice(body);
+    match req {
+        Ok(r) => {
+            let direction = match r.direction.as_str() {
+                "send" => Direction::Send,
+                "receive" => Direction::Receive,
+                _ => return (400, r#"{"error":"Invalid direction"}"#.to_string()),
+            };
+            let mut config = state.config.write().await;
+            for partner in &mut config.partners {
+                for vf in &mut partner.virtual_files {
+                    if vf.name == name {
+                        vf.path = r.path.clone();
+                        vf.direction = direction;
+                        return (200, r#"{"status":"updated"}"#.to_string());
+                    }
+                }
+            }
+            (404, r#"{"error":"Virtual file not found"}"#.to_string())
+        }
+        Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
+    }
+}
+
+async fn handle_delete_virtual_file(state: &ApiState, name: &str) -> (u16, String) {
+    let mut config = state.config.write().await;
+    for partner in &mut config.partners {
+        let before = partner.virtual_files.len();
+        partner.virtual_files.retain(|vf| vf.name != name);
+        if partner.virtual_files.len() < before {
+            return (200, r#"{"status":"deleted"}"#.to_string());
+        }
+    }
+    (404, r#"{"error":"Virtual file not found"}"#.to_string())
+}
+
+// Partner virtual file handlers
+async fn handle_partner_virtual_files(state: &ApiState, partner_id: &str) -> (u16, String) {
+    let config = state.config.read().await;
+    if let Some(partner) = config.partners.iter().find(|p| p.id == partner_id) {
+        let vfs: Vec<VirtualFileInfo> = partner
+            .virtual_files
+            .iter()
+            .map(|vf| VirtualFileInfo {
+                name: vf.name.clone(),
+                path: vf.path.clone(),
+                direction: format!("{:?}", vf.direction).to_lowercase(),
+                partner_id: partner_id.to_string(),
+            })
+            .collect();
+        (200, serde_json::to_string(&vfs).unwrap_or_default())
+    } else {
+        (404, r#"{"error":"Partner not found"}"#.to_string())
+    }
+}
+
+async fn handle_add_partner_virtual_file(
+    state: &ApiState,
+    partner_id: &str,
+    body: &[u8],
+) -> (u16, String) {
+    #[derive(Deserialize)]
+    struct AddVfRequest {
+        name: String,
+        path: String,
+        direction: String,
+    }
+    let req: Result<AddVfRequest, _> = serde_json::from_slice(body);
+    match req {
+        Ok(r) => {
+            let direction = match r.direction.as_str() {
+                "send" => Direction::Send,
+                "receive" => Direction::Receive,
+                _ => return (400, r#"{"error":"Invalid direction"}"#.to_string()),
+            };
+            let mut config = state.config.write().await;
+            if let Some(partner) = config.partners.iter_mut().find(|p| p.id == partner_id) {
+                partner.virtual_files.push(VirtualFileConfig {
+                    name: r.name.clone(),
+                    path: r.path,
+                    direction,
+                });
+                (
+                    201,
+                    serde_json::json!({"status":"created", "name": r.name}).to_string(),
+                )
+            } else {
+                (404, r#"{"error":"Partner not found"}"#.to_string())
+            }
+        }
+        Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
+    }
 }
