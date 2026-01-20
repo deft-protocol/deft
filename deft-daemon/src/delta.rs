@@ -1,8 +1,6 @@
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
-use sha2::{Sha256, Digest};
-use tracing::{debug, info};
 
 /// Block size for delta computation (4KB default)
 pub const DELTA_BLOCK_SIZE: usize = 4096;
@@ -17,7 +15,11 @@ pub struct RollingChecksum {
 
 impl RollingChecksum {
     pub fn new() -> Self {
-        Self { a: 0, b: 0, count: 0 }
+        Self {
+            a: 0,
+            b: 0,
+            count: 0,
+        }
     }
 
     pub fn update(&mut self, data: &[u8]) {
@@ -29,8 +31,14 @@ impl RollingChecksum {
     }
 
     pub fn roll(&mut self, old_byte: u8, new_byte: u8) {
-        self.a = self.a.wrapping_sub(old_byte as u32).wrapping_add(new_byte as u32);
-        self.b = self.b.wrapping_sub((self.count as u32).wrapping_mul(old_byte as u32)).wrapping_add(self.a);
+        self.a = self
+            .a
+            .wrapping_sub(old_byte as u32)
+            .wrapping_add(new_byte as u32);
+        self.b = self
+            .b
+            .wrapping_sub((self.count as u32).wrapping_mul(old_byte as u32))
+            .wrapping_add(self.a);
     }
 
     pub fn value(&self) -> u32 {
@@ -148,12 +156,10 @@ impl Delta {
         let block_size = signature.block_size;
         let mut operations = Vec::new();
         let mut pending_data = Vec::new();
-        let mut target_size = 0u64;
-
         // Read entire new file
         let mut new_data = Vec::new();
         new_file.read_to_end(&mut new_data)?;
-        target_size = new_data.len() as u64;
+        let target_size = new_data.len() as u64;
 
         if new_data.is_empty() {
             return Ok(Delta {
@@ -197,7 +203,7 @@ impl Delta {
                         });
                         matched = true;
                         pos += block_size;
-                        
+
                         // Reset rolling checksum for next block
                         rolling.reset();
                         if pos + block_size <= new_data.len() {
@@ -211,7 +217,7 @@ impl Delta {
             if !matched {
                 // No match, add byte to pending data
                 pending_data.push(new_data[pos]);
-                
+
                 if pos + block_size < new_data.len() {
                     // Roll the checksum
                     rolling.roll(new_data[pos], new_data[pos + block_size]);
@@ -266,12 +272,16 @@ impl Delta {
 
     /// Calculate compression ratio (bytes saved / original size)
     pub fn savings(&self, original_size: u64) -> f64 {
-        let delta_size: usize = self.operations.iter().map(|op| {
-            match op {
-                DeltaOp::Copy { .. } => 8, // Just the block index
-                DeltaOp::Insert { data } => data.len() + 4, // Data + length prefix
-            }
-        }).sum();
+        let delta_size: usize = self
+            .operations
+            .iter()
+            .map(|op| {
+                match op {
+                    DeltaOp::Copy { .. } => 8,                  // Just the block index
+                    DeltaOp::Insert { data } => data.len() + 4, // Data + length prefix
+                }
+            })
+            .sum();
 
         if original_size == 0 {
             return 0.0;
@@ -328,7 +338,7 @@ mod tests {
     fn test_file_signature() {
         let data = b"hello world this is a test file with some content";
         let mut cursor = Cursor::new(data);
-        
+
         let sig = FileSignature::compute(&mut cursor, 16).unwrap();
         assert_eq!(sig.file_size, data.len() as u64);
         assert!(!sig.blocks.is_empty());
@@ -344,7 +354,7 @@ mod tests {
         source.seek(SeekFrom::Start(0)).unwrap();
 
         let delta = Delta::compute(&sig, &mut new_file).unwrap();
-        
+
         // All blocks should be Copy operations
         let stats = delta.stats();
         assert!(stats.insert_bytes < data.len() as u64);
@@ -362,7 +372,7 @@ mod tests {
         source.seek(SeekFrom::Start(0)).unwrap();
 
         let delta = Delta::compute(&sig, &mut new_file).unwrap();
-        
+
         // Apply delta
         source.seek(SeekFrom::Start(0)).unwrap();
         let mut output = Vec::new();
@@ -383,7 +393,7 @@ mod tests {
         source.seek(SeekFrom::Start(0)).unwrap();
 
         let delta = Delta::compute(&sig, &mut new_file).unwrap();
-        
+
         source.seek(SeekFrom::Start(0)).unwrap();
         let mut output = Vec::new();
         delta.apply(&mut source, &mut output).unwrap();

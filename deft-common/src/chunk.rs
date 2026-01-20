@@ -1,5 +1,5 @@
-use std::io::{Read, Seek, SeekFrom};
 use crate::{sha256_hex, DEFAULT_CHUNK_SIZE};
+use std::io::{Read, Seek, SeekFrom};
 
 #[derive(Debug, Clone)]
 pub struct ChunkMetadata {

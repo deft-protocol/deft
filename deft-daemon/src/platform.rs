@@ -8,7 +8,7 @@ pub fn normalize_path(path: &Path) -> PathBuf {
         let path_str = path.to_string_lossy();
         PathBuf::from(path_str.replace('/', "\\"))
     }
-    
+
     #[cfg(not(windows))]
     {
         path.to_path_buf()
@@ -26,7 +26,7 @@ pub fn default_config_path() -> PathBuf {
             PathBuf::from("C:\\rift\\config.toml")
         }
     }
-    
+
     #[cfg(not(windows))]
     {
         PathBuf::from("/etc/rift/config.toml")
@@ -43,7 +43,7 @@ pub fn default_temp_dir() -> PathBuf {
             PathBuf::from("C:\\rift\\tmp")
         }
     }
-    
+
     #[cfg(not(windows))]
     {
         PathBuf::from("/var/rift/tmp")
@@ -60,7 +60,7 @@ pub fn default_data_dir() -> PathBuf {
             PathBuf::from("C:\\rift\\data")
         }
     }
-    
+
     #[cfg(not(windows))]
     {
         PathBuf::from("/var/rift/data")
@@ -77,7 +77,7 @@ pub fn default_certs_dir() -> PathBuf {
             PathBuf::from("C:\\rift\\certs")
         }
     }
-    
+
     #[cfg(not(windows))]
     {
         PathBuf::from("/etc/rift/certs")
@@ -87,10 +87,14 @@ pub fn default_certs_dir() -> PathBuf {
 /// Platform-specific line ending
 pub fn line_ending() -> &'static str {
     #[cfg(windows)]
-    { "\r\n" }
-    
+    {
+        "\r\n"
+    }
+
     #[cfg(not(windows))]
-    { "\n" }
+    {
+        "\n"
+    }
 }
 
 /// Check if running as administrator/root
@@ -102,7 +106,7 @@ pub fn is_elevated() -> bool {
             .map(|u| u.to_lowercase() == "administrator")
             .unwrap_or(false)
     }
-    
+
     #[cfg(unix)]
     {
         // On Unix, check if running as root (uid 0)
@@ -112,7 +116,7 @@ pub fn is_elevated() -> bool {
             .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "0")
             .unwrap_or(false)
     }
-    
+
     #[cfg(not(any(windows, unix)))]
     {
         false
@@ -122,14 +126,14 @@ pub fn is_elevated() -> bool {
 /// Create directory with appropriate permissions
 pub fn create_secure_dir(path: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(path)?;
-    
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let permissions = std::fs::Permissions::from_mode(0o700);
         std::fs::set_permissions(path, permissions)?;
     }
-    
+
     Ok(())
 }
 
@@ -173,7 +177,7 @@ mod tests {
         let config = default_config_path();
         let temp = default_temp_dir();
         let data = default_data_dir();
-        
+
         assert!(config.to_string_lossy().contains("rift"));
         assert!(temp.to_string_lossy().contains("rift"));
         assert!(data.to_string_lossy().contains("rift"));
@@ -183,10 +187,10 @@ mod tests {
     fn test_normalize_path() {
         let path = Path::new("/some/path/file.txt");
         let normalized = normalize_path(path);
-        
+
         #[cfg(windows)]
         assert!(normalized.to_string_lossy().contains("\\"));
-        
+
         #[cfg(not(windows))]
         assert_eq!(normalized, path);
     }

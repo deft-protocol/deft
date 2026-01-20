@@ -53,7 +53,12 @@ impl Capabilities {
 
     pub fn all() -> Self {
         Self {
-            caps: vec![Capability::Chunked, Capability::Parallel, Capability::Resume, Capability::Compress],
+            caps: vec![
+                Capability::Chunked,
+                Capability::Parallel,
+                Capability::Resume,
+                Capability::Compress,
+            ],
             window_size: Some(DEFAULT_WINDOW_SIZE),
         }
     }
@@ -67,7 +72,8 @@ impl Capabilities {
         self.caps.contains(&cap)
     }
 
-    pub fn add(mut self, cap: Capability) -> Self {
+    #[must_use]
+    pub fn with(mut self, cap: Capability) -> Self {
         if !self.has(cap) {
             self.caps.push(cap);
         }
@@ -81,7 +87,9 @@ impl Capabilities {
     }
 
     pub fn intersect(&self, other: &Capabilities) -> Capabilities {
-        let caps: Vec<Capability> = self.caps.iter()
+        let caps: Vec<Capability> = self
+            .caps
+            .iter()
             .filter(|c| other.has(**c))
             .copied()
             .collect();
@@ -117,7 +125,7 @@ impl FromStr for Capabilities {
         let mut caps = Vec::new();
         let mut window_size = None;
 
-        for part in s.split(|c| c == ',' || c == ' ') {
+        for part in s.split([',', ' ']) {
             let part = part.trim();
             if part.is_empty() {
                 continue;
@@ -165,12 +173,12 @@ mod tests {
     fn test_capabilities_intersect() {
         let client = Capabilities::all().with_window_size(128);
         let server = Capabilities::new()
-            .add(Capability::Chunked)
-            .add(Capability::Resume)
+            .with(Capability::Chunked)
+            .with(Capability::Resume)
             .with_window_size(64);
 
         let negotiated = server.intersect(&client);
-        
+
         assert!(negotiated.has(Capability::Chunked));
         assert!(negotiated.has(Capability::Resume));
         assert!(!negotiated.has(Capability::Parallel));
@@ -182,7 +190,7 @@ mod tests {
     fn test_capabilities_effective_window_size() {
         let caps1 = Capabilities::new().with_window_size(100);
         let caps2 = Capabilities::new().with_window_size(50);
-        
+
         assert_eq!(caps1.effective_window_size(&caps2), 50);
         assert_eq!(caps2.effective_window_size(&caps1), 50);
     }
@@ -190,10 +198,10 @@ mod tests {
     #[test]
     fn test_capabilities_display() {
         let caps = Capabilities::new()
-            .add(Capability::Chunked)
-            .add(Capability::Parallel)
+            .with(Capability::Chunked)
+            .with(Capability::Parallel)
             .with_window_size(64);
-        
+
         let s = caps.to_string();
         assert!(s.contains("CHUNKED"));
         assert!(s.contains("PARALLEL"));
@@ -233,8 +241,14 @@ mod tests {
 
     #[test]
     fn test_capability_from_str() {
-        assert_eq!("CHUNKED".parse::<Capability>().unwrap(), Capability::Chunked);
-        assert_eq!("PARALLEL".parse::<Capability>().unwrap(), Capability::Parallel);
+        assert_eq!(
+            "CHUNKED".parse::<Capability>().unwrap(),
+            Capability::Chunked
+        );
+        assert_eq!(
+            "PARALLEL".parse::<Capability>().unwrap(),
+            Capability::Parallel
+        );
         assert_eq!("RESUME".parse::<Capability>().unwrap(), Capability::Resume);
     }
 }

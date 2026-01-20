@@ -7,32 +7,32 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 use config::LogFormat;
 
+mod api;
+mod chunk_ordering;
+mod chunk_store;
+mod client;
+mod compression;
 mod config;
+mod delta;
+mod discovery;
+mod handler;
+mod hooks;
+mod metrics;
+mod parallel;
+mod platform;
+mod rate_limit;
+mod receipt;
 mod server;
 mod session;
-mod handler;
-mod virtual_file;
-mod transfer;
-mod receipt;
-mod chunk_store;
-mod transfer_state;
 mod signer;
-mod client;
-mod rate_limit;
-mod compression;
-mod chunk_ordering;
-mod parallel;
-mod discovery;
-mod metrics;
+mod transfer;
+mod transfer_state;
+mod virtual_file;
 mod watcher;
-mod api;
-mod delta;
-mod hooks;
-mod platform;
 
+use client::Client;
 use config::Config;
 use server::Server;
-use client::Client;
 
 #[derive(Parser)]
 #[command(name = "deftd")]
@@ -121,9 +121,7 @@ async fn main() -> Result<()> {
                 .init();
         }
         LogFormat::Text => {
-            tracing_subscriber::fmt()
-                .with_env_filter(log_level)
-                .init();
+            tracing_subscriber::fmt().with_env_filter(log_level).init();
         }
     }
 
@@ -131,17 +129,42 @@ async fn main() -> Result<()> {
     info!("Configuration loaded from {}", cli.config);
 
     match cli.command {
-        Some(Commands::Send { partner, virtual_file, file, chunk_size }) => {
+        Some(Commands::Send {
+            partner,
+            virtual_file,
+            file,
+            chunk_size,
+        }) => {
             run_send(&config, &partner, &virtual_file, &file, chunk_size).await?;
         }
-        Some(Commands::Get { partner, virtual_file, output }) => {
+        Some(Commands::Get {
+            partner,
+            virtual_file,
+            output,
+        }) => {
             run_get(&config, &partner, &virtual_file, &output).await?;
         }
         Some(Commands::List { partner }) => {
             run_list(&config, &partner).await?;
         }
-        Some(Commands::Watch { directory, partner, virtual_file, pattern, interval, delete_after }) => {
-            run_watch(&config, &directory, &partner, &virtual_file, &pattern, interval, delete_after).await?;
+        Some(Commands::Watch {
+            directory,
+            partner,
+            virtual_file,
+            pattern,
+            interval,
+            delete_after,
+        }) => {
+            run_watch(
+                &config,
+                &directory,
+                &partner,
+                &virtual_file,
+                &pattern,
+                interval,
+                delete_after,
+            )
+            .await?;
         }
         Some(Commands::Daemon) | None => {
             run_daemon(config).await?;
@@ -154,14 +177,17 @@ async fn main() -> Result<()> {
 async fn run_daemon(config: Config) -> Result<()> {
     // Initialize metrics
     metrics::register_metrics();
-    
+
     // Start metrics server if enabled
     if config.limits.metrics_enabled {
         let metrics_port = config.limits.metrics_port;
         tokio::spawn(async move {
             run_metrics_server(metrics_port).await;
         });
-        info!("Metrics server started on port {}", config.limits.metrics_port);
+        info!(
+            "Metrics server started on port {}",
+            config.limits.metrics_port
+        );
     }
 
     // Start API server if enabled
@@ -177,7 +203,7 @@ async fn run_daemon(config: Config) -> Result<()> {
 
     if config.server.enabled {
         let server = Server::new(config)?;
-        
+
         // Setup graceful shutdown
         let shutdown = async {
             tokio::signal::ctrl_c()
@@ -201,7 +227,7 @@ async fn run_daemon(config: Config) -> Result<()> {
 }
 
 async fn run_metrics_server(port: u16) {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::AsyncWriteExt;
     use tokio::net::TcpListener;
 
     let addr = format!("0.0.0.0:{}", port);
@@ -237,7 +263,8 @@ async fn run_send(
         anyhow::bail!("Client mode is disabled in configuration");
     }
 
-    let partner = config.find_partner(partner_id)
+    let partner = config
+        .find_partner(partner_id)
         .ok_or_else(|| anyhow::anyhow!("Partner '{}' not found in configuration", partner_id))?;
 
     if partner.endpoints.is_empty() {
@@ -245,14 +272,22 @@ async fn run_send(
     }
 
     let client = Client::new(config.client.clone())?;
-    
-    println!("Sending file {:?} to {}:{}", file_path, partner_id, virtual_file);
-    
-    let result = client.send_file(partner, virtual_file, file_path, chunk_size).await?;
-    
+
+    println!(
+        "Sending file {:?} to {}:{}",
+        file_path, partner_id, virtual_file
+    );
+
+    let result = client
+        .send_file(partner, virtual_file, file_path, chunk_size)
+        .await?;
+
     println!("\n✓ Transfer complete!");
     println!("  Transfer ID: {}", result.transfer_id);
-    println!("  Chunks sent: {}/{}", result.chunks_sent, result.total_chunks);
+    println!(
+        "  Chunks sent: {}/{}",
+        result.chunks_sent, result.total_chunks
+    );
     println!("  Total bytes: {}", result.total_bytes);
     println!("  File hash:   {}", result.file_hash);
 
@@ -269,7 +304,8 @@ async fn run_get(
         anyhow::bail!("Client mode is disabled in configuration");
     }
 
-    let partner = config.find_partner(partner_id)
+    let partner = config
+        .find_partner(partner_id)
         .ok_or_else(|| anyhow::anyhow!("Partner '{}' not found in configuration", partner_id))?;
 
     if partner.endpoints.is_empty() {
@@ -277,11 +313,14 @@ async fn run_get(
     }
 
     let client = Client::new(config.client.clone())?;
-    
-    println!("Getting file {}:{} -> {:?}", partner_id, virtual_file, output_path);
-    
+
+    println!(
+        "Getting file {}:{} -> {:?}",
+        partner_id, virtual_file, output_path
+    );
+
     let result = client.get_file(partner, virtual_file, output_path).await?;
-    
+
     println!("\n✓ Download complete!");
     println!("  Total chunks: {}", result.total_chunks);
     println!("  Total bytes:  {}", result.total_bytes);
@@ -296,7 +335,8 @@ async fn run_list(config: &Config, partner_id: &str) -> Result<()> {
         anyhow::bail!("Client mode is disabled in configuration");
     }
 
-    let partner = config.find_partner(partner_id)
+    let partner = config
+        .find_partner(partner_id)
         .ok_or_else(|| anyhow::anyhow!("Partner '{}' not found in configuration", partner_id))?;
 
     if partner.endpoints.is_empty() {
@@ -305,17 +345,20 @@ async fn run_list(config: &Config, partner_id: &str) -> Result<()> {
 
     let client = Client::new(config.client.clone())?;
     let endpoint = partner.endpoints.first().unwrap();
-    
+
     let mut conn = client.connect(endpoint).await?;
     conn.hello().await?;
     conn.auth(partner_id).await?;
-    
+
     let response = conn.discover().await?;
-    
+
     println!("Virtual files available from {}:", partner_id);
     if let deft_protocol::Response::Files { files } = response {
         for file in files {
-            println!("  - {} ({} bytes, {} chunks)", file.name, file.size, file.chunk_count);
+            println!(
+                "  - {} ({} bytes, {} chunks)",
+                file.name, file.size, file.chunk_count
+            );
         }
     } else {
         println!("  {:?}", response);
@@ -335,7 +378,7 @@ async fn run_watch(
     interval_secs: u64,
     delete_after: bool,
 ) -> Result<()> {
-    use crate::watcher::{WatchConfig, DirectoryWatcher, FileEvent};
+    use crate::watcher::{DirectoryWatcher, FileEvent, WatchConfig};
     use tokio::sync::mpsc;
     use tracing::warn;
 
@@ -343,7 +386,8 @@ async fn run_watch(
         anyhow::bail!("Client mode is disabled in configuration");
     }
 
-    let partner = config.find_partner(partner_id)
+    let partner = config
+        .find_partner(partner_id)
         .ok_or_else(|| anyhow::anyhow!("Partner '{}' not found in configuration", partner_id))?
         .clone();
 
@@ -383,21 +427,28 @@ async fn run_watch(
     while let Some(event) = rx.recv().await {
         match event {
             FileEvent::Created(path) | FileEvent::Modified(path) => {
-                let filename = path.file_name()
+                let filename = path
+                    .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("unknown");
-                
+
                 let vf_name = format!("{}_{}", virtual_file_prefix, filename);
-                
+
                 println!("📤 Sending: {:?} -> {}", path, vf_name);
-                
-                match client.send_file(&partner, &vf_name, &path, chunk_size).await {
+
+                match client
+                    .send_file(&partner, &vf_name, &path, chunk_size)
+                    .await
+                {
                     Ok(result) => {
-                        println!("  ✓ Sent {} chunks, {} bytes", result.chunks_sent, result.total_bytes);
+                        println!(
+                            "  ✓ Sent {} chunks, {} bytes",
+                            result.chunks_sent, result.total_bytes
+                        );
                         if result.bytes_saved > 0 {
                             println!("  ✓ Compression saved {} bytes", result.bytes_saved);
                         }
-                        
+
                         // Delete or move if configured
                         if delete_after {
                             if let Err(e) = std::fs::remove_file(&path) {

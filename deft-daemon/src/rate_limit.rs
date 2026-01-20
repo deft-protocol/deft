@@ -181,14 +181,16 @@ impl RateLimiter {
         {
             let mut buckets = self.ip_buckets.write().await;
             buckets.retain(|_, b| {
-                b.window_start.elapsed() < expiry && !b.banned_until.map(|u| now > u).unwrap_or(true)
+                b.window_start.elapsed() < expiry
+                    && !b.banned_until.map(|u| now > u).unwrap_or(true)
             });
         }
 
         {
             let mut buckets = self.partner_buckets.write().await;
             buckets.retain(|_, b| {
-                b.window_start.elapsed() < expiry && !b.banned_until.map(|u| now > u).unwrap_or(true)
+                b.window_start.elapsed() < expiry
+                    && !b.banned_until.map(|u| now > u).unwrap_or(true)
             });
         }
     }
@@ -234,7 +236,7 @@ mod tests {
 
         // Wait for ban to expire
         tokio::time::sleep(Duration::from_millis(150)).await;
-        
+
         // Should be allowed again (window not expired, but ban lifted)
         // Actually count is still at limit, so it will exceed again
         assert_eq!(limiter.check_ip(ip).await, RateLimitResult::Exceeded);
@@ -256,7 +258,10 @@ mod tests {
             assert!(limiter.check_partner(partner).await.is_allowed());
         }
 
-        assert_eq!(limiter.check_partner(partner).await, RateLimitResult::Exceeded);
+        assert_eq!(
+            limiter.check_partner(partner).await,
+            RateLimitResult::Exceeded
+        );
     }
 
     #[tokio::test]

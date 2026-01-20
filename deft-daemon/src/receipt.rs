@@ -3,7 +3,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use deft_protocol::TransferReceipt;
-use serde_json;
 use tracing::{error, info};
 
 pub struct ReceiptStore {
@@ -30,7 +29,10 @@ impl ReceiptStore {
         let mut file = File::create(&filepath)?;
         file.write_all(json.as_bytes())?;
 
-        info!("Stored receipt for transfer {} at {:?}", receipt.transfer_id, filepath);
+        info!(
+            "Stored receipt for transfer {} at {:?}",
+            receipt.transfer_id, filepath
+        );
 
         // Also append to the append-only log
         self.append_to_log(receipt)?;
@@ -40,7 +42,7 @@ impl ReceiptStore {
 
     fn append_to_log(&self, receipt: &TransferReceipt) -> std::io::Result<()> {
         let log_path = self.base_path.join("receipts.log");
-        
+
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
@@ -56,7 +58,7 @@ impl ReceiptStore {
 
     fn date_path(&self) -> PathBuf {
         use std::time::{SystemTime, UNIX_EPOCH};
-        
+
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -64,20 +66,25 @@ impl ReceiptStore {
 
         let secs_per_day = 86400;
         let days_since_epoch = now / secs_per_day;
-        
+
         // Simple date calculation (approximate, good enough for directory naming)
         let year = 1970 + (days_since_epoch / 365);
         let day_of_year = days_since_epoch % 365;
         let month = (day_of_year / 30) + 1;
         let day = (day_of_year % 30) + 1;
 
-        self.base_path.join(format!("{:04}/{:02}/{:02}", year, month.min(12), day.min(31)))
+        self.base_path.join(format!(
+            "{:04}/{:02}/{:02}",
+            year,
+            month.min(12),
+            day.min(31)
+        ))
     }
 
     pub fn load(&self, transfer_id: &str) -> std::io::Result<TransferReceipt> {
         // Search in recent date directories
         let entries = fs::read_dir(&self.base_path)?;
-        
+
         for entry in entries.flatten() {
             if entry.file_type()?.is_dir() {
                 if let Some(receipt) = self.search_in_dir(&entry.path(), transfer_id)? {
@@ -92,7 +99,11 @@ impl ReceiptStore {
         ))
     }
 
-    fn search_in_dir(&self, dir: &Path, transfer_id: &str) -> std::io::Result<Option<TransferReceipt>> {
+    fn search_in_dir(
+        &self,
+        dir: &Path,
+        transfer_id: &str,
+    ) -> std::io::Result<Option<TransferReceipt>> {
         let filename = format!("transfer_{}.json", transfer_id);
         let filepath = dir.join(&filename);
 
@@ -117,14 +128,14 @@ impl ReceiptStore {
 
     pub fn list_recent(&self, limit: usize) -> std::io::Result<Vec<TransferReceipt>> {
         let log_path = self.base_path.join("receipts.log");
-        
+
         if !log_path.exists() {
             return Ok(Vec::new());
         }
 
         let content = fs::read_to_string(&log_path)?;
         let lines: Vec<&str> = content.lines().collect();
-        
+
         let mut receipts = Vec::new();
         for line in lines.iter().rev().take(limit) {
             match serde_json::from_str(line) {
@@ -154,7 +165,7 @@ mod tests {
     fn test_store_and_load() {
         let temp_dir = env::temp_dir().join("rift_test_receipts");
         let _ = fs::remove_dir_all(&temp_dir);
-        
+
         let store = ReceiptStore::new(&temp_dir).unwrap();
 
         let receipt = TransferReceipt {

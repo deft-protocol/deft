@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::Read;
 
 use flate2::read::{GzDecoder, GzEncoder};
 use flate2::Compression;
@@ -74,7 +74,7 @@ mod tests {
     #[test]
     fn test_compress_decompress() {
         let original = b"Hello, World! This is a test of compression. ".repeat(100);
-        
+
         let compressed = compress(&original, CompressionLevel::Default).unwrap();
         assert!(compressed.len() < original.len());
 
@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn test_compression_levels() {
         let data = b"Test data for compression levels".repeat(50);
-        
+
         let fast = compress(&data, CompressionLevel::Fast).unwrap();
         let default = compress(&data, CompressionLevel::Default).unwrap();
         let best = compress(&data, CompressionLevel::Best).unwrap();

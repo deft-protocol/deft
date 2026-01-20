@@ -27,11 +27,10 @@ impl CommandHandler {
         let transfer_manager = Arc::new(TransferManager::new());
         let receipt_store = Arc::new(
             ReceiptStore::new(&config.storage.temp_dir.replace("tmp", "receipts"))
-                .unwrap_or_else(|_| ReceiptStore::default())
+                .unwrap_or_else(|_| ReceiptStore::default()),
         );
         let chunk_store = Arc::new(
-            ChunkStore::new(&config.storage.temp_dir)
-                .expect("Failed to initialize chunk store")
+            ChunkStore::new(&config.storage.temp_dir).expect("Failed to initialize chunk store"),
         );
 
         // Register virtual files for all partners
@@ -43,7 +42,13 @@ impl CommandHandler {
             }
         }
 
-        Self { config, vf_manager, transfer_manager, receipt_store, chunk_store }
+        Self {
+            config,
+            vf_manager,
+            transfer_manager,
+            receipt_store,
+            chunk_store,
+        }
     }
 
     pub fn handle_line(&self, session: &mut Session, line: &str) -> Response {
@@ -57,39 +62,57 @@ impl CommandHandler {
     }
 
     pub fn handle_command(&self, session: &mut Session, command: Command) -> Response {
-        debug!("Handling command: {:?} in state {:?}", command, session.state);
+        debug!(
+            "Handling command: {:?} in state {:?}",
+            command, session.state
+        );
 
         match command {
-            Command::Hello { version, capabilities } => {
-                self.handle_hello(session, version, capabilities)
-            }
-            Command::Auth { partner_id } => {
-                self.handle_auth(session, partner_id)
-            }
-            Command::Discover => {
-                self.handle_discover(session)
-            }
-            Command::Describe { virtual_file } => {
-                self.handle_describe(session, virtual_file)
-            }
-            Command::Get { virtual_file, chunks } => {
-                self.handle_get(session, virtual_file, chunks)
-            }
-            Command::BeginTransfer { virtual_file, total_chunks, total_bytes, file_hash } => {
-                self.handle_begin_transfer(session, virtual_file, total_chunks, total_bytes, file_hash)
-            }
-            Command::ResumeTransfer { virtual_file, transfer_id } => {
-                self.handle_resume_transfer(session, virtual_file, transfer_id)
-            }
-            Command::GetStatus { virtual_file } => {
-                self.handle_get_status(session, virtual_file)
-            }
-            Command::Put { virtual_file, chunk_index, size, hash, nonce, compressed } => {
-                self.handle_put(session, virtual_file, chunk_index, size, hash, nonce, compressed)
-            }
-            Command::Bye => {
-                self.handle_bye(session)
-            }
+            Command::Hello {
+                version,
+                capabilities,
+            } => self.handle_hello(session, version, capabilities),
+            Command::Auth { partner_id } => self.handle_auth(session, partner_id),
+            Command::Discover => self.handle_discover(session),
+            Command::Describe { virtual_file } => self.handle_describe(session, virtual_file),
+            Command::Get {
+                virtual_file,
+                chunks,
+            } => self.handle_get(session, virtual_file, chunks),
+            Command::BeginTransfer {
+                virtual_file,
+                total_chunks,
+                total_bytes,
+                file_hash,
+            } => self.handle_begin_transfer(
+                session,
+                virtual_file,
+                total_chunks,
+                total_bytes,
+                file_hash,
+            ),
+            Command::ResumeTransfer {
+                virtual_file,
+                transfer_id,
+            } => self.handle_resume_transfer(session, virtual_file, transfer_id),
+            Command::GetStatus { virtual_file } => self.handle_get_status(session, virtual_file),
+            Command::Put {
+                virtual_file,
+                chunk_index,
+                size,
+                hash,
+                nonce,
+                compressed,
+            } => self.handle_put(
+                session,
+                virtual_file,
+                chunk_index,
+                size,
+                hash,
+                nonce,
+                compressed,
+            ),
+            Command::Bye => self.handle_bye(session),
         }
     }
 
@@ -110,7 +133,10 @@ impl CommandHandler {
         if !version.starts_with("1.") {
             return Response::error(
                 RiftErrorCode::UpgradeRequired,
-                Some(format!("Unsupported version: {}. Server supports 1.x", version)),
+                Some(format!(
+                    "Unsupported version: {}. Server supports 1.x",
+                    version
+                )),
             );
         }
 
@@ -141,7 +167,8 @@ impl CommandHandler {
             }
         };
 
-        let virtual_files: Vec<String> = partner.virtual_files
+        let virtual_files: Vec<String> = partner
+            .virtual_files
             .iter()
             .map(|vf| vf.name.clone())
             .collect();
@@ -161,7 +188,9 @@ impl CommandHandler {
             );
         }
 
-        let files = self.vf_manager.list_for_partner(&session.allowed_virtual_files);
+        let files = self
+            .vf_manager
+            .list_for_partner(&session.allowed_virtual_files);
 
         Response::Files { files }
     }
@@ -249,9 +278,8 @@ impl CommandHandler {
 
         // Create chunk hashes placeholder - in real impl, client would send these
         // For now, we'll accept chunks without pre-known hashes
-        let chunk_hashes: Vec<(u64, String)> = (0..total_chunks)
-            .map(|i| (i, String::new()))
-            .collect();
+        let chunk_hashes: Vec<(u64, String)> =
+            (0..total_chunks).map(|i| (i, String::new())).collect();
 
         let sender = session.partner_id.clone().unwrap_or_default();
         let transfer = crate::transfer::ActiveTransfer::new_receive(
@@ -269,8 +297,10 @@ impl CommandHandler {
         let transfer_id = self.transfer_manager.start_transfer(transfer);
         session.add_transfer(transfer_id.clone());
 
-        info!("Transfer started: {} for {} ({} chunks, {} bytes)",
-            transfer_id, virtual_file, total_chunks, total_bytes);
+        info!(
+            "Transfer started: {} for {} ({} chunks, {} bytes)",
+            transfer_id, virtual_file, total_chunks, total_bytes
+        );
 
         Response::TransferAccepted {
             transfer_id,
@@ -328,11 +358,7 @@ impl CommandHandler {
         }
     }
 
-    fn handle_get_status(
-        &self,
-        session: &Session,
-        virtual_file: String,
-    ) -> Response {
+    fn handle_get_status(&self, session: &Session, virtual_file: String) -> Response {
         if !session.is_authenticated() {
             return Response::error(
                 RiftErrorCode::Unauthorized,
@@ -349,11 +375,13 @@ impl CommandHandler {
 
         // Find active transfer for this virtual file
         let transfer_id = self.find_transfer_for_file(session, &virtual_file);
-        
+
         match transfer_id {
             Some(id) => {
                 if let Some(transfer) = self.transfer_manager.get_transfer(&id) {
-                    let received: Vec<u64> = transfer.chunks.iter()
+                    let received: Vec<u64> = transfer
+                        .chunks
+                        .iter()
                         .filter(|(_, c)| c.state == crate::transfer::ChunkState::Validated)
                         .map(|(idx, _)| *idx)
                         .collect();
@@ -375,12 +403,10 @@ impl CommandHandler {
                     )
                 }
             }
-            None => {
-                Response::error(
-                    RiftErrorCode::NotFound,
-                    Some(format!("No active transfer for: {}", virtual_file)),
-                )
-            }
+            None => Response::error(
+                RiftErrorCode::NotFound,
+                Some(format!("No active transfer for: {}", virtual_file)),
+            ),
         }
     }
 
@@ -410,12 +436,12 @@ impl CommandHandler {
 
         // Find active transfer for this virtual file
         let transfer_id = self.find_transfer_for_file(session, &virtual_file);
-        
+
         match transfer_id {
             Some(id) => {
                 // Store expected hash for later validation when data arrives
                 self.update_chunk_hash(&id, chunk_index, &expected_hash);
-                
+
                 // Return ChunkReady to signal server is ready to receive binary data
                 Response::ChunkReady {
                     virtual_file,
@@ -423,12 +449,13 @@ impl CommandHandler {
                     size,
                 }
             }
-            None => {
-                Response::error(
-                    RiftErrorCode::BadRequest,
-                    Some(format!("No active transfer for: {}. Use BEGIN_TRANSFER first.", virtual_file)),
-                )
-            }
+            None => Response::error(
+                RiftErrorCode::BadRequest,
+                Some(format!(
+                    "No active transfer for: {}. Use BEGIN_TRANSFER first.",
+                    virtual_file
+                )),
+            ),
         }
     }
 
@@ -444,7 +471,8 @@ impl CommandHandler {
     }
 
     fn update_chunk_hash(&self, transfer_id: &str, chunk_index: u64, hash: &str) {
-        self.transfer_manager.update_chunk_hash(transfer_id, chunk_index, hash);
+        self.transfer_manager
+            .update_chunk_hash(transfer_id, chunk_index, hash);
     }
 
     pub fn handle_chunk_received(
@@ -471,17 +499,22 @@ impl CommandHandler {
 
         // Find active transfer and validate chunk
         let transfer_id = self.find_transfer_for_file(session, virtual_file);
-        
+
         match transfer_id {
             Some(id) => {
                 // Validate chunk using TransferManager
-                let status = self.transfer_manager.validate_chunk(&id, chunk_index, data)
+                let status = self
+                    .transfer_manager
+                    .validate_chunk(&id, chunk_index, data)
                     .unwrap_or(AckStatus::Error(deft_protocol::AckErrorReason::Unknown));
 
                 // If validation succeeded, store chunk to disk
                 if status == AckStatus::Ok {
                     if let Err(e) = self.chunk_store.store_chunk(&id, chunk_index, data) {
-                        warn!("Failed to store chunk {} for transfer {}: {}", chunk_index, id, e);
+                        warn!(
+                            "Failed to store chunk {} for transfer {}: {}",
+                            chunk_index, id, e
+                        );
                         return Response::ChunkAck {
                             virtual_file: virtual_file.to_string(),
                             chunk_index,
@@ -496,13 +529,11 @@ impl CommandHandler {
                     status,
                 }
             }
-            None => {
-                Response::ChunkAck {
-                    virtual_file: virtual_file.to_string(),
-                    chunk_index,
-                    status: AckStatus::Error(deft_protocol::AckErrorReason::Unknown),
-                }
-            }
+            None => Response::ChunkAck {
+                virtual_file: virtual_file.to_string(),
+                chunk_index,
+                status: AckStatus::Error(deft_protocol::AckErrorReason::Unknown),
+            },
         }
     }
 
@@ -512,7 +543,7 @@ impl CommandHandler {
         virtual_file: &str,
     ) -> Option<Response> {
         let transfer_id = self.find_transfer_for_file(session, virtual_file)?;
-        
+
         if self.transfer_manager.is_complete(&transfer_id) {
             // Get transfer info before completing
             let transfer = self.transfer_manager.get_transfer(&transfer_id)?;
@@ -547,17 +578,19 @@ impl CommandHandler {
 
             // Complete the transfer and get the receipt
             let receipt = self.transfer_manager.complete_transfer(&transfer_id)?;
-            
+
             // Store the receipt
             if let Err(e) = self.receipt_store.store(&receipt) {
                 warn!("Failed to store receipt: {}", e);
             }
-            
+
             // Remove transfer from session
             session.remove_transfer(&transfer_id);
-            
-            info!("Transfer complete: {} ({} bytes, {} chunks)", 
-                receipt.virtual_file, receipt.total_bytes, receipt.chunks_total);
+
+            info!(
+                "Transfer complete: {} ({} bytes, {} chunks)",
+                receipt.virtual_file, receipt.total_bytes, receipt.chunks_total
+            );
 
             Some(Response::TransferComplete {
                 virtual_file: receipt.virtual_file,
@@ -574,12 +607,16 @@ impl CommandHandler {
     fn get_virtual_file_path(&self, session: &Session, virtual_file: &str) -> Option<PathBuf> {
         let partner_id = session.partner_id.as_ref()?;
         let partner = self.config.find_partner(partner_id)?;
-        
+
         for vf in &partner.virtual_files {
             if vf.name == virtual_file && vf.direction == Direction::Receive {
                 // Generate unique filename in the configured path
                 let base_path = PathBuf::from(&vf.path);
-                let filename = format!("{}_{}.dat", virtual_file, chrono::Utc::now().format("%Y%m%d_%H%M%S"));
+                let filename = format!(
+                    "{}_{}.dat",
+                    virtual_file,
+                    chrono::Utc::now().format("%Y%m%d_%H%M%S")
+                );
                 return Some(base_path.join(filename));
             }
         }
@@ -621,8 +658,10 @@ impl CommandHandler {
         if let Err(e) = self.receipt_store.store(&receipt) {
             warn!("Failed to store receipt: {}", e);
         } else {
-            info!("Transfer complete: {} ({} bytes, {} chunks)", 
-                virtual_file, total_size, chunk_count);
+            info!(
+                "Transfer complete: {} ({} bytes, {} chunks)",
+                virtual_file, total_size, chunk_count
+            );
         }
 
         Response::TransferComplete {

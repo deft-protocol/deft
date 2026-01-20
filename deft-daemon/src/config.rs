@@ -226,10 +226,10 @@ impl Config {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = std::fs::read_to_string(path.as_ref())
             .with_context(|| format!("Failed to read config file: {:?}", path.as_ref()))?;
-        
-        let config: Config = toml::from_str(&content)
-            .with_context(|| "Failed to parse config file")?;
-        
+
+        let config: Config =
+            toml::from_str(&content).with_context(|| "Failed to parse config file")?;
+
         Ok(config)
     }
 

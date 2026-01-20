@@ -65,13 +65,16 @@ impl ActiveTransfer {
         let mut chunks = HashMap::new();
 
         for (index, hash) in chunk_hashes {
-            chunks.insert(index, ChunkTracker {
+            chunks.insert(
                 index,
-                expected_hash: hash,
-                state: ChunkState::Pending,
-                received_at: None,
-                retry_count: 0,
-            });
+                ChunkTracker {
+                    index,
+                    expected_hash: hash,
+                    state: ChunkState::Pending,
+                    received_at: None,
+                    retry_count: 0,
+                },
+            );
         }
 
         let start_timestamp = SystemTime::now()
@@ -127,7 +130,7 @@ impl ActiveTransfer {
         };
 
         let computed_hash = sha256_hex(data);
-        
+
         if computed_hash.eq_ignore_ascii_case(&chunk.expected_hash) {
             chunk.state = ChunkState::Validated;
             chunk.received_at = Some(Instant::now());
@@ -140,14 +143,15 @@ impl ActiveTransfer {
     }
 
     pub fn validated_ranges(&self) -> Vec<ChunkRange> {
-        let mut validated: Vec<u64> = self.chunks
+        let mut validated: Vec<u64> = self
+            .chunks
             .iter()
             .filter(|(_, c)| c.state == ChunkState::Validated)
             .map(|(idx, _)| *idx)
             .collect();
-        
+
         validated.sort();
-        
+
         if validated.is_empty() {
             return Vec::new();
         }
@@ -171,15 +175,23 @@ impl ActiveTransfer {
     }
 
     pub fn is_complete(&self) -> bool {
-        self.chunks.values().all(|c| c.state == ChunkState::Validated)
+        self.chunks
+            .values()
+            .all(|c| c.state == ChunkState::Validated)
     }
 
     pub fn pending_count(&self) -> usize {
-        self.chunks.values().filter(|c| c.state == ChunkState::Pending).count()
+        self.chunks
+            .values()
+            .filter(|c| c.state == ChunkState::Pending)
+            .count()
     }
 
     pub fn validated_count(&self) -> usize {
-        self.chunks.values().filter(|c| c.state == ChunkState::Validated).count()
+        self.chunks
+            .values()
+            .filter(|c| c.state == ChunkState::Validated)
+            .count()
     }
 
     pub fn generate_receipt(&self, signature: Option<String>) -> TransferReceipt {
@@ -216,17 +228,31 @@ impl TransferManager {
 
     pub fn start_transfer(&self, transfer: ActiveTransfer) -> String {
         let id = transfer.transfer_id.clone();
-        self.active_transfers.write().unwrap().insert(id.clone(), transfer);
+        self.active_transfers
+            .write()
+            .unwrap()
+            .insert(id.clone(), transfer);
         id
     }
 
     pub fn get_transfer(&self, transfer_id: &str) -> Option<ActiveTransfer> {
-        self.active_transfers.read().unwrap().get(transfer_id).cloned()
+        self.active_transfers
+            .read()
+            .unwrap()
+            .get(transfer_id)
+            .cloned()
     }
 
-    pub fn validate_chunk(&self, transfer_id: &str, chunk_index: u64, data: &[u8]) -> Option<AckStatus> {
+    pub fn validate_chunk(
+        &self,
+        transfer_id: &str,
+        chunk_index: u64,
+        data: &[u8],
+    ) -> Option<AckStatus> {
         let mut transfers = self.active_transfers.write().unwrap();
-        transfers.get_mut(transfer_id).map(|t| t.validate_chunk(chunk_index, data))
+        transfers
+            .get_mut(transfer_id)
+            .map(|t| t.validate_chunk(chunk_index, data))
     }
 
     pub fn update_chunk_hash(&self, transfer_id: &str, chunk_index: u64, hash: &str) {
@@ -239,7 +265,9 @@ impl TransferManager {
     }
 
     pub fn is_complete(&self, transfer_id: &str) -> bool {
-        self.active_transfers.read().unwrap()
+        self.active_transfers
+            .read()
+            .unwrap()
             .get(transfer_id)
             .map(|t| t.is_complete())
             .unwrap_or(false)
@@ -247,7 +275,9 @@ impl TransferManager {
 
     pub fn complete_transfer(&self, transfer_id: &str) -> Option<TransferReceipt> {
         let mut transfers = self.active_transfers.write().unwrap();
-        transfers.remove(transfer_id).map(|t| t.generate_receipt(None))
+        transfers
+            .remove(transfer_id)
+            .map(|t| t.generate_receipt(None))
     }
 }
 
@@ -269,13 +299,22 @@ impl Clone for ActiveTransfer {
             total_bytes: self.total_bytes,
             chunk_size: self.chunk_size,
             file_hash: self.file_hash.clone(),
-            chunks: self.chunks.iter().map(|(k, v)| (*k, ChunkTracker {
-                index: v.index,
-                expected_hash: v.expected_hash.clone(),
-                state: v.state,
-                received_at: v.received_at,
-                retry_count: v.retry_count,
-            })).collect(),
+            chunks: self
+                .chunks
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        *k,
+                        ChunkTracker {
+                            index: v.index,
+                            expected_hash: v.expected_hash.clone(),
+                            state: v.state,
+                            received_at: v.received_at,
+                            retry_count: v.retry_count,
+                        },
+                    )
+                })
+                .collect(),
             window_size: self.window_size,
             in_flight: self.in_flight.clone(),
             started_at: self.started_at,
@@ -287,13 +326,13 @@ impl Clone for ActiveTransfer {
 fn generate_transfer_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    
+
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis();
     let counter = COUNTER.fetch_add(1, Ordering::SeqCst);
-    
+
     format!("{:x}-{:04x}", timestamp, counter % 0xFFFF)
 }
 
@@ -341,7 +380,10 @@ mod tests {
         );
 
         let status = transfer.validate_chunk(0, b"wrong data");
-        assert!(matches!(status, AckStatus::Error(AckErrorReason::HashMismatch)));
+        assert!(matches!(
+            status,
+            AckStatus::Error(AckErrorReason::HashMismatch)
+        ));
     }
 
     #[test]

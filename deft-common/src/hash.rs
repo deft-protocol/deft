@@ -1,4 +1,4 @@
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 pub fn sha256_hex(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
@@ -24,16 +24,13 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 pub fn hex_decode(s: &str) -> Result<Vec<u8>, HexDecodeError> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err(HexDecodeError::OddLength);
     }
 
     (0..s.len())
         .step_by(2)
-        .map(|i| {
-            u8::from_str_radix(&s[i..i + 2], 16)
-                .map_err(|_| HexDecodeError::InvalidChar)
-        })
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| HexDecodeError::InvalidChar))
         .collect()
 }
 
@@ -62,14 +59,23 @@ mod tests {
     fn test_sha256() {
         let data = b"hello world";
         let hash = sha256_hex(data);
-        assert_eq!(hash, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
+        assert_eq!(
+            hash,
+            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+        );
     }
 
     #[test]
     fn test_verify_hash() {
         let data = b"hello world";
-        assert!(verify_hash(data, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"));
-        assert!(!verify_hash(data, "0000000000000000000000000000000000000000000000000000000000000000"));
+        assert!(verify_hash(
+            data,
+            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+        ));
+        assert!(!verify_hash(
+            data,
+            "0000000000000000000000000000000000000000000000000000000000000000"
+        ));
     }
 
     #[test]

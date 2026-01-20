@@ -1,6 +1,8 @@
-use std::collections::HashMap;
+#![allow(dead_code)]
+
 use rand::seq::SliceRandom;
 use rand::Rng;
+use std::collections::HashMap;
 
 /// Generates a random ordering for chunks with nonces for verification
 #[derive(Debug, Clone)]
@@ -19,17 +21,17 @@ impl ChunkOrderer {
     /// Create a new chunk orderer with randomized order
     pub fn new_random(chunk_count: u64) -> Self {
         let mut rng = rand::thread_rng();
-        
+
         // Create ordered list and shuffle
         let mut order: Vec<u64> = (0..chunk_count).collect();
         order.shuffle(&mut rng);
-        
+
         // Generate unique nonces for each chunk
         let mut nonces = HashMap::new();
         for i in 0..chunk_count {
             nonces.insert(i, rng.gen::<u64>());
         }
-        
+
         Self {
             chunk_count,
             order,
@@ -42,12 +44,12 @@ impl ChunkOrderer {
     pub fn new_sequential(chunk_count: u64) -> Self {
         let mut rng = rand::thread_rng();
         let order: Vec<u64> = (0..chunk_count).collect();
-        
+
         let mut nonces = HashMap::new();
         for i in 0..chunk_count {
             nonces.insert(i, rng.gen::<u64>());
         }
-        
+
         Self {
             chunk_count,
             order,
@@ -126,7 +128,12 @@ impl ChunkReorderer {
     }
 
     /// Receive a chunk with optional nonce verification
-    pub fn receive_chunk(&mut self, chunk_index: u64, data: Vec<u8>, nonce: Option<u64>) -> ChunkReceiveResult {
+    pub fn receive_chunk(
+        &mut self,
+        chunk_index: u64,
+        data: Vec<u8>,
+        nonce: Option<u64>,
+    ) -> ChunkReceiveResult {
         if chunk_index >= self.total_chunks {
             return ChunkReceiveResult::InvalidIndex;
         }
@@ -154,7 +161,7 @@ impl ChunkReorderer {
         }
 
         self.received.insert(chunk_index, (data, nonce));
-        
+
         if self.is_complete() {
             ChunkReceiveResult::Complete
         } else {
@@ -227,12 +234,12 @@ mod tests {
     #[test]
     fn test_random_ordering() {
         let orderer = ChunkOrderer::new_random(10);
-        
+
         // Should have all indices 0-9
         let mut indices: Vec<u64> = orderer.sending_order().to_vec();
         indices.sort();
         assert_eq!(indices, (0..10).collect::<Vec<_>>());
-        
+
         // Each chunk should have a nonce
         for i in 0..10 {
             assert!(orderer.get_nonce(i).is_some());
@@ -248,7 +255,7 @@ mod tests {
     #[test]
     fn test_chunk_iteration() {
         let mut orderer = ChunkOrderer::new_sequential(3);
-        
+
         assert_eq!(orderer.next_chunk(), Some(0));
         assert_eq!(orderer.next_chunk(), Some(1));
         assert_eq!(orderer.next_chunk(), Some(2));
@@ -259,14 +266,17 @@ mod tests {
     #[test]
     fn test_reorderer_basic() {
         let mut reorderer = ChunkReorderer::new(3);
-        
+
         // Receive out of order
         assert!(reorderer.receive_chunk(2, vec![3, 4], None).is_ok());
         assert!(reorderer.receive_chunk(0, vec![1, 2], None).is_ok());
-        assert_eq!(reorderer.receive_chunk(1, vec![2, 3], None), ChunkReceiveResult::Complete);
-        
+        assert_eq!(
+            reorderer.receive_chunk(1, vec![2, 3], None),
+            ChunkReceiveResult::Complete
+        );
+
         assert!(reorderer.is_complete());
-        
+
         // Reassemble in order
         let data = reorderer.reassemble().unwrap();
         assert_eq!(data, vec![1, 2, 2, 3, 3, 4]);
@@ -277,34 +287,40 @@ mod tests {
         let mut reorderer = ChunkReorderer::new(2);
         reorderer.set_expected_nonce(0, 12345);
         reorderer.set_expected_nonce(1, 67890);
-        
+
         // Correct nonce
         assert!(reorderer.receive_chunk(0, vec![1], Some(12345)).is_ok());
-        
+
         // Wrong nonce
         let result = reorderer.receive_chunk(1, vec![2], Some(99999));
-        assert_eq!(result, ChunkReceiveResult::NonceMismatch {
-            expected: 67890,
-            received: 99999,
-        });
+        assert_eq!(
+            result,
+            ChunkReceiveResult::NonceMismatch {
+                expected: 67890,
+                received: 99999,
+            }
+        );
     }
 
     #[test]
     fn test_reorderer_duplicate() {
         let mut reorderer = ChunkReorderer::new(2);
-        
+
         assert!(reorderer.receive_chunk(0, vec![1], None).is_ok());
-        assert_eq!(reorderer.receive_chunk(0, vec![1], None), ChunkReceiveResult::Duplicate);
+        assert_eq!(
+            reorderer.receive_chunk(0, vec![1], None),
+            ChunkReceiveResult::Duplicate
+        );
     }
 
     #[test]
     fn test_missing_chunks() {
         let mut reorderer = ChunkReorderer::new(5);
-        
+
         reorderer.receive_chunk(0, vec![], None);
         reorderer.receive_chunk(2, vec![], None);
         reorderer.receive_chunk(4, vec![], None);
-        
+
         assert_eq!(reorderer.missing_chunks(), vec![1, 3]);
     }
 }

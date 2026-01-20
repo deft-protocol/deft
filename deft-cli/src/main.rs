@@ -47,15 +47,11 @@ enum Commands {
         version: String,
     },
     /// Authenticate with partner ID
-    Auth {
-        partner_id: String,
-    },
+    Auth { partner_id: String },
     /// Discover available virtual files
     Discover,
     /// Describe a virtual file (get metadata and chunk info)
-    Describe {
-        virtual_file: String,
-    },
+    Describe { virtual_file: String },
     /// Get chunks from a virtual file
     Get {
         virtual_file: String,
@@ -83,13 +79,9 @@ enum Commands {
         chunk_size: u32,
     },
     /// Interactive session with handshake
-    Connect {
-        partner_id: String,
-    },
+    Connect { partner_id: String },
     /// Send raw RIFT command
-    Raw {
-        command: Vec<String>,
-    },
+    Raw { command: Vec<String> },
 }
 
 #[tokio::main]
@@ -112,7 +104,7 @@ async fn main() -> Result<()> {
             // Must HELLO first
             let hello = Command::hello(DEFT_VERSION, Capabilities::all());
             let _ = send_command(&mut conn, &hello).await?;
-            
+
             let cmd = Command::auth(partner_id);
             let response = send_command(&mut conn, &cmd).await?;
             println!("{}", response);
@@ -124,15 +116,30 @@ async fn main() -> Result<()> {
             eprintln!("Error: DESCRIBE requires an authenticated session. Use 'connect' command.");
             eprintln!("Virtual file: {}", virtual_file);
         }
-        Commands::Get { virtual_file, chunks } => {
+        Commands::Get {
+            virtual_file,
+            chunks,
+        } => {
             eprintln!("Error: GET requires an authenticated session. Use 'connect' command.");
             eprintln!("Virtual file: {}, chunks: {}", virtual_file, chunks);
         }
-        Commands::Put { virtual_file, chunk, hash } => {
+        Commands::Put {
+            virtual_file,
+            chunk,
+            hash,
+        } => {
             eprintln!("Error: PUT requires an authenticated session. Use 'connect' command.");
-            eprintln!("Virtual file: {}, chunk: {}, hash: {}", virtual_file, chunk, hash);
+            eprintln!(
+                "Virtual file: {}, chunk: {}, hash: {}",
+                virtual_file, chunk, hash
+            );
         }
-        Commands::Send { ref partner_id, ref virtual_file, ref file_path, chunk_size } => {
+        Commands::Send {
+            ref partner_id,
+            ref virtual_file,
+            ref file_path,
+            chunk_size,
+        } => {
             send_file(&cli, partner_id, virtual_file, file_path, chunk_size).await?;
         }
         Commands::Connect { ref partner_id } => {
@@ -155,17 +162,22 @@ struct Connection {
 }
 
 async fn connect(cli: &Cli) -> Result<Connection> {
-    let stream = TcpStream::connect(&cli.server).await
+    let stream = TcpStream::connect(&cli.server)
+        .await
         .with_context(|| format!("Failed to connect to {}", cli.server))?;
 
     let tls_config = build_client_tls_config(cli)?;
     let connector = TlsConnector::from(Arc::new(tls_config));
 
     let server_name = cli.server.split(':').next().unwrap_or("localhost");
-    let server_name = server_name.to_string().try_into()
+    let server_name = server_name
+        .to_string()
+        .try_into()
         .context("Invalid server name")?;
 
-    let tls_stream = connector.connect(server_name, stream).await
+    let tls_stream = connector
+        .connect(server_name, stream)
+        .await
         .context("TLS handshake failed")?;
 
     let (reader, writer) = tokio::io::split(tls_stream);
@@ -274,7 +286,7 @@ async fn send_file(
     let mut file = std::fs::File::open(file_path)
         .with_context(|| format!("Failed to open file: {:?}", file_path))?;
     let file_size = file.metadata()?.len();
-    
+
     println!("Preparing to send: {:?} ({} bytes)", file_path, file_size);
 
     // Create chunker and compute chunks metadata
@@ -291,7 +303,10 @@ async fn send_file(
     }
 
     println!("File hash: {}", file_hash);
-    println!("Total chunks: {} (chunk size: {} bytes)", total_chunks, chunk_size);
+    println!(
+        "Total chunks: {} (chunk size: {} bytes)",
+        total_chunks, chunk_size
+    );
 
     // Connect and authenticate
     let mut conn = connect(cli).await?;
@@ -307,7 +322,10 @@ async fn send_file(
     }
 
     // Parse welcome to get window size
-    let window_size = if let Ok(Response::Welcome { ref capabilities, .. }) = RiftParser::parse_response(&welcome) {
+    let window_size = if let Ok(Response::Welcome {
+        ref capabilities, ..
+    }) = RiftParser::parse_response(&welcome)
+    {
         capabilities.window_size.unwrap_or(64)
     } else {
         64 // default
@@ -326,12 +344,7 @@ async fn send_file(
 
     // BEGIN_TRANSFER
     println!("\n>>> Starting transfer...");
-    let begin_cmd = Command::begin_transfer(
-        virtual_file,
-        total_chunks,
-        file_size,
-        &file_hash,
-    );
+    let begin_cmd = Command::begin_transfer(virtual_file, total_chunks, file_size, &file_hash);
     let begin_response = send_command(&mut conn, &begin_cmd).await?;
     println!("<<< {}", begin_response);
 
@@ -341,7 +354,7 @@ async fn send_file(
 
     // Send chunks with sliding window
     println!("\n>>> Sending {} chunks...", total_chunks);
-    
+
     let mut acked_chunks = 0u64;
     let mut failed_chunks = Vec::new();
 
@@ -366,9 +379,12 @@ async fn send_file(
 
             if ack_response.contains("OK") {
                 acked_chunks += 1;
-                print!("\r    Sent chunk {}/{} ({:.1}%)", 
-                    chunk_index + 1, total_chunks,
-                    (chunk_index + 1) as f64 / total_chunks as f64 * 100.0);
+                print!(
+                    "\r    Sent chunk {}/{} ({:.1}%)",
+                    chunk_index + 1,
+                    total_chunks,
+                    (chunk_index + 1) as f64 / total_chunks as f64 * 100.0
+                );
                 std::io::Write::flush(&mut std::io::stdout())?;
             } else {
                 warn!("Chunk {} failed: {}", chunk_index, ack_response);
@@ -393,9 +409,16 @@ async fn send_file(
 
     // Summary
     if failed_chunks.is_empty() {
-        println!("\n✓ Transfer complete: {} chunks sent successfully", acked_chunks);
+        println!(
+            "\n✓ Transfer complete: {} chunks sent successfully",
+            acked_chunks
+        );
     } else {
-        println!("\n✗ Transfer incomplete: {} chunks failed: {:?}", failed_chunks.len(), failed_chunks);
+        println!(
+            "\n✗ Transfer incomplete: {} chunks failed: {:?}",
+            failed_chunks.len(),
+            failed_chunks
+        );
     }
 
     // BYE
@@ -408,8 +431,8 @@ fn build_client_tls_config(cli: &Cli) -> Result<rustls::ClientConfig> {
     let mut root_store = rustls::RootCertStore::empty();
 
     if let Some(ca_path) = &cli.ca {
-        let ca_file = File::open(ca_path)
-            .with_context(|| format!("Failed to open CA file: {}", ca_path))?;
+        let ca_file =
+            File::open(ca_path).with_context(|| format!("Failed to open CA file: {}", ca_path))?;
         let mut ca_reader = BufReader::new(ca_file);
 
         let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut ca_reader)

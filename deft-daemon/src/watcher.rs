@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc;
 use tokio::time::interval;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 
 /// File event types
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,13 +74,15 @@ impl DirectoryWatcher {
     /// Start watching the directory
     pub async fn watch(&mut self) {
         let mut poll_interval = interval(Duration::from_secs(self.config.poll_interval_secs));
-        
-        info!("Starting directory watch: {:?} (interval: {}s)", 
-              self.config.path, self.config.poll_interval_secs);
+
+        info!(
+            "Starting directory watch: {:?} (interval: {}s)",
+            self.config.path, self.config.poll_interval_secs
+        );
 
         loop {
             poll_interval.tick().await;
-            
+
             if let Err(e) = self.poll().await {
                 error!("Poll error for {:?}: {}", self.config.path, e);
             }
@@ -90,7 +92,7 @@ impl DirectoryWatcher {
     /// Poll the directory for changes
     async fn poll(&mut self) -> std::io::Result<()> {
         let current_files = self.scan_directory()?;
-        
+
         // Detect new and modified files
         for (path, state) in &current_files {
             match self.known_files.get(path) {
@@ -111,11 +113,13 @@ impl DirectoryWatcher {
 
         // Detect deleted files
         let current_paths: HashSet<_> = current_files.keys().collect();
-        let deleted: Vec<_> = self.known_files.keys()
+        let deleted: Vec<_> = self
+            .known_files
+            .keys()
             .filter(|p| !current_paths.contains(p))
             .cloned()
             .collect();
-        
+
         for path in deleted {
             debug!("Deleted file detected: {:?}", path);
             let _ = self.event_tx.send(FileEvent::Deleted(path.clone())).await;
@@ -124,7 +128,7 @@ impl DirectoryWatcher {
 
         // Update known files
         self.known_files = current_files;
-        
+
         Ok(())
     }
 
@@ -140,7 +144,7 @@ impl DirectoryWatcher {
         for entry in std::fs::read_dir(&self.config.path)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if !path.is_file() {
                 continue;
             }
@@ -159,7 +163,7 @@ impl DirectoryWatcher {
                 modified: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
                 sent: false,
             };
-            
+
             files.insert(path, state);
         }
 
@@ -168,10 +172,8 @@ impl DirectoryWatcher {
 
     /// Check if path matches glob pattern
     fn matches_pattern(&self, path: &Path, pattern: &str) -> bool {
-        let filename = path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-        
+        let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
         // Simple glob matching (supports * and ?)
         glob_match(pattern, filename)
     }
@@ -202,7 +204,7 @@ impl DirectoryWatcher {
 fn glob_match(pattern: &str, text: &str) -> bool {
     let mut pi = pattern.chars().peekable();
     let mut ti = text.chars().peekable();
-    
+
     while let Some(pc) = pi.next() {
         match pc {
             '*' => {
@@ -210,12 +212,12 @@ fn glob_match(pattern: &str, text: &str) -> bool {
                 while pi.peek() == Some(&'*') {
                     pi.next();
                 }
-                
+
                 // If star is at end, match rest
                 if pi.peek().is_none() {
                     return true;
                 }
-                
+
                 // Try matching remaining pattern at each position
                 let remaining: String = pi.collect();
                 while ti.peek().is_some() {
@@ -239,7 +241,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
             }
         }
     }
-    
+
     ti.peek().is_none()
 }
 
@@ -286,20 +288,20 @@ mod tests {
         // Exact match
         assert!(glob_match("file.txt", "file.txt"));
         assert!(!glob_match("file.txt", "file.xml"));
-        
+
         // Star wildcard
         assert!(glob_match("*.txt", "file.txt"));
         assert!(glob_match("*.txt", "document.txt"));
         assert!(!glob_match("*.txt", "file.xml"));
-        
+
         // Star in middle
         assert!(glob_match("file*.txt", "file123.txt"));
         assert!(glob_match("file*.txt", "file.txt"));
-        
+
         // Question mark
         assert!(glob_match("file?.txt", "file1.txt"));
         assert!(!glob_match("file?.txt", "file12.txt"));
-        
+
         // Complex patterns
         assert!(glob_match("*.xml", "orders.xml"));
         assert!(glob_match("order_*.xml", "order_2026.xml"));
@@ -317,9 +319,11 @@ mod tests {
     #[tokio::test]
     async fn test_file_event() {
         let (tx, mut rx) = mpsc::channel(10);
-        
-        tx.send(FileEvent::Created(PathBuf::from("/test/file.txt"))).await.unwrap();
-        
+
+        tx.send(FileEvent::Created(PathBuf::from("/test/file.txt")))
+            .await
+            .unwrap();
+
         let event = rx.recv().await.unwrap();
         assert!(matches!(event, FileEvent::Created(_)));
     }

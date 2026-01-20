@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex, Semaphore};
-use tracing::{debug, info, warn};
+use tokio::sync::{Mutex, Semaphore};
+use tracing::{debug, warn};
 
 /// Configuration for parallel transfers
 #[derive(Debug, Clone)]
@@ -116,7 +116,10 @@ impl ParallelReceiver {
     /// Store a received chunk
     pub async fn store_chunk(&self, index: u64, data: Vec<u8>, hash: String) -> bool {
         if index >= self.total_chunks {
-            warn!("Received chunk {} but total is {}", index, self.total_chunks);
+            warn!(
+                "Received chunk {} but total is {}",
+                index, self.total_chunks
+            );
             return false;
         }
 
@@ -240,12 +243,18 @@ impl TransferCoordinator {
     /// Mark a chunk as acknowledged
     pub async fn chunk_acked(&self, chunk_index: u64, success: bool) {
         self.pending_acks.lock().await.remove(&chunk_index);
-        self.sender.record_result(ChunkResult {
-            chunk_index,
-            success,
-            bytes_sent: 0,
-            error: if success { None } else { Some("ACK failed".into()) },
-        }).await;
+        self.sender
+            .record_result(ChunkResult {
+                chunk_index,
+                success,
+                bytes_sent: 0,
+                error: if success {
+                    None
+                } else {
+                    Some("ACK failed".into())
+                },
+            })
+            .await;
     }
 
     /// Get chunks that have timed out
@@ -277,25 +286,29 @@ mod tests {
     #[tokio::test]
     async fn test_parallel_sender() {
         let sender = ParallelSender::new(ParallelConfig::default());
-        
+
         // Acquire permits
         let _permit1 = sender.acquire().await.unwrap();
         let _permit2 = sender.acquire().await.unwrap();
-        
-        // Record results
-        sender.record_result(ChunkResult {
-            chunk_index: 0,
-            success: true,
-            bytes_sent: 1024,
-            error: None,
-        }).await;
 
-        sender.record_result(ChunkResult {
-            chunk_index: 1,
-            success: false,
-            bytes_sent: 0,
-            error: Some("Network error".into()),
-        }).await;
+        // Record results
+        sender
+            .record_result(ChunkResult {
+                chunk_index: 0,
+                success: true,
+                bytes_sent: 1024,
+                error: None,
+            })
+            .await;
+
+        sender
+            .record_result(ChunkResult {
+                chunk_index: 1,
+                success: false,
+                bytes_sent: 0,
+                error: Some("Network error".into()),
+            })
+            .await;
 
         assert_eq!(sender.success_count().await, 1);
         assert_eq!(sender.failed_chunks().await, vec![1]);
@@ -304,15 +317,15 @@ mod tests {
     #[tokio::test]
     async fn test_parallel_receiver() {
         let receiver = ParallelReceiver::new(ParallelConfig::default(), 3);
-        
+
         // Receive out of order
         assert!(receiver.store_chunk(2, vec![3], "hash2".into()).await);
         assert!(receiver.store_chunk(0, vec![1], "hash0".into()).await);
         assert!(!receiver.is_complete().await);
-        
+
         assert!(receiver.store_chunk(1, vec![2], "hash1".into()).await);
         assert!(receiver.is_complete().await);
-        
+
         // Reassemble
         let data = receiver.reassemble().await.unwrap();
         assert_eq!(data, vec![1, 2, 3]);
@@ -321,11 +334,11 @@ mod tests {
     #[tokio::test]
     async fn test_parallel_receiver_missing() {
         let receiver = ParallelReceiver::new(ParallelConfig::default(), 5);
-        
+
         receiver.store_chunk(0, vec![], "".into()).await;
         receiver.store_chunk(2, vec![], "".into()).await;
         receiver.store_chunk(4, vec![], "".into()).await;
-        
+
         let missing = receiver.missing_chunks().await;
         assert_eq!(missing, vec![1, 3]);
     }
@@ -333,14 +346,14 @@ mod tests {
     #[tokio::test]
     async fn test_batch_sender() {
         let mut batch = BatchSender::new(3);
-        
+
         assert!(batch.add(0));
         assert!(batch.add(1));
         assert!(!batch.is_full());
         assert!(batch.add(2));
         assert!(batch.is_full());
         assert!(!batch.add(3)); // Full
-        
+
         let chunks = batch.take_batch();
         assert_eq!(chunks, vec![0, 1, 2]);
         assert!(!batch.is_full());
@@ -349,17 +362,17 @@ mod tests {
     #[tokio::test]
     async fn test_transfer_coordinator() {
         let coord = TransferCoordinator::new(ParallelConfig::default());
-        
+
         coord.chunk_sent(0).await;
         coord.chunk_sent(1).await;
         assert_eq!(coord.pending_count().await, 2);
-        
+
         coord.chunk_acked(0, true).await;
         assert_eq!(coord.pending_count().await, 1);
-        
+
         coord.chunk_acked(1, false).await;
         assert_eq!(coord.pending_count().await, 0);
-        
+
         assert_eq!(coord.sender().success_count().await, 1);
     }
 }

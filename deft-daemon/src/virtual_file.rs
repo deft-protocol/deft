@@ -30,7 +30,7 @@ impl VirtualFileManager {
 
     pub fn register(&self, config: &VirtualFileConfig) -> std::io::Result<()> {
         let path = PathBuf::from(&config.path);
-        
+
         let vf = VirtualFile {
             name: config.name.clone(),
             physical_path: path,
@@ -50,7 +50,9 @@ impl VirtualFileManager {
         let size = metadata.len();
         let chunk_count = (size + self.chunk_size as u64 - 1) / self.chunk_size as u64;
 
-        let modified = metadata.modified().ok()
+        let modified = metadata
+            .modified()
+            .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs().to_string())
             .unwrap_or_default();
@@ -71,15 +73,18 @@ impl VirtualFileManager {
 
     pub fn compute_chunks(&self, name: &str) -> std::io::Result<(VirtualFileInfo, Vec<ChunkInfo>)> {
         let files = self.files.read().unwrap();
-        let vf = files.get(name)
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Virtual file not found"))?;
+        let vf = files.get(name).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "Virtual file not found")
+        })?;
 
         let mut file = File::open(&vf.physical_path)?;
         let chunker = Chunker::new(self.chunk_size);
         let file_chunks = chunker.compute_chunks(&mut file)?;
 
         let metadata = std::fs::metadata(&vf.physical_path)?;
-        let modified = metadata.modified().ok()
+        let modified = metadata
+            .modified()
+            .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs().to_string())
             .unwrap_or_default();
@@ -97,19 +102,24 @@ impl VirtualFileManager {
             },
         };
 
-        let chunks: Vec<ChunkInfo> = file_chunks.chunks.iter().map(|c| ChunkInfo {
-            index: c.index,
-            size: c.size,
-            hash: c.hash.clone(),
-        }).collect();
+        let chunks: Vec<ChunkInfo> = file_chunks
+            .chunks
+            .iter()
+            .map(|c| ChunkInfo {
+                index: c.index,
+                size: c.size,
+                hash: c.hash.clone(),
+            })
+            .collect();
 
         Ok((info, chunks))
     }
 
     pub fn read_chunk(&self, name: &str, chunk_index: u64) -> std::io::Result<Vec<u8>> {
         let files = self.files.read().unwrap();
-        let vf = files.get(name)
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Virtual file not found"))?;
+        let vf = files.get(name).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "Virtual file not found")
+        })?;
 
         let mut file = File::open(&vf.physical_path)?;
         let chunker = Chunker::new(self.chunk_size);
@@ -117,7 +127,8 @@ impl VirtualFileManager {
     }
 
     pub fn list_for_partner(&self, allowed_files: &[String]) -> Vec<VirtualFileInfo> {
-        allowed_files.iter()
+        allowed_files
+            .iter()
             .filter_map(|name| self.get_info(name))
             .collect()
     }

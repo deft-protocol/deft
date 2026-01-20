@@ -36,7 +36,10 @@ impl std::str::FromStr for FileDirection {
         match s.to_uppercase().as_str() {
             "SEND" => Ok(FileDirection::Send),
             "RECV" | "RECEIVE" => Ok(FileDirection::Receive),
-            _ => Err(crate::RiftError::ParseError(format!("Invalid direction: {}", s))),
+            _ => Err(crate::RiftError::ParseError(format!(
+                "Invalid direction: {}",
+                s
+            ))),
         }
     }
 }
@@ -183,7 +186,11 @@ pub enum Response {
 }
 
 impl Response {
-    pub fn welcome(version: impl Into<String>, capabilities: Capabilities, session_id: impl Into<String>) -> Self {
+    pub fn welcome(
+        version: impl Into<String>,
+        capabilities: Capabilities,
+        session_id: impl Into<String>,
+    ) -> Self {
         Response::Welcome {
             version: version.into(),
             capabilities,
@@ -210,72 +217,161 @@ impl Response {
 impl fmt::Display for Response {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Response::Welcome { version, capabilities, session_id } => {
+            Response::Welcome {
+                version,
+                capabilities,
+                session_id,
+            } => {
                 if capabilities.caps.is_empty() && capabilities.window_size.is_none() {
                     write!(f, "DEFT WELCOME {} {}", version, session_id)
                 } else {
-                    write!(f, "DEFT WELCOME {} {} {}", version, capabilities, session_id)
+                    write!(
+                        f,
+                        "DEFT WELCOME {} {} {}",
+                        version, capabilities, session_id
+                    )
                 }
             }
-            Response::AuthOk { partner_name, virtual_files } => {
+            Response::AuthOk {
+                partner_name,
+                virtual_files,
+            } => {
                 let vf_list = virtual_files.join(",");
                 write!(f, "DEFT AUTH_OK \"{}\" VF:{}", partner_name, vf_list)
             }
             Response::Files { files } => {
                 writeln!(f, "DEFT FILES {}", files.len())?;
                 for file in files {
-                    writeln!(f, "  {} {} {} {}", file.name, file.size, file.direction, file.modified)?;
+                    writeln!(
+                        f,
+                        "  {} {} {} {}",
+                        file.name, file.size, file.direction, file.modified
+                    )?;
                 }
                 Ok(())
             }
             Response::FileInfo { info, chunks } => {
-                writeln!(f, "DEFT FILE_INFO {} SIZE:{} CHUNKS:{} CHUNK_SIZE:{} HASH:{}",
-                    info.name, info.size, info.chunk_count, info.chunk_size, info.hash)?;
+                writeln!(
+                    f,
+                    "DEFT FILE_INFO {} SIZE:{} CHUNKS:{} CHUNK_SIZE:{} HASH:{}",
+                    info.name, info.size, info.chunk_count, info.chunk_size, info.hash
+                )?;
                 for chunk in chunks {
-                    writeln!(f, "  CHUNK {} SIZE:{} HASH:{}", chunk.index, chunk.size, chunk.hash)?;
+                    writeln!(
+                        f,
+                        "  CHUNK {} SIZE:{} HASH:{}",
+                        chunk.index, chunk.size, chunk.hash
+                    )?;
                 }
                 Ok(())
             }
-            Response::ChunkData { virtual_file, chunk_index, data } => {
-                write!(f, "DEFT CHUNK_DATA {} {} SIZE:{}", virtual_file, chunk_index, data.len())
+            Response::ChunkData {
+                virtual_file,
+                chunk_index,
+                data,
+            } => {
+                write!(
+                    f,
+                    "DEFT CHUNK_DATA {} {} SIZE:{}",
+                    virtual_file,
+                    chunk_index,
+                    data.len()
+                )
             }
-            Response::ChunkOk { virtual_file, chunk_index } => {
+            Response::ChunkOk {
+                virtual_file,
+                chunk_index,
+            } => {
                 write!(f, "DEFT CHUNK_OK {} {}", virtual_file, chunk_index)
             }
-            Response::TransferAccepted { transfer_id, virtual_file, window_size } => {
-                write!(f, "DEFT TRANSFER_ACCEPTED {} {} WINDOW_SIZE:{}", transfer_id, virtual_file, window_size)
+            Response::TransferAccepted {
+                transfer_id,
+                virtual_file,
+                window_size,
+            } => {
+                write!(
+                    f,
+                    "DEFT TRANSFER_ACCEPTED {} {} WINDOW_SIZE:{}",
+                    transfer_id, virtual_file, window_size
+                )
             }
-            Response::ChunkReady { virtual_file, chunk_index, size } => {
-                write!(f, "DEFT CHUNK_READY {} {} SIZE:{}", virtual_file, chunk_index, size)
+            Response::ChunkReady {
+                virtual_file,
+                chunk_index,
+                size,
+            } => {
+                write!(
+                    f,
+                    "DEFT CHUNK_READY {} {} SIZE:{}",
+                    virtual_file, chunk_index, size
+                )
             }
-            Response::ChunkAck { virtual_file, chunk_index, status } => {
-                write!(f, "DEFT CHUNK_ACK {} {} {}", virtual_file, chunk_index, status)
+            Response::ChunkAck {
+                virtual_file,
+                chunk_index,
+                status,
+            } => {
+                write!(
+                    f,
+                    "DEFT CHUNK_ACK {} {} {}",
+                    virtual_file, chunk_index, status
+                )
             }
-            Response::ChunkAckBatch { virtual_file, ranges } => {
+            Response::ChunkAckBatch {
+                virtual_file,
+                ranges,
+            } => {
                 let ranges_str: Vec<String> = ranges.iter().map(|r| r.to_string()).collect();
-                write!(f, "DEFT CHUNK_ACK_BATCH {} {}", virtual_file, ranges_str.join(","))
+                write!(
+                    f,
+                    "DEFT CHUNK_ACK_BATCH {} {}",
+                    virtual_file,
+                    ranges_str.join(",")
+                )
             }
-            Response::TransferComplete { virtual_file, file_hash, total_size, chunk_count, signature } => {
+            Response::TransferComplete {
+                virtual_file,
+                file_hash,
+                total_size,
+                chunk_count,
+                signature,
+            } => {
                 if let Some(sig) = signature {
-                    write!(f, "DEFT TRANSFER_COMPLETE {} {} {} {} sig:{}", virtual_file, file_hash, total_size, chunk_count, sig)
+                    write!(
+                        f,
+                        "DEFT TRANSFER_COMPLETE {} {} {} {} sig:{}",
+                        virtual_file, file_hash, total_size, chunk_count, sig
+                    )
                 } else {
-                    write!(f, "DEFT TRANSFER_COMPLETE {} {} {} {}", virtual_file, file_hash, total_size, chunk_count)
+                    write!(
+                        f,
+                        "DEFT TRANSFER_COMPLETE {} {} {} {}",
+                        virtual_file, file_hash, total_size, chunk_count
+                    )
                 }
             }
-            Response::TransferStatus { transfer_id, virtual_file, total_chunks, received_chunks, pending_chunks } => {
-                let pending_str = pending_chunks.iter()
+            Response::TransferStatus {
+                transfer_id,
+                virtual_file,
+                total_chunks,
+                received_chunks,
+                pending_chunks,
+            } => {
+                let pending_str = pending_chunks
+                    .iter()
                     .map(|c| c.to_string())
                     .collect::<Vec<_>>()
                     .join(",");
-                write!(f, "DEFT TRANSFER_STATUS {} {} {}/{} PENDING:{}", 
-                    transfer_id, virtual_file, received_chunks, total_chunks, pending_str)
+                write!(
+                    f,
+                    "DEFT TRANSFER_STATUS {} {} {}/{} PENDING:{}",
+                    transfer_id, virtual_file, received_chunks, total_chunks, pending_str
+                )
             }
-            Response::Error { code, message } => {
-                match message {
-                    Some(msg) => write!(f, "DEFT ERROR {} {}", code.code(), msg),
-                    None => write!(f, "DEFT ERROR {} {}", code.code(), code.message()),
-                }
-            }
+            Response::Error { code, message } => match message {
+                Some(msg) => write!(f, "DEFT ERROR {} {}", code.code(), msg),
+                None => write!(f, "DEFT ERROR {} {}", code.code(), code.message()),
+            },
             Response::Goodbye => {
                 write!(f, "DEFT GOODBYE")
             }
@@ -291,11 +387,26 @@ mod tests {
     #[test]
     fn test_ack_status_display() {
         assert_eq!(AckStatus::Ok.to_string(), "OK");
-        assert_eq!(AckStatus::Error(AckErrorReason::HashMismatch).to_string(), "ERROR HASH_MISMATCH");
-        assert_eq!(AckStatus::Error(AckErrorReason::Timeout).to_string(), "ERROR TIMEOUT");
-        assert_eq!(AckStatus::Error(AckErrorReason::OutOfOrder).to_string(), "ERROR OUT_OF_ORDER");
-        assert_eq!(AckStatus::Error(AckErrorReason::StorageFull).to_string(), "ERROR STORAGE_FULL");
-        assert_eq!(AckStatus::Error(AckErrorReason::Unknown).to_string(), "ERROR UNKNOWN");
+        assert_eq!(
+            AckStatus::Error(AckErrorReason::HashMismatch).to_string(),
+            "ERROR HASH_MISMATCH"
+        );
+        assert_eq!(
+            AckStatus::Error(AckErrorReason::Timeout).to_string(),
+            "ERROR TIMEOUT"
+        );
+        assert_eq!(
+            AckStatus::Error(AckErrorReason::OutOfOrder).to_string(),
+            "ERROR OUT_OF_ORDER"
+        );
+        assert_eq!(
+            AckStatus::Error(AckErrorReason::StorageFull).to_string(),
+            "ERROR STORAGE_FULL"
+        );
+        assert_eq!(
+            AckStatus::Error(AckErrorReason::Unknown).to_string(),
+            "ERROR UNKNOWN"
+        );
     }
 
     #[test]
@@ -315,7 +426,10 @@ mod tests {
             chunk_index: 5,
             status: AckStatus::Error(AckErrorReason::HashMismatch),
         };
-        assert_eq!(resp.to_string(), "DEFT CHUNK_ACK invoices 5 ERROR HASH_MISMATCH");
+        assert_eq!(
+            resp.to_string(),
+            "DEFT CHUNK_ACK invoices 5 ERROR HASH_MISMATCH"
+        );
     }
 
     #[test]
@@ -339,7 +453,10 @@ mod tests {
             chunk_count: 100,
             signature: None,
         };
-        assert_eq!(resp.to_string(), "DEFT TRANSFER_COMPLETE invoices sha256:abc123 1048576 100");
+        assert_eq!(
+            resp.to_string(),
+            "DEFT TRANSFER_COMPLETE invoices sha256:abc123 1048576 100"
+        );
     }
 
     #[test]
@@ -351,13 +468,16 @@ mod tests {
             chunk_count: 100,
             signature: Some("ed25519:xyz789".to_string()),
         };
-        assert_eq!(resp.to_string(), "DEFT TRANSFER_COMPLETE invoices sha256:abc123 1048576 100 sig:ed25519:xyz789");
+        assert_eq!(
+            resp.to_string(),
+            "DEFT TRANSFER_COMPLETE invoices sha256:abc123 1048576 100 sig:ed25519:xyz789"
+        );
     }
 
     #[test]
     fn test_welcome_response_with_window_size() {
         let caps = Capabilities::new()
-            .add(Capability::Chunked)
+            .with(Capability::Chunked)
             .with_window_size(64);
         let resp = Response::welcome("1.0", caps, "sess_123");
         let s = resp.to_string();

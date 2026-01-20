@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::io::BufReader;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,7 +14,7 @@ use tracing::{error, info, warn};
 
 use crate::config::Config;
 use crate::handler::CommandHandler;
-use crate::rate_limit::{RateLimitConfig, RateLimiter, RateLimitResult};
+use crate::rate_limit::{RateLimitConfig, RateLimiter};
 use crate::session::Session;
 
 pub struct Server {
@@ -49,7 +48,8 @@ impl Server {
     }
 
     pub async fn run(&self) -> Result<()> {
-        let listener = TcpListener::bind(&self.config.server.listen).await
+        let listener = TcpListener::bind(&self.config.server.listen)
+            .await
             .with_context(|| format!("Failed to bind to {}", self.config.server.listen))?;
 
         info!("DEFT server listening on {}", self.config.server.listen);
@@ -78,7 +78,7 @@ impl Server {
                     }
 
                     info!("New connection from {}", addr);
-                    
+
                     let acceptor = self.tls_acceptor.clone();
                     let handler = self.handler.clone();
                     let rate_limiter = self.rate_limiter.clone();
@@ -91,14 +91,16 @@ impl Server {
                                 if let Some(ref cn) = cert_cn {
                                     info!("Client certificate CN: {}", cn);
                                 }
-                                
+
                                 if let Err(e) = handle_connection(
-                                    tls_stream, 
-                                    handler, 
+                                    tls_stream,
+                                    handler,
                                     cert_cn,
                                     rate_limiter,
                                     idle_timeout,
-                                ).await {
+                                )
+                                .await
+                                {
                                     warn!("Connection error: {}", e);
                                 }
                             }
@@ -118,11 +120,11 @@ impl Server {
 
 fn extract_client_cn<S>(tls_stream: &tokio_rustls::server::TlsStream<S>) -> Option<String> {
     let (_, server_conn) = tls_stream.get_ref();
-    
+
     // Get peer certificates
     let certs = server_conn.peer_certificates()?;
     let first_cert = certs.first()?;
-    
+
     // Parse the certificate to extract CN
     // Using x509-parser would be ideal, but for simplicity we'll parse the DER manually
     // The CN is typically in the Subject field
@@ -133,7 +135,7 @@ fn extract_cn_from_der(der: &[u8]) -> Option<String> {
     // Simple DER parsing to find CN in subject
     // This is a simplified implementation - a production system should use x509-parser
     let der_str = String::from_utf8_lossy(der);
-    
+
     // Look for common patterns in DER-encoded certificates
     // CN values are often readable in the raw bytes
     for window in der.windows(4) {
@@ -154,22 +156,23 @@ fn extract_cn_from_der(der: &[u8]) -> Option<String> {
             }
         }
     }
-    
+
     // Fallback: try to find CN= pattern in the raw data
     if let Some(pos) = der_str.find("CN=") {
         let start = pos + 3;
-        let end = der_str[start..].find(|c: char| c == ',' || c == '/' || !c.is_ascii_graphic())
+        let end = der_str[start..]
+            .find(|c: char| c == ',' || c == '/' || !c.is_ascii_graphic())
             .map(|e| start + e)
             .unwrap_or(der_str.len().min(start + 64));
         return Some(der_str[start..end].to_string());
     }
-    
+
     None
 }
 
 async fn handle_connection<S>(
-    stream: S, 
-    handler: Arc<CommandHandler>, 
+    stream: S,
+    handler: Arc<CommandHandler>,
     cert_cn: Option<String>,
     rate_limiter: Arc<RateLimiter>,
     idle_timeout: Duration,
@@ -180,7 +183,7 @@ where
     let (reader, mut writer) = tokio::io::split(stream);
     let mut reader = TokioBufReader::new(reader);
     let mut session = Session::new();
-    
+
     // Store certificate CN in session for mTLS-based authentication
     if let Some(cn) = cert_cn {
         session.set_cert_cn(cn);
@@ -191,12 +194,9 @@ where
 
     loop {
         line.clear();
-        
+
         // Read with timeout
-        let read_result = tokio::time::timeout(
-            idle_timeout,
-            reader.read_line(&mut line)
-        ).await;
+        let read_result = tokio::time::timeout(idle_timeout, reader.read_line(&mut line)).await;
 
         match read_result {
             Err(_) => {
@@ -222,12 +222,17 @@ where
         // Check partner rate limit if authenticated
         if let Some(partner_id) = session.partner_id() {
             if !rate_limiter.check_partner(partner_id).await.is_allowed() {
-                warn!("Session {} rate limited for partner {}", session.id, partner_id);
+                warn!(
+                    "Session {} rate limited for partner {}",
+                    session.id, partner_id
+                );
                 let error_response = deft_protocol::Response::Error {
                     code: deft_protocol::RiftErrorCode::RateLimited,
                     message: Some("Rate limit exceeded".to_string()),
                 };
-                writer.write_all(format!("{}\n", error_response).as_bytes()).await?;
+                writer
+                    .write_all(format!("{}\n", error_response).as_bytes())
+                    .await?;
                 writer.flush().await?;
                 break;
             }
@@ -244,16 +249,27 @@ where
         writer.flush().await?;
 
         // Handle binary data reception after ChunkReady
-        if let deft_protocol::Response::ChunkReady { ref virtual_file, chunk_index, size } = response {
+        if let deft_protocol::Response::ChunkReady {
+            ref virtual_file,
+            chunk_index,
+            size,
+        } = response
+        {
             // Record bytes for rate limiting
             if let Some(partner_id) = session.partner_id() {
-                if !rate_limiter.record_bytes(partner_id, size).await.is_allowed() {
+                if !rate_limiter
+                    .record_bytes(partner_id, size)
+                    .await
+                    .is_allowed()
+                {
                     warn!("Session {} bandwidth limit exceeded", session.id);
                     let error_response = deft_protocol::Response::Error {
                         code: deft_protocol::RiftErrorCode::RateLimited,
                         message: Some("Bandwidth limit exceeded".to_string()),
                     };
-                    writer.write_all(format!("{}\n", error_response).as_bytes()).await?;
+                    writer
+                        .write_all(format!("{}\n", error_response).as_bytes())
+                        .await?;
                     writer.flush().await?;
                     break;
                 }
@@ -266,15 +282,18 @@ where
                 virtual_file,
                 chunk_index,
                 size,
-            ).await;
-            
+            )
+            .await;
+
             let ack_str = format!("{}\n", ack_response);
             info!("Session {} -> {}", session.id, ack_str.trim());
             writer.write_all(ack_str.as_bytes()).await?;
             writer.flush().await?;
 
             // Check if transfer is complete after this chunk
-            if let Some(complete_response) = handler.check_transfer_complete(&mut session, virtual_file) {
+            if let Some(complete_response) =
+                handler.check_transfer_complete(&mut session, virtual_file)
+            {
                 let complete_str = format!("{}\n", complete_response);
                 info!("Session {} -> {}", session.id, complete_str.trim());
                 writer.write_all(complete_str.as_bytes()).await?;
@@ -303,12 +322,14 @@ where
     R: tokio::io::AsyncRead + Unpin,
 {
     let mut buffer = vec![0u8; size as usize];
-    
+
     match reader.read_exact(&mut buffer).await {
         Ok(_) => {
-            info!("Session {} received {} bytes for chunk {}", 
-                session.id, size, chunk_index);
-            
+            info!(
+                "Session {} received {} bytes for chunk {}",
+                session.id, size, chunk_index
+            );
+
             // Validate and process the chunk
             handler.handle_chunk_received(
                 session,
@@ -350,7 +371,7 @@ fn build_tls_config(config: &Config) -> Result<rustls::ServerConfig> {
     let ca_file = File::open(&config.server.ca)
         .with_context(|| format!("Failed to open CA file: {}", config.server.ca))?;
     let mut ca_reader = BufReader::new(ca_file);
-    
+
     let ca_certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut ca_reader)
         .collect::<Result<Vec<_>, _>>()
         .context("Failed to parse CA certificates")?;

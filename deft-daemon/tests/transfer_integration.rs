@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::io::Cursor;
-use tempfile::TempDir;
 
 use deft_common::{sha256_hex, Chunker};
 use deft_protocol::{
@@ -44,9 +43,15 @@ impl MockSession {
 
     fn handle_command(&mut self, cmd: &Command) -> Response {
         match cmd {
-            Command::Hello { version, capabilities } => {
+            Command::Hello {
+                version,
+                capabilities,
+            } => {
                 if self.state != SessionState::Connected {
-                    return Response::error(RiftErrorCode::BadRequest, Some("Already welcomed".into()));
+                    return Response::error(
+                        RiftErrorCode::BadRequest,
+                        Some("Already welcomed".into()),
+                    );
                 }
                 self.state = SessionState::Welcomed;
                 self.window_size = capabilities.window_size.unwrap_or(64);
@@ -64,7 +69,12 @@ impl MockSession {
                 self.partner_id = Some(partner_id.clone());
                 Response::auth_ok(partner_id, self.virtual_files.clone())
             }
-            Command::BeginTransfer { virtual_file, total_chunks, total_bytes, file_hash } => {
+            Command::BeginTransfer {
+                virtual_file,
+                total_chunks,
+                total_bytes,
+                file_hash,
+            } => {
                 if self.state != SessionState::Authenticated {
                     return Response::error(RiftErrorCode::Unauthorized, None);
                 }
@@ -72,20 +82,29 @@ impl MockSession {
                     return Response::error(RiftErrorCode::Forbidden, None);
                 }
                 let transfer_id = format!("txn_{}", self.transfers.len());
-                self.transfers.insert(transfer_id.clone(), MockTransfer {
-                    virtual_file: virtual_file.clone(),
-                    total_chunks: *total_chunks,
-                    total_bytes: *total_bytes,
-                    file_hash: file_hash.clone(),
-                    received_chunks: HashMap::new(),
-                });
+                self.transfers.insert(
+                    transfer_id.clone(),
+                    MockTransfer {
+                        virtual_file: virtual_file.clone(),
+                        total_chunks: *total_chunks,
+                        total_bytes: *total_bytes,
+                        file_hash: file_hash.clone(),
+                        received_chunks: HashMap::new(),
+                    },
+                );
                 Response::TransferAccepted {
                     transfer_id,
                     virtual_file: virtual_file.clone(),
                     window_size: self.window_size,
                 }
             }
-            Command::Put { virtual_file, chunk_index, size, hash, .. } => {
+            Command::Put {
+                virtual_file,
+                chunk_index,
+                size,
+                hash: _,
+                ..
+            } => {
                 if self.state != SessionState::Authenticated {
                     return Response::error(RiftErrorCode::Unauthorized, None);
                 }
@@ -96,11 +115,20 @@ impl MockSession {
                 }
             }
             Command::Bye => Response::Goodbye,
-            _ => Response::error(RiftErrorCode::BadRequest, Some("Unsupported command".into())),
+            _ => Response::error(
+                RiftErrorCode::BadRequest,
+                Some("Unsupported command".into()),
+            ),
         }
     }
 
-    fn receive_chunk(&mut self, transfer_id: &str, chunk_index: u64, data: Vec<u8>, expected_hash: &str) -> Response {
+    fn receive_chunk(
+        &mut self,
+        transfer_id: &str,
+        chunk_index: u64,
+        data: Vec<u8>,
+        expected_hash: &str,
+    ) -> Response {
         let transfer = match self.transfers.get_mut(transfer_id) {
             Some(t) => t,
             None => return Response::error(RiftErrorCode::NotFound, None),
@@ -147,8 +175,13 @@ fn test_full_handshake_and_auth() {
     // HELLO
     let hello = Command::hello(DEFT_VERSION, Capabilities::all());
     let resp = session.handle_command(&hello);
-    
-    if let Response::Welcome { version, session_id, .. } = resp {
+
+    if let Response::Welcome {
+        version,
+        session_id,
+        ..
+    } = resp
+    {
         assert_eq!(version, DEFT_VERSION);
         assert!(!session_id.is_empty());
     } else {
@@ -159,8 +192,12 @@ fn test_full_handshake_and_auth() {
     // AUTH
     let auth = Command::auth("partner-acme");
     let resp = session.handle_command(&auth);
-    
-    if let Response::AuthOk { partner_name, virtual_files } = resp {
+
+    if let Response::AuthOk {
+        partner_name,
+        virtual_files,
+    } = resp
+    {
         assert_eq!(partner_name, "partner-acme");
         assert!(virtual_files.contains(&"invoices".to_string()));
     } else {
@@ -204,12 +241,20 @@ fn test_small_file_transfer() {
     // Send each chunk
     for (i, chunk_meta) in file_chunks.chunks.iter().enumerate() {
         let chunk_data = chunker.read_chunk(&mut cursor, i as u64).unwrap();
-        
+
         // PUT command
-        let put = Command::put("invoices", i as u64, chunk_data.len() as u64, &chunk_meta.hash);
+        let put = Command::put(
+            "invoices",
+            i as u64,
+            chunk_data.len() as u64,
+            &chunk_meta.hash,
+        );
         let resp = session.handle_command(&put);
-        
-        if let Response::ChunkReady { chunk_index, size, .. } = resp {
+
+        if let Response::ChunkReady {
+            chunk_index, size, ..
+        } = resp
+        {
             assert_eq!(chunk_index, i as u64);
             assert_eq!(size, chunk_data.len() as u64);
         } else {
@@ -218,21 +263,24 @@ fn test_small_file_transfer() {
 
         // Send binary data and receive ACK
         let resp = session.receive_chunk(&transfer_id, i as u64, chunk_data, &chunk_meta.hash);
-        
+
         if i == file_chunks.chunks.len() - 1 {
             // Last chunk should complete the transfer
-            if let Response::TransferComplete { file_hash: resp_hash, chunk_count, .. } = resp {
+            if let Response::TransferComplete {
+                file_hash: resp_hash,
+                chunk_count,
+                ..
+            } = resp
+            {
                 assert_eq!(resp_hash, file_hash);
                 assert_eq!(chunk_count, file_chunks.chunks.len() as u64);
             } else {
                 panic!("Expected TransferComplete on last chunk");
             }
+        } else if let Response::ChunkAck { status, .. } = resp {
+            assert_eq!(status, AckStatus::Ok);
         } else {
-            if let Response::ChunkAck { status, .. } = resp {
-                assert_eq!(status, AckStatus::Ok);
-            } else {
-                panic!("Expected ChunkAck");
-            }
+            panic!("Expected ChunkAck");
         }
     }
 
@@ -278,8 +326,13 @@ fn test_large_file_transfer() {
     // Send all chunks
     for (i, chunk_meta) in file_chunks.chunks.iter().enumerate() {
         let chunk_data = chunker.read_chunk(&mut cursor, i as u64).unwrap();
-        
-        let put = Command::put("invoices", i as u64, chunk_data.len() as u64, &chunk_meta.hash);
+
+        let put = Command::put(
+            "invoices",
+            i as u64,
+            chunk_data.len() as u64,
+            &chunk_meta.hash,
+        );
         session.handle_command(&put);
         session.receive_chunk(&transfer_id, i as u64, chunk_data, &chunk_meta.hash);
     }
@@ -327,7 +380,10 @@ fn test_hash_mismatch_rejection() {
 
     // Should get hash mismatch error
     if let Response::ChunkAck { status, .. } = resp {
-        assert!(matches!(status, AckStatus::Error(deft_protocol::AckErrorReason::HashMismatch)));
+        assert!(matches!(
+            status,
+            AckStatus::Error(deft_protocol::AckErrorReason::HashMismatch)
+        ));
     } else {
         panic!("Expected ChunkAck with error");
     }
@@ -339,7 +395,7 @@ fn test_unauthorized_transfer() {
 
     // Try to begin transfer without auth
     session.handle_command(&Command::hello(DEFT_VERSION, Capabilities::all()));
-    
+
     let begin = Command::begin_transfer("invoices", 1, 1000, "hash");
     let resp = session.handle_command(&begin);
 
@@ -383,7 +439,8 @@ fn test_protocol_parsing_roundtrip() {
 
     for cmd in commands {
         let serialized = format!("{}", cmd);
-        let parsed = Parser::parse_command(&serialized).expect(&format!("Failed to parse: {}", serialized));
+        let parsed = Parser::parse_command(&serialized)
+            .unwrap_or_else(|_| panic!("Failed to parse: {}", serialized));
         let reserialized = format!("{}", parsed);
         assert_eq!(serialized, reserialized, "Roundtrip failed for command");
     }
@@ -408,7 +465,12 @@ fn test_chunk_ordering() {
     let mut cursor = Cursor::new(&file_data);
     let file_chunks = chunker.compute_chunks(&mut cursor).unwrap();
 
-    let begin = Command::begin_transfer("invoices", num_chunks as u64, file_data.len() as u64, &file_hash);
+    let begin = Command::begin_transfer(
+        "invoices",
+        num_chunks as u64,
+        file_data.len() as u64,
+        &file_hash,
+    );
     let resp = session.handle_command(&begin);
     let transfer_id = if let Response::TransferAccepted { transfer_id, .. } = resp {
         transfer_id
@@ -420,9 +482,19 @@ fn test_chunk_ordering() {
     let order = [5, 2, 8, 0, 3, 7, 1, 6, 4, 9];
     for &i in &order {
         let chunk_data = chunker.read_chunk(&mut cursor, i as u64).unwrap();
-        let put = Command::put("invoices", i as u64, chunk_data.len() as u64, &file_chunks.chunks[i].hash);
+        let put = Command::put(
+            "invoices",
+            i as u64,
+            chunk_data.len() as u64,
+            &file_chunks.chunks[i].hash,
+        );
         session.handle_command(&put);
-        session.receive_chunk(&transfer_id, i as u64, chunk_data, &file_chunks.chunks[i].hash);
+        session.receive_chunk(
+            &transfer_id,
+            i as u64,
+            chunk_data,
+            &file_chunks.chunks[i].hash,
+        );
     }
 
     // Reassemble in correct order and verify

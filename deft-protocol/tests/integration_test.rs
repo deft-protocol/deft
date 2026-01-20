@@ -1,7 +1,6 @@
 use deft_protocol::{
-    Capabilities, Capability, Command, Parser, Response, 
-    Endpoint, EndpointList, ChunkRange, AckStatus,
-    DEFT_VERSION,
+    AckStatus, Capabilities, Capability, ChunkRange, Command, Endpoint, EndpointList, Parser,
+    Response, DEFT_VERSION,
 };
 
 #[test]
@@ -20,7 +19,12 @@ fn test_full_handshake_flow() {
 
     // Parse welcome response
     let parsed = Parser::parse_response(&welcome_str).unwrap();
-    if let Response::Welcome { version, session_id, .. } = parsed {
+    if let Response::Welcome {
+        version,
+        session_id,
+        ..
+    } = parsed
+    {
         assert_eq!(version, DEFT_VERSION);
         assert_eq!(session_id, "sess_123");
     } else {
@@ -51,7 +55,13 @@ fn test_transfer_flow() {
 
     // Parse BEGIN_TRANSFER
     let parsed = Parser::parse_command(&begin_str).unwrap();
-    if let Command::BeginTransfer { virtual_file, total_chunks, total_bytes, file_hash } = parsed {
+    if let Command::BeginTransfer {
+        virtual_file,
+        total_chunks,
+        total_bytes,
+        file_hash,
+    } = parsed
+    {
         assert_eq!(virtual_file, "invoices");
         assert_eq!(total_chunks, 10);
         assert_eq!(total_bytes, 10240);
@@ -79,7 +89,14 @@ fn test_transfer_flow() {
 
     // Parse PUT
     let parsed = Parser::parse_command(&put_str).unwrap();
-    if let Command::Put { virtual_file, chunk_index, size, hash, .. } = parsed {
+    if let Command::Put {
+        virtual_file,
+        chunk_index,
+        size,
+        hash,
+        ..
+    } = parsed
+    {
         assert_eq!(virtual_file, "invoices");
         assert_eq!(chunk_index, 0);
         assert_eq!(size, 1024);
@@ -110,7 +127,6 @@ fn test_transfer_flow() {
     assert!(complete_str.contains("sig:sig_xyz"));
 }
 
-
 #[test]
 fn test_resume_transfer_flow() {
     // RESUME_TRANSFER command
@@ -122,7 +138,11 @@ fn test_resume_transfer_flow() {
 
     // Parse RESUME_TRANSFER
     let parsed = Parser::parse_command(&resume_str).unwrap();
-    if let Command::ResumeTransfer { virtual_file, transfer_id } = parsed {
+    if let Command::ResumeTransfer {
+        virtual_file,
+        transfer_id,
+    } = parsed
+    {
         assert_eq!(virtual_file, "invoices");
         assert_eq!(transfer_id, "txn_456");
     } else {
@@ -178,14 +198,14 @@ fn test_capabilities_negotiation() {
 #[test]
 fn test_endpoint_management() {
     let mut endpoints = EndpointList::new();
-    
+
     // Add multiple endpoints with priorities
     endpoints.add(Endpoint::new("primary.example.com", 7741).with_priority(10));
     endpoints.add(Endpoint::new("backup1.example.com", 7741).with_priority(5));
     endpoints.add(Endpoint::new("backup2.example.com", 7741).with_priority(1));
 
     assert_eq!(endpoints.len(), 3);
-    
+
     // Primary should be highest priority
     let primary = endpoints.primary().unwrap();
     assert_eq!(primary.host, "primary.example.com");

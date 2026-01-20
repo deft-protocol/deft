@@ -1,17 +1,18 @@
+use serde::Serialize;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 use crate::config::Config;
 use crate::metrics;
 
 /// API Server configuration
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ApiConfig {
     pub enabled: bool,
     pub listen: String,
@@ -125,7 +126,7 @@ async fn handle_request(
 
     let request = String::from_utf8_lossy(&buf[..n]);
     let lines: Vec<&str> = request.lines().collect();
-    
+
     if lines.is_empty() {
         return;
     }
@@ -143,16 +144,23 @@ async fn handle_request(
 
     // Check API key if configured
     if let Some(ref key) = api_key {
-        let auth_header = lines.iter()
+        let auth_header = lines
+            .iter()
             .find(|l| l.to_lowercase().starts_with("authorization:"))
             .map(|l| l.split(':').nth(1).unwrap_or("").trim());
-        
+
         let valid = auth_header
             .map(|h| h.strip_prefix("Bearer ").unwrap_or(h) == key)
             .unwrap_or(false);
-        
+
         if !valid {
-            send_response(&mut stream, 401, "Unauthorized", r#"{"error":"Invalid API key"}"#).await;
+            send_response(
+                &mut stream,
+                401,
+                "Unauthorized",
+                r#"{"error":"Invalid API key"}"#,
+            )
+            .await;
             return;
         }
     }
@@ -189,7 +197,10 @@ async fn send_response(stream: &mut TcpStream, status: u16, status_text: &str, b
          Connection: close\r\n\
          \r\n\
          {}",
-        status, status_text, body.len(), body
+        status,
+        status_text,
+        body.len(),
+        body
     );
     let _ = stream.write_all(response.as_bytes()).await;
 }
@@ -203,7 +214,8 @@ async fn send_html(stream: &mut TcpStream) {
          Connection: close\r\n\
          \r\n\
          {}",
-        html.len(), html
+        html.len(),
+        html
     );
     let _ = stream.write_all(response.as_bytes()).await;
 }
@@ -217,7 +229,7 @@ async fn send_static(stream: &mut TcpStream, path: &str) {
             return;
         }
     };
-    
+
     let response = format!(
         "HTTP/1.1 200 OK\r\n\
          Content-Type: {}\r\n\
@@ -225,7 +237,9 @@ async fn send_static(stream: &mut TcpStream, path: &str) {
          Connection: close\r\n\
          \r\n\
          {}",
-        content_type, content.len(), content
+        content_type,
+        content.len(),
+        content
     );
     let _ = stream.write_all(response.as_bytes()).await;
 }
@@ -240,31 +254,31 @@ async fn handle_status(state: &ApiState) -> (u16, String) {
         total_bytes: 0,
         metrics_enabled: state.config.limits.metrics_enabled,
     };
-    
+
     (200, serde_json::to_string(&status).unwrap_or_default())
 }
 
 async fn handle_partners(state: &ApiState) -> (u16, String) {
-    let partners: Vec<PartnerStatus> = state.config.partners.iter().map(|p| {
-        PartnerStatus {
+    let partners: Vec<PartnerStatus> = state
+        .config
+        .partners
+        .iter()
+        .map(|p| PartnerStatus {
             id: p.id.clone(),
             endpoints: p.endpoints.clone(),
             connected: false,
             last_seen: None,
             transfers_today: 0,
             bytes_today: 0,
-        }
-    }).collect();
-    
+        })
+        .collect();
+
     (200, serde_json::to_string(&partners).unwrap_or_default())
 }
 
 async fn handle_transfers(state: &ApiState) -> (u16, String) {
-    let transfers: Vec<TransferStatus> = state.transfers.read().await
-        .values()
-        .cloned()
-        .collect();
-    
+    let transfers: Vec<TransferStatus> = state.transfers.read().await.values().cloned().collect();
+
     (200, serde_json::to_string(&transfers).unwrap_or_default())
 }
 
@@ -293,6 +307,6 @@ async fn handle_config(state: &ApiState) -> (u16, String) {
         },
         "partners_count": state.config.partners.len(),
     });
-    
+
     (200, config_summary.to_string())
 }

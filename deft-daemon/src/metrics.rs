@@ -1,9 +1,8 @@
 use lazy_static::lazy_static;
 use prometheus::{
-    Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec,
-    IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry,
+    Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,
+    Registry,
 };
-use std::sync::Arc;
 
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
@@ -102,17 +101,23 @@ lazy_static! {
 pub fn register_metrics() {
     REGISTRY.register(Box::new(CONNECTIONS_TOTAL.clone())).ok();
     REGISTRY.register(Box::new(CONNECTIONS_ACTIVE.clone())).ok();
-    REGISTRY.register(Box::new(CONNECTIONS_REJECTED.clone())).ok();
+    REGISTRY
+        .register(Box::new(CONNECTIONS_REJECTED.clone()))
+        .ok();
     REGISTRY.register(Box::new(TRANSFERS_TOTAL.clone())).ok();
     REGISTRY.register(Box::new(TRANSFERS_ACTIVE.clone())).ok();
     REGISTRY.register(Box::new(BYTES_TRANSFERRED.clone())).ok();
-    REGISTRY.register(Box::new(BYTES_COMPRESSED_SAVED.clone())).ok();
+    REGISTRY
+        .register(Box::new(BYTES_COMPRESSED_SAVED.clone()))
+        .ok();
     REGISTRY.register(Box::new(CHUNKS_SENT.clone())).ok();
     REGISTRY.register(Box::new(CHUNKS_RECEIVED.clone())).ok();
     REGISTRY.register(Box::new(CHUNKS_FAILED.clone())).ok();
     REGISTRY.register(Box::new(TRANSFER_DURATION.clone())).ok();
     REGISTRY.register(Box::new(CHUNK_LATENCY.clone())).ok();
-    REGISTRY.register(Box::new(RATE_LIMITED_REQUESTS.clone())).ok();
+    REGISTRY
+        .register(Box::new(RATE_LIMITED_REQUESTS.clone()))
+        .ok();
     REGISTRY.register(Box::new(PARTNER_TRANSFERS.clone())).ok();
     REGISTRY.register(Box::new(ENDPOINT_HEALTH.clone())).ok();
     REGISTRY.register(Box::new(ERRORS_TOTAL.clone())).ok();
@@ -131,9 +136,15 @@ pub fn gather_metrics() -> String {
 /// Helper to record transfer completion
 pub fn record_transfer_complete(direction: &str, success: bool, bytes: u64, duration_secs: f64) {
     let status = if success { "success" } else { "failed" };
-    TRANSFERS_TOTAL.with_label_values(&[direction, status]).inc();
-    BYTES_TRANSFERRED.with_label_values(&[direction]).inc_by(bytes);
-    TRANSFER_DURATION.with_label_values(&[direction]).observe(duration_secs);
+    TRANSFERS_TOTAL
+        .with_label_values(&[direction, status])
+        .inc();
+    BYTES_TRANSFERRED
+        .with_label_values(&[direction])
+        .inc_by(bytes);
+    TRANSFER_DURATION
+        .with_label_values(&[direction])
+        .observe(duration_secs);
 }
 
 /// Helper to record connection
@@ -181,7 +192,9 @@ pub fn record_error(error_type: &str) {
 
 /// Helper to update endpoint health
 pub fn update_endpoint_health(partner_id: &str, endpoint: &str, health: i64) {
-    ENDPOINT_HEALTH.with_label_values(&[partner_id, endpoint]).set(health);
+    ENDPOINT_HEALTH
+        .with_label_values(&[partner_id, endpoint])
+        .set(health);
 }
 
 #[cfg(test)]
@@ -199,7 +212,7 @@ mod tests {
     fn test_record_transfer() {
         register_metrics();
         record_transfer_complete("send", true, 1024, 1.5);
-        
+
         let metrics = gather_metrics();
         assert!(metrics.contains("rift_transfers_total"));
         assert!(metrics.contains("rift_bytes_transferred_total"));
@@ -208,11 +221,11 @@ mod tests {
     #[test]
     fn test_connection_metrics() {
         register_metrics();
-        
+
         record_connection_accepted();
         record_connection_accepted();
         record_connection_closed();
-        
+
         let metrics = gather_metrics();
         assert!(metrics.contains("rift_connections_total"));
         assert!(metrics.contains("rift_connections_active"));

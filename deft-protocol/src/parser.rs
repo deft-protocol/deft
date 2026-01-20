@@ -1,4 +1,7 @@
-use crate::{Capabilities, Command, ChunkRange, RiftError, RiftErrorCode, Response, AckStatus, AckErrorReason};
+use crate::{
+    AckErrorReason, AckStatus, Capabilities, ChunkRange, Command, Response, RiftError,
+    RiftErrorCode,
+};
 
 pub struct Parser;
 
@@ -6,7 +9,9 @@ impl Parser {
     pub fn parse_command(line: &str) -> Result<Command, RiftError> {
         let line = line.trim();
         if !line.starts_with("DEFT ") {
-            return Err(RiftError::ParseError("Command must start with 'RIFT '".into()));
+            return Err(RiftError::ParseError(
+                "Command must start with 'RIFT '".into(),
+            ));
         }
 
         let rest = &line[5..];
@@ -44,7 +49,10 @@ impl Parser {
             Capabilities::new()
         };
 
-        Ok(Command::Hello { version, capabilities })
+        Ok(Command::Hello {
+            version,
+            capabilities,
+        })
     }
 
     fn parse_auth(parts: &[&str]) -> Result<Command, RiftError> {
@@ -80,21 +88,27 @@ impl Parser {
 
         let chunks: ChunkRange = parts[2].parse()?;
 
-        Ok(Command::Get { virtual_file, chunks })
+        Ok(Command::Get {
+            virtual_file,
+            chunks,
+        })
     }
 
     fn parse_begin_transfer(parts: &[&str]) -> Result<Command, RiftError> {
         // BEGIN_TRANSFER <virtual_file> <total_chunks> <total_bytes> <file_hash>
         if parts.len() < 4 {
             return Err(RiftError::ParseError(
-                "BEGIN_TRANSFER requires <virtual_file> <total_chunks> <total_bytes> <file_hash>".into()
+                "BEGIN_TRANSFER requires <virtual_file> <total_chunks> <total_bytes> <file_hash>"
+                    .into(),
             ));
         }
 
         let virtual_file = parts[0].to_string();
-        let total_chunks: u64 = parts[1].parse()
+        let total_chunks: u64 = parts[1]
+            .parse()
             .map_err(|_| RiftError::ParseError("Invalid total_chunks".into()))?;
-        let total_bytes: u64 = parts[2].parse()
+        let total_bytes: u64 = parts[2]
+            .parse()
             .map_err(|_| RiftError::ParseError("Invalid total_bytes".into()))?;
         let file_hash = parts[3].to_string();
 
@@ -110,7 +124,7 @@ impl Parser {
         // RESUME_TRANSFER <virtual_file> <transfer_id>
         if parts.len() < 2 {
             return Err(RiftError::ParseError(
-                "RESUME_TRANSFER requires <virtual_file> <transfer_id>".into()
+                "RESUME_TRANSFER requires <virtual_file> <transfer_id>".into(),
             ));
         }
 
@@ -140,16 +154,20 @@ impl Parser {
         let virtual_file = parts[0].to_string();
 
         if parts.len() < 5 || parts[1].to_uppercase() != "CHUNK" {
-            return Err(RiftError::ParseError("PUT requires CHUNK <index> SIZE:<bytes> HASH:<hash>".into()));
+            return Err(RiftError::ParseError(
+                "PUT requires CHUNK <index> SIZE:<bytes> HASH:<hash>".into(),
+            ));
         }
 
-        let chunk_index: u64 = parts[2].parse()
+        let chunk_index: u64 = parts[2]
+            .parse()
             .map_err(|_| RiftError::ParseError("Invalid chunk index".into()))?;
 
         // Parse SIZE:<bytes>
         let size_part = parts[3].to_uppercase();
-        let size: u64 = if size_part.starts_with("SIZE:") {
-            size_part[5..].parse()
+        let size: u64 = if let Some(size_str) = size_part.strip_prefix("SIZE:") {
+            size_str
+                .parse()
                 .map_err(|_| RiftError::ParseError("Invalid SIZE value".into()))?
         } else {
             return Err(RiftError::ParseError("Expected SIZE:<bytes>".into()));
@@ -157,8 +175,11 @@ impl Parser {
 
         // Parse HASH:<hash>
         let hash_part = parts[4];
-        let hash = if hash_part.to_uppercase().starts_with("HASH:") {
-            hash_part[5..].to_string()
+        let hash = if let Some(hash_str) = hash_part
+            .strip_prefix("HASH:")
+            .or_else(|| hash_part.strip_prefix("hash:"))
+        {
+            hash_str.to_string()
         } else {
             return Err(RiftError::ParseError("Expected HASH:<hash>".into()));
         };
@@ -166,7 +187,7 @@ impl Parser {
         // Parse optional NONCE:<nonce> and COMPRESSED flag
         let mut nonce = None;
         let mut compressed = false;
-        
+
         for part in parts.iter().skip(5) {
             let upper = part.to_uppercase();
             if let Some(n) = upper.strip_prefix("NONCE:") {
@@ -189,7 +210,9 @@ impl Parser {
     pub fn parse_response(line: &str) -> Result<Response, RiftError> {
         let line = line.trim();
         if !line.starts_with("DEFT ") {
-            return Err(RiftError::ParseError("Response must start with 'RIFT '".into()));
+            return Err(RiftError::ParseError(
+                "Response must start with 'RIFT '".into(),
+            ));
         }
 
         let rest = &line[5..];
@@ -244,14 +267,16 @@ impl Parser {
     }
 
     fn parse_auth_ok(rest: &str) -> Result<Response, RiftError> {
-        let after_auth_ok = rest.strip_prefix("AUTH_OK ")
+        let after_auth_ok = rest
+            .strip_prefix("AUTH_OK ")
             .ok_or_else(|| RiftError::ParseError("Invalid AUTH_OK format".into()))?;
 
-        let (partner_name, vf_part) = if after_auth_ok.starts_with('"') {
-            let end_quote = after_auth_ok[1..].find('"')
+        let (partner_name, vf_part) = if let Some(after_quote) = after_auth_ok.strip_prefix('"') {
+            let end_quote = after_quote
+                .find('"')
                 .ok_or_else(|| RiftError::ParseError("Unclosed quote in partner name".into()))?;
-            let name = &after_auth_ok[1..=end_quote];
-            let rest = after_auth_ok[end_quote + 2..].trim();
+            let name = &after_quote[..end_quote];
+            let rest = after_quote[end_quote + 1..].trim();
             (name.to_string(), rest)
         } else {
             let parts: Vec<&str> = after_auth_ok.split_whitespace().collect();
@@ -278,7 +303,8 @@ impl Parser {
             return Err(RiftError::MissingField("error_code".into()));
         }
 
-        let code_num: u16 = parts[0].parse()
+        let code_num: u16 = parts[0]
+            .parse()
             .map_err(|_| RiftError::ParseError("Invalid error code".into()))?;
 
         let code = RiftErrorCode::from_code(code_num)
@@ -295,11 +321,14 @@ impl Parser {
 
     fn parse_chunk_ok(parts: &[&str]) -> Result<Response, RiftError> {
         if parts.len() < 2 {
-            return Err(RiftError::MissingField("virtual_file or chunk_index".into()));
+            return Err(RiftError::MissingField(
+                "virtual_file or chunk_index".into(),
+            ));
         }
 
         let virtual_file = parts[0].to_string();
-        let chunk_index: u64 = parts[1].parse()
+        let chunk_index: u64 = parts[1]
+            .parse()
             .map_err(|_| RiftError::ParseError("Invalid chunk index".into()))?;
 
         Ok(Response::ChunkOk {
@@ -310,11 +339,14 @@ impl Parser {
 
     fn parse_chunk_ack(parts: &[&str]) -> Result<Response, RiftError> {
         if parts.len() < 3 {
-            return Err(RiftError::MissingField("virtual_file, chunk_index or status".into()));
+            return Err(RiftError::MissingField(
+                "virtual_file, chunk_index or status".into(),
+            ));
         }
 
         let virtual_file = parts[0].to_string();
-        let chunk_index: u64 = parts[1].parse()
+        let chunk_index: u64 = parts[1]
+            .parse()
             .map_err(|_| RiftError::ParseError("Invalid chunk index".into()))?;
 
         let status = match parts[2].to_uppercase().as_str() {
@@ -327,7 +359,12 @@ impl Parser {
                 };
                 AckStatus::Error(reason)
             }
-            _ => return Err(RiftError::ParseError(format!("Invalid ACK status: {}", parts[2]))),
+            _ => {
+                return Err(RiftError::ParseError(format!(
+                    "Invalid ACK status: {}",
+                    parts[2]
+                )))
+            }
         };
 
         Ok(Response::ChunkAck {
@@ -343,10 +380,7 @@ impl Parser {
         }
 
         let virtual_file = parts[0].to_string();
-        let ranges: Result<Vec<ChunkRange>, _> = parts[1]
-            .split(',')
-            .map(|r| r.parse())
-            .collect();
+        let ranges: Result<Vec<ChunkRange>, _> = parts[1].split(',').map(|r| r.parse()).collect();
 
         Ok(Response::ChunkAckBatch {
             virtual_file,
@@ -356,17 +390,22 @@ impl Parser {
 
     fn parse_transfer_complete(parts: &[&str]) -> Result<Response, RiftError> {
         if parts.len() < 4 {
-            return Err(RiftError::MissingField("virtual_file, file_hash, total_size or chunk_count".into()));
+            return Err(RiftError::MissingField(
+                "virtual_file, file_hash, total_size or chunk_count".into(),
+            ));
         }
 
         let virtual_file = parts[0].to_string();
         let file_hash = parts[1].to_string();
-        let total_size: u64 = parts[2].parse()
+        let total_size: u64 = parts[2]
+            .parse()
             .map_err(|_| RiftError::ParseError("Invalid total_size".into()))?;
-        let chunk_count: u64 = parts[3].parse()
+        let chunk_count: u64 = parts[3]
+            .parse()
             .map_err(|_| RiftError::ParseError("Invalid chunk_count".into()))?;
 
-        let signature = parts.get(4)
+        let signature = parts
+            .get(4)
             .and_then(|s| s.strip_prefix("sig:"))
             .map(|s| s.to_string());
 
@@ -382,13 +421,16 @@ impl Parser {
     fn parse_transfer_accepted(parts: &[&str]) -> Result<Response, RiftError> {
         // TRANSFER_ACCEPTED <transfer_id> <virtual_file> WINDOW_SIZE:<n>
         if parts.len() < 2 {
-            return Err(RiftError::MissingField("transfer_id or virtual_file".into()));
+            return Err(RiftError::MissingField(
+                "transfer_id or virtual_file".into(),
+            ));
         }
 
         let transfer_id = parts[0].to_string();
         let virtual_file = parts[1].to_string();
 
-        let window_size = parts.get(2)
+        let window_size = parts
+            .get(2)
             .and_then(|s| s.strip_prefix("WINDOW_SIZE:"))
             .and_then(|s| s.parse().ok())
             .unwrap_or(64);
@@ -403,14 +445,18 @@ impl Parser {
     fn parse_chunk_ready(parts: &[&str]) -> Result<Response, RiftError> {
         // CHUNK_READY <virtual_file> <chunk_index> SIZE:<n>
         if parts.len() < 2 {
-            return Err(RiftError::MissingField("virtual_file or chunk_index".into()));
+            return Err(RiftError::MissingField(
+                "virtual_file or chunk_index".into(),
+            ));
         }
 
         let virtual_file = parts[0].to_string();
-        let chunk_index: u64 = parts[1].parse()
+        let chunk_index: u64 = parts[1]
+            .parse()
             .map_err(|_| RiftError::ParseError("Invalid chunk index".into()))?;
 
-        let size = parts.get(2)
+        let size = parts
+            .get(2)
             .and_then(|s| s.strip_prefix("SIZE:"))
             .and_then(|s| s.parse().ok())
             .unwrap_or(0);
@@ -431,7 +477,10 @@ mod tests {
     fn test_parse_hello() {
         let cmd = Parser::parse_command("DEFT HELLO 1.0 CHUNKED,PARALLEL,RESUME").unwrap();
         match cmd {
-            Command::Hello { version, capabilities } => {
+            Command::Hello {
+                version,
+                capabilities,
+            } => {
                 assert_eq!(version, "1.0");
                 assert!(capabilities.has(crate::Capability::Chunked));
                 assert!(capabilities.has(crate::Capability::Parallel));
@@ -456,7 +505,10 @@ mod tests {
     fn test_parse_get() {
         let cmd = Parser::parse_command("DEFT GET monthly-invoices CHUNKS 0-10").unwrap();
         match cmd {
-            Command::Get { virtual_file, chunks } => {
+            Command::Get {
+                virtual_file,
+                chunks,
+            } => {
                 assert_eq!(virtual_file, "monthly-invoices");
                 assert_eq!(chunks.start, 0);
                 assert_eq!(chunks.end, 10);
@@ -467,9 +519,17 @@ mod tests {
 
     #[test]
     fn test_parse_put() {
-        let cmd = Parser::parse_command("DEFT PUT invoices CHUNK 5 SIZE:1024 HASH:abc123def456").unwrap();
+        let cmd =
+            Parser::parse_command("DEFT PUT invoices CHUNK 5 SIZE:1024 HASH:abc123def456").unwrap();
         match cmd {
-            Command::Put { virtual_file, chunk_index, size, hash, nonce, compressed } => {
+            Command::Put {
+                virtual_file,
+                chunk_index,
+                size,
+                hash,
+                nonce,
+                compressed,
+            } => {
                 assert_eq!(virtual_file, "invoices");
                 assert_eq!(chunk_index, 5);
                 assert_eq!(size, 1024);
@@ -483,9 +543,19 @@ mod tests {
 
     #[test]
     fn test_parse_put_compressed() {
-        let cmd = Parser::parse_command("DEFT PUT invoices CHUNK 5 SIZE:1024 HASH:abc123 NONCE:12345 COMPRESSED").unwrap();
+        let cmd = Parser::parse_command(
+            "DEFT PUT invoices CHUNK 5 SIZE:1024 HASH:abc123 NONCE:12345 COMPRESSED",
+        )
+        .unwrap();
         match cmd {
-            Command::Put { virtual_file, chunk_index, size, hash, nonce, compressed } => {
+            Command::Put {
+                virtual_file,
+                chunk_index,
+                size,
+                hash,
+                nonce,
+                compressed,
+            } => {
                 assert_eq!(virtual_file, "invoices");
                 assert_eq!(chunk_index, 5);
                 assert_eq!(size, 1024);
@@ -499,9 +569,15 @@ mod tests {
 
     #[test]
     fn test_parse_welcome() {
-        let resp = Parser::parse_response("DEFT WELCOME 1.0 CHUNKED,PARALLEL,RESUME sess_20260119_001").unwrap();
+        let resp =
+            Parser::parse_response("DEFT WELCOME 1.0 CHUNKED,PARALLEL,RESUME sess_20260119_001")
+                .unwrap();
         match resp {
-            Response::Welcome { version, capabilities, session_id } => {
+            Response::Welcome {
+                version,
+                capabilities,
+                session_id,
+            } => {
                 assert_eq!(version, "1.0");
                 assert!(capabilities.has(crate::Capability::Chunked));
                 assert_eq!(session_id, "sess_20260119_001");
@@ -512,9 +588,15 @@ mod tests {
 
     #[test]
     fn test_parse_auth_ok() {
-        let resp = Parser::parse_response("DEFT AUTH_OK \"ACME Corporation\" VF:monthly-invoices,product-catalog").unwrap();
+        let resp = Parser::parse_response(
+            "DEFT AUTH_OK \"ACME Corporation\" VF:monthly-invoices,product-catalog",
+        )
+        .unwrap();
         match resp {
-            Response::AuthOk { partner_name, virtual_files } => {
+            Response::AuthOk {
+                partner_name,
+                virtual_files,
+            } => {
                 assert_eq!(partner_name, "ACME Corporation");
                 assert_eq!(virtual_files, vec!["monthly-invoices", "product-catalog"]);
             }
@@ -538,7 +620,10 @@ mod tests {
     fn test_parse_hello_with_window_size() {
         let cmd = Parser::parse_command("DEFT HELLO 1.0 CHUNKED,PARALLEL WINDOW_SIZE:128").unwrap();
         match cmd {
-            Command::Hello { version, capabilities } => {
+            Command::Hello {
+                version,
+                capabilities,
+            } => {
                 assert_eq!(version, "1.0");
                 assert!(capabilities.has(crate::Capability::Chunked));
                 assert!(capabilities.has(crate::Capability::Parallel));
@@ -550,9 +635,15 @@ mod tests {
 
     #[test]
     fn test_parse_welcome_with_window_size() {
-        let resp = Parser::parse_response("DEFT WELCOME 1.0 CHUNKED,RESUME WINDOW_SIZE:64 sess_123").unwrap();
+        let resp =
+            Parser::parse_response("DEFT WELCOME 1.0 CHUNKED,RESUME WINDOW_SIZE:64 sess_123")
+                .unwrap();
         match resp {
-            Response::Welcome { version, capabilities, session_id } => {
+            Response::Welcome {
+                version,
+                capabilities,
+                session_id,
+            } => {
                 assert_eq!(version, "1.0");
                 assert!(capabilities.has(crate::Capability::Chunked));
                 assert!(capabilities.has(crate::Capability::Resume));
@@ -567,7 +658,11 @@ mod tests {
     fn test_parse_chunk_ack_ok() {
         let resp = Parser::parse_response("DEFT CHUNK_ACK invoices 42 OK").unwrap();
         match resp {
-            Response::ChunkAck { virtual_file, chunk_index, status } => {
+            Response::ChunkAck {
+                virtual_file,
+                chunk_index,
+                status,
+            } => {
                 assert_eq!(virtual_file, "invoices");
                 assert_eq!(chunk_index, 42);
                 assert_eq!(status, crate::AckStatus::Ok);
@@ -580,10 +675,17 @@ mod tests {
     fn test_parse_chunk_ack_error() {
         let resp = Parser::parse_response("DEFT CHUNK_ACK invoices 5 ERROR HASH_MISMATCH").unwrap();
         match resp {
-            Response::ChunkAck { virtual_file, chunk_index, status } => {
+            Response::ChunkAck {
+                virtual_file,
+                chunk_index,
+                status,
+            } => {
                 assert_eq!(virtual_file, "invoices");
                 assert_eq!(chunk_index, 5);
-                assert_eq!(status, crate::AckStatus::Error(crate::AckErrorReason::HashMismatch));
+                assert_eq!(
+                    status,
+                    crate::AckStatus::Error(crate::AckErrorReason::HashMismatch)
+                );
             }
             _ => panic!("Expected ChunkAck response"),
         }
@@ -593,7 +695,10 @@ mod tests {
     fn test_parse_chunk_ack_batch() {
         let resp = Parser::parse_response("DEFT CHUNK_ACK_BATCH monthly-data 1-50,52-100").unwrap();
         match resp {
-            Response::ChunkAckBatch { virtual_file, ranges } => {
+            Response::ChunkAckBatch {
+                virtual_file,
+                ranges,
+            } => {
                 assert_eq!(virtual_file, "monthly-data");
                 assert_eq!(ranges.len(), 2);
                 assert_eq!(ranges[0].start, 1);
@@ -607,11 +712,17 @@ mod tests {
 
     #[test]
     fn test_parse_transfer_complete() {
-        let resp = Parser::parse_response(
-            "DEFT TRANSFER_COMPLETE invoices sha256:abc123 1048576 100"
-        ).unwrap();
+        let resp =
+            Parser::parse_response("DEFT TRANSFER_COMPLETE invoices sha256:abc123 1048576 100")
+                .unwrap();
         match resp {
-            Response::TransferComplete { virtual_file, file_hash, total_size, chunk_count, signature } => {
+            Response::TransferComplete {
+                virtual_file,
+                file_hash,
+                total_size,
+                chunk_count,
+                signature,
+            } => {
                 assert_eq!(virtual_file, "invoices");
                 assert_eq!(file_hash, "sha256:abc123");
                 assert_eq!(total_size, 1048576);
@@ -625,10 +736,17 @@ mod tests {
     #[test]
     fn test_parse_transfer_complete_with_signature() {
         let resp = Parser::parse_response(
-            "DEFT TRANSFER_COMPLETE invoices sha256:abc123 1048576 100 sig:ed25519:xyz789"
-        ).unwrap();
+            "DEFT TRANSFER_COMPLETE invoices sha256:abc123 1048576 100 sig:ed25519:xyz789",
+        )
+        .unwrap();
         match resp {
-            Response::TransferComplete { virtual_file, file_hash, total_size, chunk_count, signature } => {
+            Response::TransferComplete {
+                virtual_file,
+                file_hash,
+                total_size,
+                chunk_count,
+                signature,
+            } => {
                 assert_eq!(virtual_file, "invoices");
                 assert_eq!(file_hash, "sha256:abc123");
                 assert_eq!(total_size, 1048576);
@@ -642,10 +760,16 @@ mod tests {
     #[test]
     fn test_parse_begin_transfer() {
         let cmd = Parser::parse_command(
-            "DEFT BEGIN_TRANSFER invoices-jan 100 10485760 sha256:abcdef123456"
-        ).unwrap();
+            "DEFT BEGIN_TRANSFER invoices-jan 100 10485760 sha256:abcdef123456",
+        )
+        .unwrap();
         match cmd {
-            Command::BeginTransfer { virtual_file, total_chunks, total_bytes, file_hash } => {
+            Command::BeginTransfer {
+                virtual_file,
+                total_chunks,
+                total_bytes,
+                file_hash,
+            } => {
                 assert_eq!(virtual_file, "invoices-jan");
                 assert_eq!(total_chunks, 100);
                 assert_eq!(total_bytes, 10485760);

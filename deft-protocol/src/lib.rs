@@ -1,16 +1,16 @@
+mod capability;
 mod command;
-mod response;
+mod endpoint;
 mod error;
 mod parser;
-mod capability;
-mod endpoint;
+mod response;
 
+pub use capability::*;
 pub use command::*;
-pub use response::*;
+pub use endpoint::*;
 pub use error::*;
 pub use parser::*;
-pub use capability::*;
-pub use endpoint::*;
+pub use response::*;
 
 pub const DEFT_VERSION: &str = "1.0";
 pub const DEFT_DEFAULT_PORT: u16 = 7741;

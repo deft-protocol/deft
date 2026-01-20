@@ -15,7 +15,10 @@ impl ChunkRange {
     }
 
     pub fn single(index: u64) -> Self {
-        Self { start: index, end: index }
+        Self {
+            start: index,
+            end: index,
+        }
     }
 
     pub fn count(&self) -> u64 {
@@ -38,16 +41,19 @@ impl std::str::FromStr for ChunkRange {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some((start, end)) = s.split_once('-') {
-            let start: u64 = start.parse()
+            let start: u64 = start
+                .parse()
                 .map_err(|_| RiftError::InvalidChunkRange(s.to_string()))?;
-            let end: u64 = end.parse()
+            let end: u64 = end
+                .parse()
                 .map_err(|_| RiftError::InvalidChunkRange(s.to_string()))?;
             if start > end {
                 return Err(RiftError::InvalidChunkRange(s.to_string()));
             }
             Ok(ChunkRange::new(start, end))
         } else {
-            let index: u64 = s.parse()
+            let index: u64 = s
+                .parse()
                 .map_err(|_| RiftError::InvalidChunkRange(s.to_string()))?;
             Ok(ChunkRange::single(index))
         }
@@ -142,7 +148,10 @@ impl Command {
         }
     }
 
-    pub fn resume_transfer(virtual_file: impl Into<String>, transfer_id: impl Into<String>) -> Self {
+    pub fn resume_transfer(
+        virtual_file: impl Into<String>,
+        transfer_id: impl Into<String>,
+    ) -> Self {
         Command::ResumeTransfer {
             virtual_file: virtual_file.into(),
             transfer_id: transfer_id.into(),
@@ -155,7 +164,12 @@ impl Command {
         }
     }
 
-    pub fn put(virtual_file: impl Into<String>, chunk_index: u64, size: u64, hash: impl Into<String>) -> Self {
+    pub fn put(
+        virtual_file: impl Into<String>,
+        chunk_index: u64,
+        size: u64,
+        hash: impl Into<String>,
+    ) -> Self {
         Command::Put {
             virtual_file: virtual_file.into(),
             chunk_index,
@@ -167,9 +181,9 @@ impl Command {
     }
 
     pub fn put_with_nonce(
-        virtual_file: impl Into<String>, 
-        chunk_index: u64, 
-        size: u64, 
+        virtual_file: impl Into<String>,
+        chunk_index: u64,
+        size: u64,
         hash: impl Into<String>,
         nonce: Option<u64>,
     ) -> Self {
@@ -184,9 +198,9 @@ impl Command {
     }
 
     pub fn put_compressed(
-        virtual_file: impl Into<String>, 
-        chunk_index: u64, 
-        size: u64, 
+        virtual_file: impl Into<String>,
+        chunk_index: u64,
+        size: u64,
         hash: impl Into<String>,
         nonce: Option<u64>,
     ) -> Self {
@@ -208,7 +222,10 @@ impl Command {
 impl fmt::Display for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Command::Hello { version, capabilities } => {
+            Command::Hello {
+                version,
+                capabilities,
+            } => {
                 if capabilities.caps.is_empty() && capabilities.window_size.is_none() {
                     write!(f, "DEFT HELLO {}", version)
                 } else {
@@ -224,20 +241,46 @@ impl fmt::Display for Command {
             Command::Describe { virtual_file } => {
                 write!(f, "DEFT DESCRIBE {}", virtual_file)
             }
-            Command::Get { virtual_file, chunks } => {
+            Command::Get {
+                virtual_file,
+                chunks,
+            } => {
                 write!(f, "DEFT GET {} CHUNKS {}", virtual_file, chunks)
             }
-            Command::BeginTransfer { virtual_file, total_chunks, total_bytes, file_hash } => {
-                write!(f, "DEFT BEGIN_TRANSFER {} {} {} {}", virtual_file, total_chunks, total_bytes, file_hash)
+            Command::BeginTransfer {
+                virtual_file,
+                total_chunks,
+                total_bytes,
+                file_hash,
+            } => {
+                write!(
+                    f,
+                    "DEFT BEGIN_TRANSFER {} {} {} {}",
+                    virtual_file, total_chunks, total_bytes, file_hash
+                )
             }
-            Command::ResumeTransfer { virtual_file, transfer_id } => {
+            Command::ResumeTransfer {
+                virtual_file,
+                transfer_id,
+            } => {
                 write!(f, "DEFT RESUME_TRANSFER {} {}", virtual_file, transfer_id)
             }
             Command::GetStatus { virtual_file } => {
                 write!(f, "DEFT GET_STATUS {}", virtual_file)
             }
-            Command::Put { virtual_file, chunk_index, size, hash, nonce, compressed } => {
-                write!(f, "DEFT PUT {} CHUNK {} SIZE:{} HASH:{}", virtual_file, chunk_index, size, hash)?;
+            Command::Put {
+                virtual_file,
+                chunk_index,
+                size,
+                hash,
+                nonce,
+                compressed,
+            } => {
+                write!(
+                    f,
+                    "DEFT PUT {} CHUNK {} SIZE:{} HASH:{}",
+                    virtual_file, chunk_index, size, hash
+                )?;
                 if let Some(n) = nonce {
                     write!(f, " NONCE:{}", n)?;
                 }

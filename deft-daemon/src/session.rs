@@ -111,9 +111,9 @@ fn generate_session_id() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    
+
     let counter = SESSION_COUNTER.fetch_add(1, Ordering::SeqCst);
-    
+
     format!("sess_{}_{:03}", timestamp, counter % 1000)
 }
 

@@ -23,7 +23,8 @@ impl ChunkStore {
 
     /// Get the path for a specific chunk file
     fn chunk_path(&self, transfer_id: &str, chunk_index: u64) -> PathBuf {
-        self.transfer_dir(transfer_id).join(format!("chunk_{:08}", chunk_index))
+        self.transfer_dir(transfer_id)
+            .join(format!("chunk_{:08}", chunk_index))
     }
 
     /// Initialize storage for a new transfer
@@ -44,7 +45,12 @@ impl ChunkStore {
         file.write_all(data)?;
         file.sync_all()?;
 
-        debug!("Stored chunk {} ({} bytes) at {:?}", chunk_index, data.len(), path);
+        debug!(
+            "Stored chunk {} ({} bytes) at {:?}",
+            chunk_index,
+            data.len(),
+            path
+        );
         Ok(())
     }
 
@@ -71,8 +77,8 @@ impl ChunkStore {
             let entry = entry?;
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
-            if name_str.starts_with("chunk_") {
-                if let Ok(index) = name_str[6..].parse::<u64>() {
+            if let Some(index_str) = name_str.strip_prefix("chunk_") {
+                if let Ok(index) = index_str.parse::<u64>() {
                     chunks.push(index);
                 }
             }
@@ -105,7 +111,7 @@ impl ChunkStore {
 
         for chunk_index in 0..total_chunks {
             let chunk_data = self.read_chunk(transfer_id, chunk_index)?;
-            
+
             // For the last chunk, we might need to truncate
             let expected_size = if chunk_index == total_chunks - 1 {
                 (total_bytes - (chunk_index * chunk_size as u64)) as usize
@@ -124,8 +130,10 @@ impl ChunkStore {
         }
 
         output.sync_all()?;
-        info!("Assembled file {:?} ({} bytes from {} chunks)", 
-            output_path, bytes_written, total_chunks);
+        info!(
+            "Assembled file {:?} ({} bytes from {} chunks)",
+            output_path, bytes_written, total_chunks
+        );
 
         Ok(())
     }
@@ -193,7 +201,9 @@ mod tests {
         store.store_chunk("transfer1", 2, b"XYZ__").unwrap(); // Last chunk partial
 
         let output_path = temp.path().join("output.bin");
-        store.assemble_file("transfer1", &output_path, 3, 10, 25).unwrap();
+        store
+            .assemble_file("transfer1", &output_path, 3, 10, 25)
+            .unwrap();
 
         let content = fs::read_to_string(&output_path).unwrap();
         assert_eq!(content, "0123456789ABCDEFGHIJXYZ__");

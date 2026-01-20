@@ -37,7 +37,8 @@ impl Client {
 
     /// Connect to a partner endpoint
     pub async fn connect(&self, endpoint: &str) -> Result<ClientConnection> {
-        let stream = TcpStream::connect(endpoint).await
+        let stream = TcpStream::connect(endpoint)
+            .await
             .with_context(|| format!("Failed to connect to {}", endpoint))?;
 
         // Extract hostname for TLS SNI
@@ -45,7 +46,10 @@ impl Client {
         let server_name = ServerName::try_from(host.to_string())
             .map_err(|_| anyhow::anyhow!("Invalid server name: {}", host))?;
 
-        let tls_stream = self.tls_connector.connect(server_name, stream).await
+        let tls_stream = self
+            .tls_connector
+            .connect(server_name, stream)
+            .await
             .context("TLS handshake failed")?;
 
         info!("Connected to {}", endpoint);
@@ -62,7 +66,9 @@ impl Client {
         chunk_size: u32,
     ) -> Result<TransferResult> {
         // Find an available endpoint
-        let endpoint = partner.endpoints.first()
+        let endpoint = partner
+            .endpoints
+            .first()
             .ok_or_else(|| anyhow::anyhow!("No endpoints configured for partner {}", partner.id))?;
 
         let mut conn = self.connect(endpoint).await?;
@@ -78,27 +84,36 @@ impl Client {
         // Prepare file for transfer
         let mut file = File::open(file_path)
             .with_context(|| format!("Failed to open file: {:?}", file_path))?;
-        
+
         let chunker = Chunker::new(chunk_size);
         let file_chunks = chunker.compute_chunks(&mut file)?;
         let file_hash = &file_chunks.file_hash;
 
         info!(
             "Sending file: {:?} ({} bytes, {} chunks)",
-            file_path, file_chunks.total_size, file_chunks.chunks.len()
+            file_path,
+            file_chunks.total_size,
+            file_chunks.chunks.len()
         );
 
         // Begin transfer
-        let transfer_accepted = conn.begin_transfer(
-            virtual_file,
-            file_chunks.chunks.len() as u64,
-            file_chunks.total_size,
-            file_hash,
-        ).await?;
+        let transfer_accepted = conn
+            .begin_transfer(
+                virtual_file,
+                file_chunks.chunks.len() as u64,
+                file_chunks.total_size,
+                file_hash,
+            )
+            .await?;
 
         let transfer_id = match &transfer_accepted {
             Response::TransferAccepted { transfer_id, .. } => transfer_id.clone(),
-            _ => return Err(anyhow::anyhow!("Unexpected response: {:?}", transfer_accepted)),
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unexpected response: {:?}",
+                    transfer_accepted
+                ))
+            }
         };
 
         info!("Transfer started: {}", transfer_id);
@@ -110,7 +125,7 @@ impl Client {
         // Send chunks in random order with optional compression
         let mut chunks_sent = 0u64;
         let mut bytes_saved = 0i64;
-        
+
         while let Some(chunk_index) = orderer.next_chunk() {
             let i = chunk_index as usize;
             let chunk_meta = &file_chunks.chunks[i];
@@ -121,7 +136,9 @@ impl Client {
 
             // Try compression if beneficial
             let (send_data, compressed) = match compress(&chunk_data, CompressionLevel::Fast) {
-                Ok(compressed_data) if is_compression_beneficial(chunk_data.len(), compressed_data.len()) => {
+                Ok(compressed_data)
+                    if is_compression_beneficial(chunk_data.len(), compressed_data.len()) =>
+                {
                     bytes_saved += (chunk_data.len() as i64) - (compressed_data.len() as i64);
                     (compressed_data, true)
                 }
@@ -129,15 +146,17 @@ impl Client {
             };
 
             // Send PUT command with compression flag
-            let ready = conn.put_compressed_with_nonce(
-                virtual_file, 
-                chunk_index, 
-                send_data.len() as u64, 
-                &chunk_meta.hash,
-                nonce,
-                compressed,
-            ).await?;
-            
+            let ready = conn
+                .put_compressed_with_nonce(
+                    virtual_file,
+                    chunk_index,
+                    send_data.len() as u64,
+                    &chunk_meta.hash,
+                    nonce,
+                    compressed,
+                )
+                .await?;
+
             if let Response::ChunkReady { .. } = ready {
                 // Send binary data (compressed or not)
                 conn.send_raw_data(&send_data).await?;
@@ -148,7 +167,10 @@ impl Client {
                     Response::ChunkAck { status, .. } => {
                         if *status == AckStatus::Ok {
                             chunks_sent += 1;
-                            debug!("Chunk {} acknowledged (random order position {})", chunk_index, chunks_sent);
+                            debug!(
+                                "Chunk {} acknowledged (random order position {})",
+                                chunk_index, chunks_sent
+                            );
                         } else {
                             warn!("Chunk {} rejected: {:?}", chunk_index, status);
                         }
@@ -167,8 +189,11 @@ impl Client {
         conn.bye().await?;
 
         if bytes_saved > 0 {
-            info!("Compression saved {} bytes ({:.1}%)", bytes_saved, 
-                  (bytes_saved as f64 / file_chunks.total_size as f64) * 100.0);
+            info!(
+                "Compression saved {} bytes ({:.1}%)",
+                bytes_saved,
+                (bytes_saved as f64 / file_chunks.total_size as f64) * 100.0
+            );
         }
 
         Ok(TransferResult {
@@ -188,7 +213,9 @@ impl Client {
         virtual_file: &str,
         output_path: &Path,
     ) -> Result<TransferResult> {
-        let endpoint = partner.endpoints.first()
+        let endpoint = partner
+            .endpoints
+            .first()
             .ok_or_else(|| anyhow::anyhow!("No endpoints configured for partner {}", partner.id))?;
 
         let mut conn = self.connect(endpoint).await?;
@@ -199,20 +226,23 @@ impl Client {
 
         // Describe file to get chunk info
         let describe = conn.describe(virtual_file).await?;
-        
+
         let (total_chunks, total_size, file_hash) = match describe {
             Response::FileInfo { info, .. } => (info.chunk_count, info.size, info.hash),
             _ => return Err(anyhow::anyhow!("Unexpected response: {:?}", describe)),
         };
 
-        info!("Getting file: {} ({} bytes, {} chunks)", virtual_file, total_size, total_chunks);
+        info!(
+            "Getting file: {} ({} bytes, {} chunks)",
+            virtual_file, total_size, total_chunks
+        );
 
         // Get all chunks
         let mut received_data = Vec::with_capacity(total_size as usize);
-        
+
         for i in 0..total_chunks {
             let chunk_response = conn.get_chunk(virtual_file, i).await?;
-            
+
             if let Response::ChunkData { data, .. } = chunk_response {
                 received_data.extend_from_slice(&data);
             }
@@ -222,7 +252,9 @@ impl Client {
         let computed_hash = sha256_hex(&received_data);
         if computed_hash != file_hash {
             return Err(anyhow::anyhow!(
-                "Hash mismatch: expected {}, got {}", file_hash, computed_hash
+                "Hash mismatch: expected {}, got {}",
+                file_hash,
+                computed_hash
             ));
         }
 
@@ -396,8 +428,8 @@ fn build_client_tls_config(config: &ClientConfig) -> Result<rustls::ClientConfig
         .ok_or_else(|| anyhow::anyhow!("No private key found"))?;
 
     // Load CA certificates
-    let ca_file = File::open(&config.ca)
-        .with_context(|| format!("Failed to open CA file: {}", config.ca))?;
+    let ca_file =
+        File::open(&config.ca).with_context(|| format!("Failed to open CA file: {}", config.ca))?;
     let mut ca_reader = BufReader::new(ca_file);
 
     let ca_certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut ca_reader)

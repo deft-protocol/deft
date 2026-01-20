@@ -4,7 +4,7 @@ use std::io::{self, BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Persistent state for a transfer that can be resumed
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,8 +105,11 @@ impl TransferStateStore {
         let writer = BufWriter::new(file);
         serde_json::to_writer_pretty(writer, state)
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-        debug!("Saved transfer state: {} ({} chunks received)", 
-            state.transfer_id, state.received_count());
+        debug!(
+            "Saved transfer state: {} ({} chunks received)",
+            state.transfer_id,
+            state.received_count()
+        );
         Ok(())
     }
 
@@ -114,8 +117,7 @@ impl TransferStateStore {
         let path = self.state_path(transfer_id);
         let file = File::open(&path)?;
         let reader = BufReader::new(file);
-        serde_json::from_reader(reader)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        serde_json::from_reader(reader).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
     }
 
     pub fn exists(&self, transfer_id: &str) -> bool {
@@ -149,8 +151,7 @@ impl TransferStateStore {
     fn load_from_path(&self, path: &Path) -> io::Result<TransferState> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
-        serde_json::from_reader(reader)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        serde_json::from_reader(reader).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
     }
 
     pub fn list_incomplete(&self) -> io::Result<Vec<TransferState>> {
@@ -158,7 +159,7 @@ impl TransferStateStore {
         if !self.base_dir.exists() {
             return Ok(states);
         }
-        
+
         for entry in fs::read_dir(&self.base_dir)? {
             let entry = entry?;
             let path = entry.path();

@@ -44,7 +44,7 @@ impl EndpointState {
         self.consecutive_failures = 0;
         self.total_successes += 1;
         self.health = EndpointHealth::Healthy;
-        
+
         // Update average latency with exponential moving average
         self.avg_latency_ms = Some(match self.avg_latency_ms {
             Some(avg) => (avg * 7 + latency_ms) / 8,
@@ -56,7 +56,7 @@ impl EndpointState {
         self.last_failure = Some(Instant::now());
         self.consecutive_failures += 1;
         self.total_failures += 1;
-        
+
         self.health = match self.consecutive_failures {
             0..=2 => EndpointHealth::Healthy,
             3..=5 => EndpointHealth::Degraded,
@@ -80,24 +80,24 @@ impl EndpointState {
 
     pub fn score(&self) -> i64 {
         let mut score: i64 = 100;
-        
+
         // Penalize by health
         score -= match self.health {
             EndpointHealth::Healthy => 0,
             EndpointHealth::Degraded => 30,
             EndpointHealth::Unhealthy => 80,
         };
-        
+
         // Penalize by consecutive failures
         score -= (self.consecutive_failures as i64) * 10;
-        
+
         // Bonus for recent success
         if let Some(t) = self.last_success {
             if t.elapsed() < Duration::from_secs(60) {
                 score += 20;
             }
         }
-        
+
         // Penalize high latency
         if let Some(avg) = self.avg_latency_ms {
             if avg > 1000 {
@@ -106,7 +106,7 @@ impl EndpointState {
                 score -= 10;
             }
         }
-        
+
         score.max(0)
     }
 }
@@ -169,53 +169,56 @@ impl EndpointDiscovery {
     /// Register endpoints for a partner
     pub async fn register_partner(&self, partner_id: &str, endpoints: Vec<String>) {
         let mut eps = self.endpoints.write().await;
-        let states: Vec<EndpointState> = endpoints
-            .into_iter()
-            .map(EndpointState::new)
-            .collect();
+        let states: Vec<EndpointState> = endpoints.into_iter().map(EndpointState::new).collect();
         eps.insert(partner_id.to_string(), states);
-        info!("Registered {} endpoints for partner {}", eps.get(partner_id).map(|v| v.len()).unwrap_or(0), partner_id);
+        info!(
+            "Registered {} endpoints for partner {}",
+            eps.get(partner_id).map(|v| v.len()).unwrap_or(0),
+            partner_id
+        );
     }
 
     /// Get the next endpoint to try for a partner
     pub async fn get_endpoint(&self, partner_id: &str) -> Option<String> {
         let eps = self.endpoints.read().await;
         let states = eps.get(partner_id)?;
-        
+
         if states.is_empty() {
             return None;
         }
 
-        let available: Vec<&EndpointState> = states.iter()
-            .filter(|s| s.is_available())
-            .collect();
+        let available: Vec<&EndpointState> = states.iter().filter(|s| s.is_available()).collect();
 
         if available.is_empty() {
             // All endpoints unhealthy, try the least bad one
-            warn!("All endpoints for {} are unhealthy, selecting least bad", partner_id);
-            return states.iter()
+            warn!(
+                "All endpoints for {} are unhealthy, selecting least bad",
+                partner_id
+            );
+            return states
+                .iter()
                 .max_by_key(|s| s.score())
                 .map(|s| s.endpoint.clone());
         }
 
         match self.config.strategy {
-            FailoverStrategy::Sequential => {
-                available.first().map(|s| s.endpoint.clone())
-            }
+            FailoverStrategy::Sequential => available.first().map(|s| s.endpoint.clone()),
             FailoverStrategy::RoundRobin => {
-                let available_endpoints: Vec<String> = available.iter().map(|s| s.endpoint.clone()).collect();
+                let available_endpoints: Vec<String> =
+                    available.iter().map(|s| s.endpoint.clone()).collect();
                 drop(eps);
                 let mut rr = self.rr_index.write().await;
                 let idx = rr.entry(partner_id.to_string()).or_insert(0);
-                let ep = available_endpoints.get(*idx % available_endpoints.len()).cloned();
+                let ep = available_endpoints
+                    .get(*idx % available_endpoints.len())
+                    .cloned();
                 *idx = (*idx + 1) % available_endpoints.len();
                 ep
             }
-            FailoverStrategy::BestScore => {
-                available.iter()
-                    .max_by_key(|s| s.score())
-                    .map(|s| s.endpoint.clone())
-            }
+            FailoverStrategy::BestScore => available
+                .iter()
+                .max_by_key(|s| s.score())
+                .map(|s| s.endpoint.clone()),
             FailoverStrategy::Random => {
                 use rand::Rng;
                 let idx = rand::thread_rng().gen_range(0..available.len());
@@ -254,7 +257,10 @@ impl EndpointDiscovery {
         if let Some(states) = eps.get_mut(partner_id) {
             if let Some(state) = states.iter_mut().find(|s| s.endpoint == endpoint) {
                 state.record_failure();
-                warn!("Endpoint {} failed (consecutive: {})", endpoint, state.consecutive_failures);
+                warn!(
+                    "Endpoint {} failed (consecutive: {})",
+                    endpoint, state.consecutive_failures
+                );
             }
         }
     }
@@ -263,7 +269,8 @@ impl EndpointDiscovery {
     pub async fn get_health(&self, partner_id: &str) -> Vec<(String, EndpointHealth, i64)> {
         let eps = self.endpoints.read().await;
         match eps.get(partner_id) {
-            Some(states) => states.iter()
+            Some(states) => states
+                .iter()
                 .map(|s| (s.endpoint.clone(), s.health, s.score()))
                 .collect(),
             None => Vec::new(),
@@ -289,17 +296,23 @@ impl EndpointDiscovery {
 
         for endpoint in endpoints {
             let start = Instant::now();
-            
+
             match connect_fn(endpoint.clone()).await {
                 Ok(conn) => {
                     let latency = start.elapsed().as_millis() as u64;
                     self.record_success(partner_id, &endpoint, latency).await;
-                    info!("Connected to {} via {} ({}ms)", partner_id, endpoint, latency);
+                    info!(
+                        "Connected to {} via {} ({}ms)",
+                        partner_id, endpoint, latency
+                    );
                     return Ok((conn, endpoint));
                 }
                 Err(e) => {
                     self.record_failure(partner_id, &endpoint).await;
-                    warn!("Failed to connect to {} via {}: {:?}", partner_id, endpoint, e);
+                    warn!(
+                        "Failed to connect to {} via {}: {:?}",
+                        partner_id, endpoint, e
+                    );
                     errors.push((endpoint, e));
                 }
             }
@@ -316,23 +329,23 @@ mod tests {
     #[test]
     fn test_endpoint_state() {
         let mut state = EndpointState::new("localhost:7741".into());
-        
+
         assert_eq!(state.health, EndpointHealth::Healthy);
         assert!(state.is_available());
-        
+
         // Record success
         state.record_success(100);
         assert_eq!(state.health, EndpointHealth::Healthy);
         assert_eq!(state.consecutive_failures, 0);
         assert_eq!(state.avg_latency_ms, Some(100));
-        
+
         // Record failures
         state.record_failure();
         state.record_failure();
         state.record_failure();
         assert_eq!(state.health, EndpointHealth::Degraded);
         assert_eq!(state.consecutive_failures, 3);
-        
+
         // More failures
         state.record_failure();
         state.record_failure();
@@ -344,24 +357,22 @@ mod tests {
     fn test_endpoint_score() {
         let mut healthy = EndpointState::new("a".into());
         healthy.record_success(50);
-        
+
         let mut degraded = EndpointState::new("b".into());
         degraded.record_failure();
         degraded.record_failure();
         degraded.record_failure();
-        
+
         assert!(healthy.score() > degraded.score());
     }
 
     #[tokio::test]
     async fn test_discovery_register() {
         let disc = EndpointDiscovery::new(DiscoveryConfig::default());
-        
-        disc.register_partner("partner1", vec![
-            "host1:7741".into(),
-            "host2:7741".into(),
-        ]).await;
-        
+
+        disc.register_partner("partner1", vec!["host1:7741".into(), "host2:7741".into()])
+            .await;
+
         let endpoints = disc.get_all_endpoints("partner1").await;
         assert_eq!(endpoints.len(), 2);
     }
@@ -372,18 +383,22 @@ mod tests {
             strategy: FailoverStrategy::RoundRobin,
             ..Default::default()
         });
-        
-        disc.register_partner("partner1", vec![
-            "host1:7741".into(),
-            "host2:7741".into(),
-            "host3:7741".into(),
-        ]).await;
-        
+
+        disc.register_partner(
+            "partner1",
+            vec![
+                "host1:7741".into(),
+                "host2:7741".into(),
+                "host3:7741".into(),
+            ],
+        )
+        .await;
+
         let e1 = disc.get_endpoint("partner1").await;
-        let e2 = disc.get_endpoint("partner1").await;
-        let e3 = disc.get_endpoint("partner1").await;
+        let _e2 = disc.get_endpoint("partner1").await;
+        let _e3 = disc.get_endpoint("partner1").await;
         let e4 = disc.get_endpoint("partner1").await;
-        
+
         // Should cycle through
         assert_eq!(e1, e4);
     }
@@ -394,20 +409,18 @@ mod tests {
             strategy: FailoverStrategy::BestScore,
             ..Default::default()
         });
-        
-        disc.register_partner("partner1", vec![
-            "host1:7741".into(),
-            "host2:7741".into(),
-        ]).await;
-        
+
+        disc.register_partner("partner1", vec!["host1:7741".into(), "host2:7741".into()])
+            .await;
+
         // Mark first as failing
         for _ in 0..6 {
             disc.record_failure("partner1", "host1:7741").await;
         }
-        
+
         // Should prefer host2 now
         disc.record_success("partner1", "host2:7741", 50).await;
-        
+
         let best = disc.get_endpoint("partner1").await;
         assert_eq!(best, Some("host2:7741".into()));
     }

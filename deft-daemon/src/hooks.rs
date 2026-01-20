@@ -1,9 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tokio::sync::mpsc;
-use tracing::{debug, info, warn, error};
-use serde::{Deserialize, Serialize};
+use tracing::{debug, info, warn};
 
 /// Hook event types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -251,7 +250,7 @@ impl HookManager {
 
             debug!("Executing hook: {} for event {}", hook.command, ctx.event);
             let result = Self::run_hook(hook, ctx).await;
-            
+
             if result.success {
                 info!("Hook {} completed successfully", hook.command);
             } else {
@@ -266,7 +265,7 @@ impl HookManager {
 
     async fn run_hook(config: &HookConfig, ctx: &HookContext) -> HookResult {
         let start = std::time::Instant::now();
-        
+
         // Parse command
         let parts: Vec<&str> = config.command.split_whitespace().collect();
         if parts.is_empty() {
@@ -343,7 +342,7 @@ mod tests {
 
         assert_eq!(ctx.event, "post_transfer");
         assert_eq!(ctx.transfer_id, Some("tx-123".to_string()));
-        
+
         let vars = ctx.to_env_vars();
         assert!(vars.iter().any(|(k, _)| k == "DEFT_EVENT"));
         assert!(vars.iter().any(|(k, _)| k == "DEFT_PARTNER_ID"));
@@ -363,7 +362,7 @@ mod tests {
     #[tokio::test]
     async fn test_hook_manager() {
         let mut manager = HookManager::new();
-        
+
         manager.register(HookConfig {
             event: "post_transfer".to_string(),
             command: "echo test".to_string(),
@@ -376,7 +375,7 @@ mod tests {
 
         let ctx = HookContext::new(HookEvent::PostTransfer);
         let results = manager.execute(&ctx).await;
-        
+
         assert_eq!(results.len(), 1);
         assert!(results[0].success);
     }
@@ -393,10 +392,8 @@ mod tests {
             virtual_files: vec![],
         };
 
-        let ctx_allowed = HookContext::new(HookEvent::PostTransfer)
-            .with_partner("allowed-partner");
-        let ctx_denied = HookContext::new(HookEvent::PostTransfer)
-            .with_partner("other-partner");
+        let ctx_allowed = HookContext::new(HookEvent::PostTransfer).with_partner("allowed-partner");
+        let ctx_denied = HookContext::new(HookEvent::PostTransfer).with_partner("other-partner");
 
         assert!(HookManager::should_run(&config, &ctx_allowed));
         assert!(!HookManager::should_run(&config, &ctx_denied));
