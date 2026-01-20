@@ -919,6 +919,10 @@ impl CommandHandler {
     }
 
     fn handle_bye(&self, session: &mut Session) -> Response {
+        // Complete any pending pull transfer when session ends
+        if let Some(ref transfer_id) = session.active_pull_transfer {
+            self.complete_transfer_to_api(transfer_id);
+        }
         session.close();
         Response::Goodbye
     }

@@ -194,22 +194,17 @@ impl ApiState {
     pub async fn update_transfer_progress(&self, id: &str, bytes: u64, total: u64) {
         if let Some(t) = self.transfers.write().await.get_mut(id) {
             t.bytes_transferred = bytes;
-            t.progress_percent = if total > 0 {
-                ((bytes * 100) / total) as u8
-            } else {
-                0
-            };
+            if total > 0 {
+                t.total_bytes = total;
+                t.progress_percent = ((bytes * 100) / total).min(100) as u8;
+            }
             t.updated_at = chrono::Utc::now().to_rfc3339();
         }
     }
 
     pub async fn complete_transfer(&self, id: &str) {
         let mut transfers = self.transfers.write().await;
-        if let Some(t) = transfers.get_mut(id) {
-            t.status = "complete".to_string();
-            t.progress_percent = 100;
-            t.updated_at = chrono::Utc::now().to_rfc3339();
-
+        if let Some(t) = transfers.remove(id) {
             // Add to history
             let entry = TransferHistoryEntry {
                 id: t.id.clone(),
@@ -217,9 +212,9 @@ impl ApiState {
                 partner_id: t.partner_id.clone(),
                 direction: t.direction.clone(),
                 status: "complete".to_string(),
-                total_bytes: t.total_bytes,
+                total_bytes: t.bytes_transferred.max(t.total_bytes),
                 started_at: t.started_at.clone(),
-                completed_at: Some(t.updated_at.clone()),
+                completed_at: Some(chrono::Utc::now().to_rfc3339()),
             };
             drop(transfers); // Release lock before acquiring another
             self.history.write().await.push(entry);
@@ -229,19 +224,16 @@ impl ApiState {
 
     pub async fn fail_transfer(&self, id: &str, error: &str) {
         let mut transfers = self.transfers.write().await;
-        if let Some(t) = transfers.get_mut(id) {
-            t.status = "failed".to_string();
-            t.updated_at = chrono::Utc::now().to_rfc3339();
-
+        if let Some(t) = transfers.remove(id) {
             let entry = TransferHistoryEntry {
                 id: t.id.clone(),
                 virtual_file: t.virtual_file.clone(),
                 partner_id: t.partner_id.clone(),
                 direction: t.direction.clone(),
                 status: format!("failed: {}", error),
-                total_bytes: t.total_bytes,
+                total_bytes: t.bytes_transferred,
                 started_at: t.started_at.clone(),
-                completed_at: Some(t.updated_at.clone()),
+                completed_at: Some(chrono::Utc::now().to_rfc3339()),
             };
             drop(transfers);
             self.history.write().await.push(entry);

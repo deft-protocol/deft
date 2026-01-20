@@ -326,6 +326,11 @@ where
         }
     }
 
+    // Cleanup: complete any pending pull transfers when connection closes
+    if let Some(ref transfer_id) = session.active_pull_transfer {
+        handler.complete_transfer_to_api(transfer_id);
+    }
+
     Ok(())
 }
 
