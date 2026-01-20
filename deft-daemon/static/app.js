@@ -319,9 +319,13 @@ async function updateTransfers() {
                 <small>${t.progress_percent}% (${formatBytes(t.bytes_transferred)} / ${formatBytes(t.total_bytes)})</small>
             </td>
             <td>
-                <span class="badge badge-${t.status === 'active' ? 'success' : 'warning'}">${t.status}</span>
+                <span class="badge badge-${t.status === 'active' ? 'success' : (t.status === 'interrupted' ? 'warning' : 'error')}">${t.status}</span>
             </td>
             <td class="action-btns">
+                ${t.status === 'interrupted' ?
+            `<button class="btn btn-sm btn-primary" onclick="resumeTransfer('${escapeHtml(t.id)}')">Resume</button>` :
+            `<button class="btn btn-sm btn-warning" onclick="interruptTransfer('${escapeHtml(t.id)}')">Interrupt</button>`
+        }
                 <button class="btn btn-sm btn-danger" onclick="cancelTransfer('${escapeHtml(t.id)}')">Cancel</button>
             </td>
         </tr>
@@ -334,6 +338,28 @@ async function cancelTransfer(id) {
     if (result) {
         addLogEntry(`Cancelled transfer: ${id.substring(0, 8)}`);
         await updateTransfers();
+    }
+}
+
+async function interruptTransfer(id) {
+    const result = await apiPost(`/api/transfers/${id}/interrupt`, {});
+    if (result && result.status === 'interrupted') {
+        addLogEntry(`Interrupted transfer: ${id.substring(0, 8)}`);
+        showNotification('Transfer interrupted - can be resumed later', 'warning');
+        await updateTransfers();
+    } else {
+        showNotification(result?.error || 'Failed to interrupt transfer', 'error');
+    }
+}
+
+async function resumeTransfer(id) {
+    const result = await apiPost(`/api/transfers/${id}/resume`, {});
+    if (result && result.status === 'resumed') {
+        addLogEntry(`Resumed transfer: ${id.substring(0, 8)}`);
+        showNotification('Transfer resumed', 'success');
+        await updateTransfers();
+    } else {
+        showNotification(result?.error || 'Failed to resume transfer', 'error');
     }
 }
 

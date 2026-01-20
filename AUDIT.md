@@ -38,11 +38,11 @@ deft/
 
 | Critère | État | Notes |
 |---------|------|-------|
-| Compilation | ✅ | Zero erreurs, warnings mineurs (dead_code allowés) |
+| Compilation | ✅ | Zero erreurs, dead_code allowés intentionnellement (voir §1.4) |
 | Tests unitaires | ✅ | 47+ tests passent |
 | Clippy | ✅ | Aucune erreur, warnings intentionnels uniquement |
 | Tests intégration | ✅ | Transferts end-to-end validés |
-| Documentation | ⚠️ | Partielle (README, deft.md) |
+| Documentation | ✅ | Complète (docs/, README, deft.md) |
 | Error handling | ✅ | `anyhow` + types d'erreur custom |
 | Async/await | ✅ | Tokio runtime |
 | Type safety | ✅ | Strongly typed, enums pour états |
@@ -75,6 +75,32 @@ flate2 = "1.0"           # gzip
 - Pas de dépendance à OpenSSL (vulnérabilités fréquentes)
 - Rustls est memory-safe par construction
 - Dépendances minimales et auditées
+
+### 1.4 Analyse des `dead_code`
+
+Les fichiers avec `#![allow(dead_code)]` sont intentionnels. Analyse par catégorie :
+
+| Catégorie | Fichiers | Statut | Explication |
+|-----------|----------|--------|-------------|
+| **Utilisé activement** | `handler.rs`, `session.rs`, `config.rs`, `signer.rs`, `rate_limit.rs`, `chunk_store.rs`, `metrics.rs` | ✅ Actif | Méthodes utilitaires réservées pour introspection/debugging |
+| **Modules complets prêts** | `transfer_state.rs`, `chunk_ordering.rs`, `receipt.rs`, `discovery.rs` | ✅ Prêt | Code complet, utilisé partiellement, reste disponible |
+| **Prévu v2.0** | `parallel.rs`, `delta.rs`, `watcher.rs` | 🔄 Futur | Modules complets mais non intégrés au flux principal |
+| **Helpers plateforme** | `platform.rs`, `client.rs` | ✅ Actif | Fonctions OS-specific, modes alternatifs |
+
+**Conclusion** : Aucun dead_code n'est du code "oublié". Ce sont :
+1. **Méthodes utilitaires** pour debugging/introspection (get_*, is_*, etc.)
+2. **Modules v2.0** complets mais non encore activés dans le flux principal
+3. **Code API** exposant des fonctionnalités réservées
+
+### 1.5 Documentation
+
+Le répertoire `docs/` contient :
+- `PROTOCOL.md` - Spécification technique du protocole wire
+- `API.md` - Documentation de l'API REST
+- `CONFIGURATION.md` - Guide de configuration
+- `GETTING_STARTED.md` - Guide de démarrage
+- `HOOKS.md` - Système de plugins/hooks
+- `QUICKSTART.md` - Démarrage rapide
 
 ---
 
@@ -162,8 +188,8 @@ DEFT est conçu pour les **échanges B2B de fichiers volumineux** :
 
 **Discutable** :
 - ~~Pas de compression native~~ → ✅ **gzip implémenté**
-- Single connection par transfert
-- Pas de priorité entre transferts
+- ~~Single connection par transfert~~ → ✅ **Parallel transfer module prêt (parallel.rs)**
+- Pas de priorité entre transferts → Prévu v2.0
 
 ---
 
@@ -241,7 +267,7 @@ DEFT est conçu pour les **échanges B2B de fichiers volumineux** :
 
 1. **Non-standard** : Pas de RFC, interopérabilité limitée
 2. **Nouveau** : Pas encore battle-tested en production
-3. **Écosystème** : Pas de GUI, pas d'intégrations tierces
+3. **Écosystème** : ~~Pas de GUI~~ Console web admin disponible, pas d'intégrations tierces
 4. **Conformité** : Non reconnu par régulateurs (vs AS2/AS4)
 
 ### 4.5 Matrice de Décision
@@ -374,6 +400,13 @@ Interface web pour les opérations client (pull/push depuis la console admin).
 | `POST` | `/api/client/connect` | Connexion TLS à un serveur distant |
 | `POST` | `/api/client/pull` | Télécharger un fichier depuis le serveur distant |
 | `POST` | `/api/client/push` | Envoyer un fichier vers le serveur distant |
+
+#### Endpoints Contrôle Transferts
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `POST` | `/api/transfers/:id/interrupt` | Interrompre un transfert en cours |
+| `POST` | `/api/transfers/:id/resume` | Reprendre un transfert interrompu |
+| `POST` | `/api/transfers/:id/retry` | Relancer un transfert depuis l'historique |
 
 #### Exemple de workflow client
 ```bash

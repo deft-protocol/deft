@@ -222,6 +222,30 @@ impl ApiState {
         }
     }
 
+    pub async fn interrupt_transfer(&self, id: &str) -> bool {
+        if let Some(t) = self.transfers.write().await.get_mut(id) {
+            t.status = "interrupted".to_string();
+            t.updated_at = chrono::Utc::now().to_rfc3339();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub async fn resume_transfer(&self, id: &str) -> bool {
+        if let Some(t) = self.transfers.write().await.get_mut(id) {
+            if t.status == "interrupted" {
+                t.status = "active".to_string();
+                t.updated_at = chrono::Utc::now().to_rfc3339();
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
     pub async fn fail_transfer(&self, id: &str, error: &str) {
         let mut transfers = self.transfers.write().await;
         if let Some(t) = transfers.remove(id) {
@@ -389,6 +413,20 @@ async fn handle_request(
                 .and_then(|s| s.strip_suffix("/retry"))
                 .unwrap_or("");
             handle_retry_transfer(&state, id).await
+        }
+        ("POST", p) if p.ends_with("/interrupt") => {
+            let id = p
+                .strip_prefix("/api/transfers/")
+                .and_then(|s| s.strip_suffix("/interrupt"))
+                .unwrap_or("");
+            handle_interrupt_transfer(&state, id).await
+        }
+        ("POST", p) if p.ends_with("/resume") => {
+            let id = p
+                .strip_prefix("/api/transfers/")
+                .and_then(|s| s.strip_suffix("/resume"))
+                .unwrap_or("");
+            handle_resume_transfer(&state, id).await
         }
 
         // Virtual file endpoints
@@ -714,6 +752,31 @@ async fn handle_retry_transfer(state: &ApiState, id: &str) -> (u16, String) {
         (
             404,
             r#"{"error":"Transfer not found in history"}"#.to_string(),
+        )
+    }
+}
+
+async fn handle_interrupt_transfer(state: &ApiState, id: &str) -> (u16, String) {
+    if state.interrupt_transfer(id).await {
+        (
+            200,
+            serde_json::json!({"status": "interrupted", "id": id}).to_string(),
+        )
+    } else {
+        (404, r#"{"error":"Transfer not found"}"#.to_string())
+    }
+}
+
+async fn handle_resume_transfer(state: &ApiState, id: &str) -> (u16, String) {
+    if state.resume_transfer(id).await {
+        (
+            200,
+            serde_json::json!({"status": "resumed", "id": id}).to_string(),
+        )
+    } else {
+        (
+            404,
+            r#"{"error":"Transfer not found or not in interrupted state"}"#.to_string(),
         )
     }
 }
