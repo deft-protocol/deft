@@ -78,19 +78,38 @@ flate2 = "1.0"           # gzip
 
 ### 1.4 Analyse des `dead_code`
 
-Les fichiers avec `#![allow(dead_code)]` sont intentionnels. Analyse par catégorie :
+Les fichiers avec `#![allow(dead_code)]` se répartissent en deux catégories :
 
-| Catégorie | Fichiers | Statut | Explication |
-|-----------|----------|--------|-------------|
-| **Utilisé activement** | `handler.rs`, `session.rs`, `config.rs`, `signer.rs`, `rate_limit.rs`, `chunk_store.rs`, `metrics.rs` | ✅ Actif | Méthodes utilitaires réservées pour introspection/debugging |
-| **Modules complets prêts** | `transfer_state.rs`, `chunk_ordering.rs`, `receipt.rs`, `discovery.rs` | ✅ Prêt | Code complet, utilisé partiellement, reste disponible |
-| **Prévu v2.0** | `parallel.rs`, `delta.rs`, `watcher.rs` | 🔄 Futur | Modules complets mais non intégrés au flux principal |
-| **Helpers plateforme** | `platform.rs`, `client.rs` | ✅ Actif | Fonctions OS-specific, modes alternatifs |
+#### Modules intégrés (code actif avec méthodes helper non utilisées)
 
-**Conclusion** : Aucun dead_code n'est du code "oublié". Ce sont :
-1. **Méthodes utilitaires** pour debugging/introspection (get_*, is_*, etc.)
-2. **Modules v2.0** complets mais non encore activés dans le flux principal
-3. **Code API** exposant des fonctionnalités réservées
+| Fichier | Lignes | Statut | Raison du dead_code |
+|---------|--------|--------|---------------------|
+| `handler.rs` | 937 | ✅ **Intégré** | Méthodes helper pour cas avancés (sender-side completion) |
+| `session.rs` | 206 | ✅ **Intégré** | Getters/setters pour introspection debugging |
+| `config.rs` | 257 | ✅ **Intégré** | Méthodes de validation optionnelles |
+| `signer.rs` | 258 | ✅ **Intégré** | `verify_receipt()` prêt mais non appelé côté serveur |
+| `rate_limit.rs` | 291 | ✅ **Intégré** | Méthodes stats/monitoring non exposées |
+| `chunk_store.rs` | 229 | ✅ **Intégré** | `read_chunk()`, `list_chunks()` pour debug |
+| `metrics.rs` | 238 | ✅ **Intégré** | Compteurs additionnels non exposés |
+| `receipt.rs` | 168 | ✅ **Intégré** | `list_receipts()`, `get_receipt()` pour audit |
+| `discovery.rs` | 253 | ✅ **Intégré** | Health check avancé non activé |
+| `chunk_ordering.rs` | 142 | ✅ **Intégré** | Helpers de vérification nonce |
+| `watcher.rs` | 335 | ✅ **Intégré** | Utilisé par commande `watch` |
+| `platform.rs` | 89 | ✅ **Intégré** | Fonctions OS-specific |
+| `client.rs` | 371 | ✅ **Intégré** | Modes de transfert alternatifs |
+
+#### Modules NON intégrés (code complet mais pas appelé)
+
+| Fichier | Lignes | Fonctions | Statut | Action requise |
+|---------|--------|-----------|--------|----------------|
+| `parallel.rs` | 384 | 26 | ❌ **Non intégré** | Intégrer pour transferts multi-connexions |
+| `delta.rs` | 408 | 11 | ❌ **Non intégré** | Intégrer pour sync incrémentale rsync-like |
+| `transfer_state.rs` | 283 | 15 | ❌ **Non intégré** | Intégrer pour reprise persistante |
+
+**Conclusion** :
+- **3 modules complets non intégrés** : `parallel.rs`, `delta.rs`, `transfer_state.rs`
+- Ces modules représentent ~1075 lignes de code fonctionnel prêt à intégrer
+- L'intégration nécessite de les appeler depuis le flux principal (handler, client)
 
 ### 1.5 Documentation
 
