@@ -37,7 +37,7 @@ use server::Server;
 
 #[derive(Parser)]
 #[command(name = "deftd")]
-#[command(about = "DEFT Protocol Daemon - Reliable Interoperable File Transfer")]
+#[command(about = "DEFT Protocol Daemon - Delta-Enabled File Transfer")]
 struct Cli {
     #[arg(short, long)]
     config: Option<String>,
@@ -173,14 +173,14 @@ async fn main() -> Result<()> {
             .await?;
         }
         Some(Commands::Daemon) | None => {
-            run_daemon(config).await?;
+            run_daemon(config, config_path).await?;
         }
     }
 
     Ok(())
 }
 
-async fn run_daemon(config: Config) -> Result<()> {
+async fn run_daemon(config: Config, config_path: String) -> Result<()> {
     // Initialize metrics
     metrics::register_metrics();
 
@@ -215,7 +215,13 @@ async fn run_daemon(config: Config) -> Result<()> {
     }
 
     if config.server.enabled {
-        let server = Server::new(config, api_state)?;
+        let config_path = config_path.clone();
+        let server = Server::new(config, api_state.clone())?;
+
+        // Setup SIGHUP handler for config reload
+        #[cfg(unix)]
+        let mut sighup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
+            .expect("Failed to install SIGHUP handler");
 
         // Setup graceful shutdown
         let shutdown = async {
@@ -225,6 +231,42 @@ async fn run_daemon(config: Config) -> Result<()> {
             info!("Received shutdown signal, stopping server...");
         };
 
+        // Config reload task
+        #[cfg(unix)]
+        let reload_task = {
+            let api_state = api_state.clone();
+            let config_path = config_path.clone();
+            async move {
+                loop {
+                    sighup.recv().await;
+                    info!("Received SIGHUP, reloading configuration...");
+                    match Config::load(&config_path) {
+                        Ok(new_config) => {
+                            if let Some(ref state) = api_state {
+                                *state.config.write().await = new_config.clone();
+                                info!("Configuration reloaded successfully");
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to reload config: {}", e);
+                        }
+                    }
+                }
+            }
+        };
+
+        #[cfg(unix)]
+        tokio::select! {
+            result = server.run() => {
+                result?;
+            }
+            _ = shutdown => {
+                info!("Server shutdown complete");
+            }
+            _ = reload_task => {}
+        }
+
+        #[cfg(not(unix))]
         tokio::select! {
             result = server.run() => {
                 result?;
