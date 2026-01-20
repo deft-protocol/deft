@@ -434,8 +434,8 @@ function updateRemoteFiles(files) {
     pullSelect.innerHTML = '<option value="">Select file...</option>' +
         pullableFiles.map(f => `<option value="${escapeHtml(f.name)}">${escapeHtml(f.name)}</option>`).join('');
 
-    // Files we can push to (direction=receive on remote = they receive from us)
-    const pushableFiles = files.filter(f => f.direction === 'receive');
+    // Files we can push to (direction=receive/recv on remote = they receive from us)
+    const pushableFiles = files.filter(f => f.direction === 'receive' || f.direction === 'recv');
     pushSelect.innerHTML = '<option value="">Select file...</option>' +
         pushableFiles.map(f => `<option value="${escapeHtml(f.name)}">${escapeHtml(f.name)}</option>`).join('');
 }

@@ -117,6 +117,16 @@ pub struct CreateVirtualFileRequest {
     pub partner_id: String,
 }
 
+/// Client connection parameters (stored after connect)
+#[derive(Debug, Clone, Default)]
+pub struct ClientConnection {
+    pub server: String,
+    pub partner_id: String,
+    pub cert: String,
+    pub key: String,
+    pub ca: String,
+}
+
 /// API state shared across requests
 pub struct ApiState {
     pub config: RwLock<Config>,
@@ -124,6 +134,7 @@ pub struct ApiState {
     pub transfers: RwLock<HashMap<String, TransferStatus>>,
     pub history: RwLock<Vec<TransferHistoryEntry>>,
     history_path: std::path::PathBuf,
+    pub client_connection: RwLock<Option<ClientConnection>>,
 }
 
 impl ApiState {
@@ -137,6 +148,7 @@ impl ApiState {
             transfers: RwLock::new(HashMap::new()),
             history: RwLock::new(history),
             history_path,
+            client_connection: RwLock::new(None),
         }
     }
 
@@ -900,22 +912,35 @@ async fn handle_client_connect(state: &ApiState, body: &[u8]) -> (u16, String) {
             let client_config = &config.client;
 
             // Use provided certs or fall back to config
-            let cert_path = r.cert.as_deref().unwrap_or(&client_config.cert);
-            let key_path = r.key.as_deref().unwrap_or(&client_config.key);
-            let ca_path = &client_config.ca;
+            let cert_path = r.cert.as_deref().unwrap_or(&client_config.cert).to_string();
+            let key_path = r.key.as_deref().unwrap_or(&client_config.key).to_string();
+            let ca_path = client_config.ca.clone();
+            drop(config); // Release read lock
 
             // Try to establish TLS connection
-            match connect_to_server(&r.server, cert_path, key_path, ca_path, &r.partner_id).await {
-                Ok(virtual_files) => (
-                    200,
-                    serde_json::json!({
-                        "success": true,
-                        "server": r.server,
-                        "partner_id": r.partner_id,
-                        "virtual_files": virtual_files
-                    })
-                    .to_string(),
-                ),
+            match connect_to_server(&r.server, &cert_path, &key_path, &ca_path, &r.partner_id).await
+            {
+                Ok(virtual_files) => {
+                    // Store connection parameters for subsequent pull/push
+                    *state.client_connection.write().await = Some(ClientConnection {
+                        server: r.server.clone(),
+                        partner_id: r.partner_id.clone(),
+                        cert: cert_path,
+                        key: key_path,
+                        ca: ca_path,
+                    });
+
+                    (
+                        200,
+                        serde_json::json!({
+                            "success": true,
+                            "server": r.server,
+                            "partner_id": r.partner_id,
+                            "virtual_files": virtual_files
+                        })
+                        .to_string(),
+                    )
+                }
                 Err(e) => (
                     200,
                     serde_json::json!({
@@ -1036,7 +1061,7 @@ async fn connect_to_server(
     Ok(virtual_files)
 }
 
-async fn handle_client_pull(_state: &ApiState, body: &[u8]) -> (u16, String) {
+async fn handle_client_pull(state: &ApiState, body: &[u8]) -> (u16, String) {
     #[derive(Deserialize)]
     struct PullRequest {
         virtual_file: String,
@@ -1045,17 +1070,208 @@ async fn handle_client_pull(_state: &ApiState, body: &[u8]) -> (u16, String) {
     let req: Result<PullRequest, _> = serde_json::from_slice(body);
     match req {
         Ok(r) => {
-            // TODO: Implement actual pull using stored connection
-            (200, serde_json::json!({
-                "success": true,
-                "message": format!("Pull {} to {} - not yet implemented", r.virtual_file, r.output_path)
-            }).to_string())
+            // Get stored connection
+            let conn = state.client_connection.read().await;
+            let Some(conn) = conn.as_ref() else {
+                return (
+                    400,
+                    r#"{"success":false,"error":"Not connected. Use Connect first."}"#.to_string(),
+                );
+            };
+            let conn = conn.clone();
+            drop(conn);
+
+            // Perform pull
+            match pull_file(state, &r.virtual_file, &r.output_path).await {
+                Ok(bytes) => (
+                    200,
+                    serde_json::json!({
+                        "success": true,
+                        "virtual_file": r.virtual_file,
+                        "output_path": r.output_path,
+                        "bytes": bytes
+                    })
+                    .to_string(),
+                ),
+                Err(e) => (
+                    200,
+                    serde_json::json!({
+                        "success": false,
+                        "error": format!("{}", e)
+                    })
+                    .to_string(),
+                ),
+            }
         }
         Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
     }
 }
 
-async fn handle_client_push(_state: &ApiState, body: &[u8]) -> (u16, String) {
+async fn pull_file(
+    state: &ApiState,
+    virtual_file: &str,
+    output_path: &str,
+) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    use std::sync::Arc;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    use tokio_rustls::TlsConnector;
+
+    // Clone connection data and release lock immediately
+    let conn = {
+        let guard = state.client_connection.read().await;
+        guard.as_ref().ok_or("Not connected")?.clone()
+    };
+
+    // Load TLS config
+    let cert_pem = std::fs::read(&conn.cert)?;
+    let key_pem = std::fs::read(&conn.key)?;
+    let ca_pem = std::fs::read(&conn.ca)?;
+
+    let certs = rustls_pemfile::certs(&mut cert_pem.as_slice())
+        .filter_map(|r| r.ok())
+        .collect::<Vec<_>>();
+    let key =
+        rustls_pemfile::private_key(&mut key_pem.as_slice())?.ok_or("No private key found")?;
+    let ca_certs = rustls_pemfile::certs(&mut ca_pem.as_slice())
+        .filter_map(|r| r.ok())
+        .collect::<Vec<_>>();
+
+    let mut root_store = rustls::RootCertStore::empty();
+    for cert in ca_certs {
+        root_store.add(cert)?;
+    }
+
+    let tls_config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_client_auth_cert(certs, key)?;
+
+    let connector = TlsConnector::from(Arc::new(tls_config));
+    let tcp = tokio::net::TcpStream::connect(&conn.server).await?;
+    let domain = rustls::pki_types::ServerName::try_from("localhost")?;
+    let stream = connector.connect(domain, tcp).await?;
+
+    let (read_half, mut write_half) = tokio::io::split(stream);
+    let mut reader = BufReader::new(read_half);
+    let mut line = String::new();
+
+    // HELLO
+    write_half
+        .write_all(b"DEFT HELLO 1.0 CHUNKED,PARALLEL,RESUME\n")
+        .await?;
+    reader.read_line(&mut line).await?;
+    if !line.contains("WELCOME") {
+        return Err(format!("HELLO failed: {}", line).into());
+    }
+
+    // AUTH
+    line.clear();
+    write_half
+        .write_all(format!("DEFT AUTH {}\n", conn.partner_id).as_bytes())
+        .await?;
+    reader.read_line(&mut line).await?;
+    if !line.contains("AUTH_OK") {
+        return Err(format!("AUTH failed: {}", line).into());
+    }
+
+    // DESCRIBE to get file info
+    line.clear();
+    write_half
+        .write_all(format!("DEFT DESCRIBE {}\n", virtual_file).as_bytes())
+        .await?;
+    reader.read_line(&mut line).await?;
+
+    // Parse FILE_INFO: DEFT FILE_INFO <name> SIZE:<size> CHUNKS:<chunks> CHUNK_SIZE:<cs> HASH:<hash>
+    if !line.contains("FILE_INFO") {
+        return Err(format!("DESCRIBE failed: {}", line).into());
+    }
+
+    let mut total_chunks = 0u64;
+    let mut chunk_size = 262144u64;
+    for part in line.split_whitespace() {
+        if let Some(c) = part.strip_prefix("CHUNKS:") {
+            total_chunks = c.parse().unwrap_or(0);
+        }
+        if let Some(cs) = part.strip_prefix("CHUNK_SIZE:") {
+            chunk_size = cs.parse().unwrap_or(262144);
+        }
+    }
+
+    // Skip chunk detail lines
+    for _ in 0..total_chunks {
+        line.clear();
+        reader.read_line(&mut line).await?;
+    }
+
+    // Create output file
+    let mut file = tokio::fs::File::create(output_path).await?;
+    let mut total_bytes = 0u64;
+
+    // GET each chunk - need to drop reader and use raw read for binary data
+    drop(reader);
+    let (read_half, write_half) = {
+        // Reconnect for binary transfer (BufReader doesn't work well with mixed line/binary)
+        let tcp = tokio::net::TcpStream::connect(&conn.server).await?;
+        let domain = rustls::pki_types::ServerName::try_from("localhost")?;
+        let stream = connector.connect(domain, tcp).await?;
+        tokio::io::split(stream)
+    };
+    let mut reader = BufReader::new(read_half);
+    let mut write_half = write_half;
+
+    // Re-authenticate
+    write_half
+        .write_all(b"DEFT HELLO 1.0 CHUNKED,PARALLEL,RESUME\n")
+        .await?;
+    line.clear();
+    reader.read_line(&mut line).await?;
+
+    line.clear();
+    write_half
+        .write_all(format!("DEFT AUTH {}\n", conn.partner_id).as_bytes())
+        .await?;
+    reader.read_line(&mut line).await?;
+
+    for chunk_idx in 0..total_chunks {
+        line.clear();
+        write_half
+            .write_all(
+                format!(
+                    "DEFT GET {} CHUNKS {}-{}\n",
+                    virtual_file,
+                    chunk_idx,
+                    chunk_idx + 1
+                )
+                .as_bytes(),
+            )
+            .await?;
+        reader.read_line(&mut line).await?;
+
+        // Parse CHUNK_DATA: DEFT CHUNK_DATA <vf> <idx> SIZE:<size>
+        if !line.contains("CHUNK_DATA") {
+            return Err(format!("GET failed: {}", line).into());
+        }
+
+        let mut size = chunk_size;
+        for part in line.split_whitespace() {
+            if let Some(s) = part.strip_prefix("SIZE:") {
+                size = s.parse().unwrap_or(chunk_size);
+            }
+        }
+
+        // Read binary chunk data directly from the inner reader
+        let mut chunk_data = vec![0u8; size as usize];
+        reader.read_exact(&mut chunk_data).await?;
+        file.write_all(&chunk_data).await?;
+        total_bytes += size;
+    }
+
+    // BYE
+    let _ = write_half.write_all(b"DEFT BYE\n").await;
+
+    Ok(total_bytes)
+}
+
+async fn handle_client_push(state: &ApiState, body: &[u8]) -> (u16, String) {
     #[derive(Deserialize)]
     struct PushRequest {
         file_path: String,
@@ -1064,12 +1280,192 @@ async fn handle_client_push(_state: &ApiState, body: &[u8]) -> (u16, String) {
     let req: Result<PushRequest, _> = serde_json::from_slice(body);
     match req {
         Ok(r) => {
-            // TODO: Implement actual push using stored connection
-            (200, serde_json::json!({
-                "success": true,
-                "message": format!("Push {} to {} - not yet implemented", r.file_path, r.virtual_file)
-            }).to_string())
+            // Get stored connection
+            let conn = state.client_connection.read().await;
+            let Some(_conn) = conn.as_ref() else {
+                return (
+                    400,
+                    r#"{"success":false,"error":"Not connected. Use Connect first."}"#.to_string(),
+                );
+            };
+            drop(conn);
+
+            // Perform push
+            match push_file(state, &r.file_path, &r.virtual_file).await {
+                Ok(bytes) => (
+                    200,
+                    serde_json::json!({
+                        "success": true,
+                        "file_path": r.file_path,
+                        "virtual_file": r.virtual_file,
+                        "bytes": bytes
+                    })
+                    .to_string(),
+                ),
+                Err(e) => (
+                    200,
+                    serde_json::json!({
+                        "success": false,
+                        "error": format!("{}", e)
+                    })
+                    .to_string(),
+                ),
+            }
         }
         Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
     }
+}
+
+async fn push_file(
+    state: &ApiState,
+    file_path: &str,
+    virtual_file: &str,
+) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    use sha2::{Digest, Sha256};
+    use std::sync::Arc;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio_rustls::TlsConnector;
+
+    // Clone connection data and release lock immediately
+    let conn = {
+        let guard = state.client_connection.read().await;
+        guard.as_ref().ok_or("Not connected")?.clone()
+    };
+
+    // Read file to push
+    let file_data = std::fs::read(file_path)?;
+    let file_size = file_data.len() as u64;
+    let chunk_size = 262144usize;
+    let total_chunks = (file_size + chunk_size as u64 - 1) / chunk_size as u64;
+
+    // Compute hash
+    let mut hasher = Sha256::new();
+    hasher.update(&file_data);
+    let hash = format!("{:x}", hasher.finalize());
+
+    // Load TLS config
+    let cert_pem = std::fs::read(&conn.cert)?;
+    let key_pem = std::fs::read(&conn.key)?;
+    let ca_pem = std::fs::read(&conn.ca)?;
+
+    let certs = rustls_pemfile::certs(&mut cert_pem.as_slice())
+        .filter_map(|r| r.ok())
+        .collect::<Vec<_>>();
+    let key =
+        rustls_pemfile::private_key(&mut key_pem.as_slice())?.ok_or("No private key found")?;
+    let ca_certs = rustls_pemfile::certs(&mut ca_pem.as_slice())
+        .filter_map(|r| r.ok())
+        .collect::<Vec<_>>();
+
+    let mut root_store = rustls::RootCertStore::empty();
+    for cert in ca_certs {
+        root_store.add(cert)?;
+    }
+
+    let tls_config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_client_auth_cert(certs, key)?;
+
+    let connector = TlsConnector::from(Arc::new(tls_config));
+    let tcp = tokio::net::TcpStream::connect(&conn.server).await?;
+    let domain = rustls::pki_types::ServerName::try_from("localhost")?;
+    let stream = connector.connect(domain, tcp).await?;
+
+    let (read_half, mut write_half) = tokio::io::split(stream);
+    let mut reader = BufReader::new(read_half);
+    let mut line = String::new();
+
+    // HELLO
+    write_half
+        .write_all(b"DEFT HELLO 1.0 CHUNKED,PARALLEL,RESUME\n")
+        .await?;
+    reader.read_line(&mut line).await?;
+    if !line.contains("WELCOME") {
+        return Err(format!("HELLO failed: {}", line).into());
+    }
+
+    // AUTH
+    line.clear();
+    write_half
+        .write_all(format!("DEFT AUTH {}\n", conn.partner_id).as_bytes())
+        .await?;
+    reader.read_line(&mut line).await?;
+    if !line.contains("AUTH_OK") {
+        return Err(format!("AUTH failed: {}", line).into());
+    }
+
+    // BEGIN_TRANSFER: format is <virtual_file> <total_chunks> <total_bytes> <file_hash>
+    line.clear();
+    write_half
+        .write_all(
+            format!(
+                "DEFT BEGIN_TRANSFER {} {} {} {}\n",
+                virtual_file, total_chunks, file_size, hash
+            )
+            .as_bytes(),
+        )
+        .await?;
+    reader.read_line(&mut line).await?;
+
+    if !line.contains("TRANSFER_ACCEPTED") && !line.contains("TRANSFER_READY") {
+        return Err(format!("BEGIN_TRANSFER failed: {}", line).into());
+    }
+
+    // Send each chunk
+    for chunk_idx in 0..total_chunks {
+        let start = (chunk_idx as usize) * chunk_size;
+        let end = std::cmp::min(start + chunk_size, file_data.len());
+        let chunk_data = &file_data[start..end];
+
+        // Compute chunk hash
+        let mut chunk_hasher = Sha256::new();
+        chunk_hasher.update(chunk_data);
+        let chunk_hash = format!("{:x}", chunk_hasher.finalize());
+
+        // PUT command: DEFT PUT <vf> CHUNK <idx> SIZE:<size> HASH:<hash>
+        line.clear();
+        write_half
+            .write_all(
+                format!(
+                    "DEFT PUT {} CHUNK {} SIZE:{} HASH:{}\n",
+                    virtual_file,
+                    chunk_idx,
+                    chunk_data.len(),
+                    chunk_hash
+                )
+                .as_bytes(),
+            )
+            .await?;
+        reader.read_line(&mut line).await?;
+
+        if !line.contains("CHUNK_READY") {
+            return Err(format!("PUT failed: {}", line).into());
+        }
+
+        // Send binary data
+        write_half.write_all(chunk_data).await?;
+
+        // Wait for ACK
+        line.clear();
+        reader.read_line(&mut line).await?;
+        if !line.contains("CHUNK_ACK") {
+            return Err(format!("CHUNK_ACK failed: {}", line).into());
+        }
+    }
+
+    // COMMIT
+    line.clear();
+    write_half
+        .write_all(format!("DEFT COMMIT {} HASH:{}\n", virtual_file, hash).as_bytes())
+        .await?;
+    reader.read_line(&mut line).await?;
+
+    if !line.contains("TRANSFER_COMPLETE") {
+        return Err(format!("COMMIT failed: {}", line).into());
+    }
+
+    // BYE
+    let _ = write_half.write_all(b"DEFT BYE\n").await;
+
+    Ok(file_size)
 }
