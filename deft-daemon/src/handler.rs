@@ -11,6 +11,7 @@ use deft_protocol::{
 };
 use tracing::{debug, info, warn};
 
+use crate::api::ApiState;
 use crate::chunk_store::ChunkStore;
 use crate::compression::decompress;
 use crate::config::{Config, Direction};
@@ -30,10 +31,15 @@ pub struct CommandHandler {
     chunk_store: Arc<ChunkStore>,
     hook_manager: Arc<HookManager>,
     signer: Arc<ReceiptSigner>,
+    api_state: Option<Arc<ApiState>>,
 }
 
 impl CommandHandler {
     pub fn new(config: Config) -> Self {
+        Self::with_api_state(config, None)
+    }
+
+    pub fn with_api_state(config: Config, api_state: Option<Arc<ApiState>>) -> Self {
         let vf_manager = VirtualFileManager::new(config.storage.chunk_size);
         let transfer_manager = Arc::new(TransferManager::new());
         let receipt_store = Arc::new(
@@ -70,6 +76,43 @@ impl CommandHandler {
             chunk_store,
             hook_manager,
             signer,
+            api_state,
+        }
+    }
+
+    pub fn register_transfer_to_api(&self, id: &str, vf: &str, partner: &str, total_bytes: u64) {
+        if let Some(ref api) = self.api_state {
+            let api = api.clone();
+            let id = id.to_string();
+            let vf = vf.to_string();
+            let partner = partner.to_string();
+            tokio::spawn(async move {
+                api.register_transfer(id, vf, partner, "receive".to_string(), total_bytes)
+                    .await;
+            });
+        }
+    }
+
+    pub fn update_transfer_progress_to_api(&self, id: &str, bytes: u64, total: u64) {
+        if let Some(ref api) = self.api_state {
+            let api = api.clone();
+            let id = id.to_string();
+            tokio::spawn(async move {
+                api.update_transfer_progress(&id, bytes, total).await;
+            });
+        }
+    }
+
+    pub fn complete_transfer_to_api(&self, id: &str) {
+        if let Some(ref api) = self.api_state {
+            let api = api.clone();
+            let id = id.to_string();
+            tokio::spawn(async move {
+                api.complete_transfer(&id).await;
+                // Remove after 30 seconds
+                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                api.remove_transfer(&id).await;
+            });
         }
     }
 
@@ -332,6 +375,14 @@ impl CommandHandler {
         let transfer_id = self.transfer_manager.start_transfer(transfer);
         session.add_transfer(transfer_id.clone());
 
+        // Register transfer to API dashboard
+        self.register_transfer_to_api(
+            &transfer_id,
+            &virtual_file,
+            session.partner_id.as_deref().unwrap_or("unknown"),
+            total_bytes,
+        );
+
         info!(
             "Transfer started: {} for {} ({} chunks, {} bytes)",
             transfer_id, virtual_file, total_chunks, total_bytes
@@ -586,6 +637,24 @@ impl CommandHandler {
                         };
                     }
                     metrics::record_chunk_received();
+
+                    // Update progress in API dashboard
+                    if let Some(transfer) = self.transfer_manager.get_transfer(&id) {
+                        let received = transfer
+                            .chunks
+                            .values()
+                            .filter(|c| {
+                                matches!(
+                                    c.state,
+                                    crate::transfer::ChunkState::Received
+                                        | crate::transfer::ChunkState::Validated
+                                )
+                            })
+                            .count() as u64;
+                        let total_bytes = transfer.total_bytes;
+                        let bytes_received = received * transfer.chunk_size as u64;
+                        self.update_transfer_progress_to_api(&id, bytes_received, total_bytes);
+                    }
                 } else {
                     metrics::record_chunk_failed("validation");
                 }
@@ -667,6 +736,9 @@ impl CommandHandler {
 
             // Record metrics
             metrics::record_transfer_complete("receive", true, receipt.total_bytes, 0.0);
+
+            // Mark transfer complete in API dashboard
+            self.complete_transfer_to_api(&transfer_id);
 
             // Execute post-transfer hook with path if available
             let mut ctx = HookContext::new(HookEvent::PostTransfer)

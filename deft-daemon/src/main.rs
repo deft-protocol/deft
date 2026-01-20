@@ -196,19 +196,26 @@ async fn run_daemon(config: Config) -> Result<()> {
         );
     }
 
+    // Create shared API state if enabled
+    let api_state = if config.limits.api_enabled {
+        Some(std::sync::Arc::new(api::ApiState::new(config.clone())))
+    } else {
+        None
+    };
+
     // Start API server if enabled
-    if config.limits.api_enabled {
+    if let Some(ref state) = api_state {
         let api_listen = config.limits.api_listen.clone();
         let api_key = config.limits.api_key.clone();
-        let api_state = std::sync::Arc::new(api::ApiState::new(config.clone()));
+        let state_clone = state.clone();
         tokio::spawn(async move {
-            api::run_api_server(&api_listen, api_state, api_key).await;
+            api::run_api_server(&api_listen, state_clone, api_key).await;
         });
         info!("API server started on {}", config.limits.api_listen);
     }
 
     if config.server.enabled {
-        let server = Server::new(config)?;
+        let server = Server::with_api_state(config, api_state)?;
 
         // Setup graceful shutdown
         let shutdown = async {

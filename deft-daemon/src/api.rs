@@ -82,6 +82,53 @@ impl ApiState {
             transfers: RwLock::new(HashMap::new()),
         }
     }
+
+    pub async fn register_transfer(
+        &self,
+        id: String,
+        virtual_file: String,
+        partner_id: String,
+        direction: String,
+        total_bytes: u64,
+    ) {
+        let status = TransferStatus {
+            id: id.clone(),
+            virtual_file,
+            partner_id,
+            direction,
+            status: "active".to_string(),
+            progress_percent: 0,
+            bytes_transferred: 0,
+            total_bytes,
+            started_at: chrono::Utc::now().to_rfc3339(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        };
+        self.transfers.write().await.insert(id, status);
+    }
+
+    pub async fn update_transfer_progress(&self, id: &str, bytes: u64, total: u64) {
+        if let Some(t) = self.transfers.write().await.get_mut(id) {
+            t.bytes_transferred = bytes;
+            t.progress_percent = if total > 0 {
+                ((bytes * 100) / total) as u8
+            } else {
+                0
+            };
+            t.updated_at = chrono::Utc::now().to_rfc3339();
+        }
+    }
+
+    pub async fn complete_transfer(&self, id: &str) {
+        if let Some(t) = self.transfers.write().await.get_mut(id) {
+            t.status = "complete".to_string();
+            t.progress_percent = 100;
+            t.updated_at = chrono::Utc::now().to_rfc3339();
+        }
+    }
+
+    pub async fn remove_transfer(&self, id: &str) {
+        self.transfers.write().await.remove(id);
+    }
 }
 
 /// Run the API server

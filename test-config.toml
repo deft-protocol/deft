@@ -1,0 +1,40 @@
+# DEFT Test Configuration
+
+[server]
+enabled = true
+listen = "0.0.0.0:7741"
+cert = "/tmp/deft-test/server.crt"
+key = "/tmp/deft-test/server.key"
+ca = "/tmp/deft-test/ca.crt"
+
+[client]
+enabled = true
+cert = "/tmp/deft-test/server.crt"
+key = "/tmp/deft-test/server.key"
+ca = "/tmp/deft-test/ca.crt"
+
+[storage]
+chunk_size = 262144
+temp_dir = "/tmp/deft-test/tmp"
+
+[limits]
+max_connections_per_ip = 100
+max_requests_per_partner = 10000
+metrics_enabled = true
+metrics_listen = "127.0.0.1:9090"
+api_enabled = true
+api_listen = "127.0.0.1:7742"
+
+[logging]
+format = "text"
+level = "info"
+
+[[partners]]
+id = "test-partner"
+allowed_certs = ["/tmp/deft-test/server.crt"]
+endpoints = ["localhost:7741"]
+
+[[partners.virtual_files]]
+name = "test-files"
+path = "/tmp/deft-test/data/"
+direction = "receive"
