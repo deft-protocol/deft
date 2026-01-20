@@ -1,7 +1,7 @@
 # Audit Complet du Protocole DEFT
 
 **Date** : 20 janvier 2026  
-**Version** : 0.1.0
+**Version** : 1.0.0
 
 ---
 
@@ -28,13 +28,13 @@ deft/
 └── deft-common/     # Utilitaires partagés (260 lignes)
 ```
 
-**Total : ~6,500 lignes de code Rust**
+**Total : ~7,500 lignes de code Rust**
 
 ### 1.2 Qualité du Code
 
 | Critère | État | Notes |
 |---------|------|-------|
-| Compilation | ✅ | Zero erreurs, 22 warnings mineurs |
+| Compilation | ✅ | Zero erreurs, zero warnings |
 | Tests unitaires | ✅ | 47 tests passent (40 protocol + 7 integration) |
 | Tests intégration | ✅ | Transferts end-to-end validés |
 | Documentation | ⚠️ | Partielle (README, deft.md) |
@@ -116,7 +116,7 @@ tokio = "1.43"
 
 1. **Moyenne** : Rotation automatique des clés
 2. **Basse** : Audit des permissions fichiers
-3. **Basse** : Signature RSA/ECDSA des reçus (actuellement SHA-256)
+3. ~~**Basse** : Signature RSA/ECDSA des reçus~~ → ✅ **Ed25519 implémenté**
 
 ---
 
@@ -150,7 +150,7 @@ DEFT est conçu pour les **échanges B2B de fichiers volumineux** :
 - Virtual files (abstraction sécurisée)
 
 **Discutable** :
-- Pas de compression native
+- ~~Pas de compression native~~ → ✅ **gzip implémenté**
 - Single connection par transfert
 - Pas de priorité entre transferts
 
@@ -291,7 +291,7 @@ DEFT est conçu pour les **échanges B2B de fichiers volumineux** :
 | Métriques Prometheus | `metrics.rs` | Endpoint HTTP :9090/metrics |
 | Mode watch/polling | `watcher.rs` | Surveillance répertoires |
 | Signature Ed25519 | `signer.rs` | Non-répudiation cryptographique |
-| Interface web admin | `api.rs` | Dashboard + API REST :7742 |
+| Interface web admin | `api.rs` | Dashboard temps réel + API REST :7742 |
 | Delta-sync | `delta.rs` | Transferts incrémentaux rsync-like |
 | Plugin hooks | `hooks.rs` | Scripts pre/post-transfer |
 | Support multi-plateforme | `platform.rs` | Windows/Linux/macOS |
@@ -386,4 +386,4 @@ Le protocole est **recommandé pour** :
 
 ---
 
-*Audit v0.2 - Janvier 2026*
+*Audit v1.0 - 20 Janvier 2026*
