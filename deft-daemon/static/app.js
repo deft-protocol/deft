@@ -444,18 +444,29 @@ document.getElementById('pull-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const vf = document.getElementById('pull-vf').value;
     const path = document.getElementById('pull-path').value;
+    const btn = e.target.querySelector('button[type="submit"]');
 
     if (!vf || !path) {
         alert('Please select a file and specify output path');
         return;
     }
 
-    const result = await apiPost('/api/client/pull', { virtual_file: vf, output_path: path });
-    if (result && result.success) {
-        addLogEntry(`Started pull: ${vf} -> ${path}`);
-        await updateTransfers();
-    } else {
-        alert(result?.error || 'Pull failed');
+    btn.disabled = true;
+    btn.textContent = 'Pulling...';
+
+    try {
+        const result = await apiPost('/api/client/pull', { virtual_file: vf, output_path: path });
+        if (result && result.success) {
+            addLogEntry(`✓ Pull complete: ${vf} -> ${path} (${formatBytes(result.bytes)})`);
+            showNotification(`Pull successful: ${result.bytes} bytes`, 'success');
+            await updateTransfers();
+        } else {
+            addLogEntry(`✗ Pull failed: ${result?.error || 'Unknown error'}`);
+            showNotification(result?.error || 'Pull failed', 'error');
+        }
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Start Pull';
     }
 });
 
@@ -463,20 +474,48 @@ document.getElementById('push-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const file = document.getElementById('push-file').value;
     const vf = document.getElementById('push-vf').value;
+    const btn = e.target.querySelector('button[type="submit"]');
 
     if (!file || !vf) {
         alert('Please specify a file and select destination');
         return;
     }
 
-    const result = await apiPost('/api/client/push', { file_path: file, virtual_file: vf });
-    if (result && result.success) {
-        addLogEntry(`Started push: ${file} -> ${vf}`);
-        await updateTransfers();
-    } else {
-        alert(result?.error || 'Push failed');
+    btn.disabled = true;
+    btn.textContent = 'Pushing...';
+
+    try {
+        const result = await apiPost('/api/client/push', { file_path: file, virtual_file: vf });
+        if (result && result.success) {
+            addLogEntry(`✓ Push complete: ${file} -> ${vf} (${formatBytes(result.bytes)})`);
+            showNotification(`Push successful: ${result.bytes} bytes`, 'success');
+            await updateTransfers();
+        } else {
+            addLogEntry(`✗ Push failed: ${result?.error || 'Unknown error'}`);
+            showNotification(result?.error || 'Push failed', 'error');
+        }
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Start Push';
     }
 });
+
+function showNotification(message, type) {
+    const existing = document.querySelector('.notification');
+    if (existing) existing.remove();
+
+    const notif = document.createElement('div');
+    notif.className = `notification notification-${type}`;
+    notif.textContent = message;
+    notif.style.cssText = `
+        position: fixed; top: 20px; right: 20px; padding: 12px 20px;
+        border-radius: 6px; color: white; font-weight: 500; z-index: 1000;
+        background: ${type === 'success' ? '#10b981' : '#ef4444'};
+        animation: slideIn 0.3s ease;
+    `;
+    document.body.appendChild(notif);
+    setTimeout(() => notif.remove(), 4000);
+}
 
 // ============ Settings ============
 async function updateSettings() {

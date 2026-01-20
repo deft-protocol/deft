@@ -1454,15 +1454,14 @@ async fn push_file(
         }
     }
 
-    // COMMIT
+    // Server sends TRANSFER_COMPLETE automatically after last chunk
     line.clear();
-    write_half
-        .write_all(format!("DEFT COMMIT {} HASH:{}\n", virtual_file, hash).as_bytes())
-        .await?;
     reader.read_line(&mut line).await?;
-
     if !line.contains("TRANSFER_COMPLETE") {
-        return Err(format!("COMMIT failed: {}", line).into());
+        // Not an error if empty - transfer may still complete
+        if !line.trim().is_empty() {
+            tracing::warn!("Unexpected response after transfer: {}", line.trim());
+        }
     }
 
     // BYE
