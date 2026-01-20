@@ -69,7 +69,7 @@ List configured partners and their status.
 [
   {
     "id": "acme-corp",
-    "endpoints": ["rift.acme.com:7741", "rift-backup.acme.com:7741"],
+    "endpoints": ["deft.acme.com:7741", "deft-backup.acme.com:7741"],
     "connected": true,
     "last_seen": "2026-01-20T12:00:00Z",
     "transfers_today": 25,
@@ -77,7 +77,7 @@ List configured partners and their status.
   },
   {
     "id": "supplier-inc",
-    "endpoints": ["rift.supplier.com:7741"],
+    "endpoints": ["deft.supplier.com:7741"],
     "connected": false,
     "last_seen": "2026-01-19T18:30:00Z",
     "transfers_today": 0,
@@ -169,7 +169,7 @@ Prometheus metrics in JSON format.
 
 ```json
 {
-  "metrics": "# HELP rift_connections_total Total connections\n# TYPE rift_connections_total counter\nrift_connections_total 150\n..."
+  "metrics": "# HELP deft_connections_total Total connections\n# TYPE deft_connections_total counter\ndeft_connections_total 150\n..."
 }
 ```
 
@@ -226,24 +226,24 @@ curl http://localhost:9090/metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `rift_connections_total` | counter | - | Total connections received |
-| `rift_connections_active` | gauge | - | Current active connections |
-| `rift_transfers_total` | counter | direction, status | Total transfers |
-| `rift_bytes_transferred_total` | counter | direction | Total bytes transferred |
-| `rift_bytes_compressed_saved_total` | counter | - | Bytes saved by compression |
-| `rift_chunks_sent_total` | counter | - | Total chunks sent |
-| `rift_chunks_received_total` | counter | - | Total chunks received |
-| `rift_transfer_duration_seconds` | histogram | direction | Transfer duration |
-| `rift_rate_limited_total` | counter | type | Rate limit events |
-| `rift_endpoint_health` | gauge | partner_id, endpoint | Endpoint health (0/1) |
-| `rift_errors_total` | counter | type | Error count by type |
+| `deft_connections_total` | counter | - | Total connections received |
+| `deft_connections_active` | gauge | - | Current active connections |
+| `deft_transfers_total` | counter | direction, status | Total transfers |
+| `deft_bytes_transferred_total` | counter | direction | Total bytes transferred |
+| `deft_bytes_compressed_saved_total` | counter | - | Bytes saved by compression |
+| `deft_chunks_sent_total` | counter | - | Total chunks sent |
+| `deft_chunks_received_total` | counter | - | Total chunks received |
+| `deft_transfer_duration_seconds` | histogram | direction | Transfer duration |
+| `deft_rate_limited_total` | counter | type | Rate limit events |
+| `deft_endpoint_health` | gauge | partner_id, endpoint | Endpoint health (0/1) |
+| `deft_errors_total` | counter | type | Error count by type |
 
 ### Prometheus Configuration
 
 ```yaml
 # prometheus.yml
 scrape_configs:
-  - job_name: 'rift'
+  - job_name: 'deft'
     static_configs:
       - targets: ['localhost:9090']
     scrape_interval: 15s
@@ -255,13 +255,13 @@ Import the included dashboard from `docs/grafana-dashboard.json` or create panel
 
 ```
 # Connections rate
-rate(rift_connections_total[5m])
+rate(deft_connections_total[5m])
 
 # Transfer throughput
-rate(rift_bytes_transferred_total[5m])
+rate(deft_bytes_transferred_total[5m])
 
 # Error rate
-rate(rift_errors_total[5m])
+rate(deft_errors_total[5m])
 ```
 
 ---
@@ -310,7 +310,7 @@ The built-in dashboard at `http://localhost:7742/` provides:
 ```nginx
 server {
     listen 443 ssl;
-    server_name rift-admin.yourcompany.com;
+    server_name deft-admin.yourcompany.com;
 
     ssl_certificate /etc/ssl/certs/admin.crt;
     ssl_certificate_key /etc/ssl/private/admin.key;

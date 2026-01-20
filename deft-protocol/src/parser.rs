@@ -1,16 +1,16 @@
 use crate::{
-    AckErrorReason, AckStatus, Capabilities, ChunkRange, Command, Response, RiftError,
-    RiftErrorCode,
+    AckErrorReason, AckStatus, Capabilities, ChunkRange, Command, Response, DeftError,
+    DeftErrorCode,
 };
 
 pub struct Parser;
 
 impl Parser {
-    pub fn parse_command(line: &str) -> Result<Command, RiftError> {
+    pub fn parse_command(line: &str) -> Result<Command, DeftError> {
         let line = line.trim();
         if !line.starts_with("DEFT ") {
-            return Err(RiftError::ParseError(
-                "Command must start with 'RIFT '".into(),
+            return Err(DeftError::ParseError(
+                "Command must start with 'DEFT '".into(),
             ));
         }
 
@@ -18,7 +18,7 @@ impl Parser {
         let parts: Vec<&str> = rest.split_whitespace().collect();
 
         if parts.is_empty() {
-            return Err(RiftError::ParseError("Empty command".into()));
+            return Err(DeftError::ParseError("Empty command".into()));
         }
 
         match parts[0].to_uppercase().as_str() {
@@ -32,13 +32,13 @@ impl Parser {
             "GET_STATUS" => Self::parse_get_status(&parts[1..]),
             "PUT" => Self::parse_put(&parts[1..]),
             "BYE" => Ok(Command::Bye),
-            cmd => Err(RiftError::UnknownCommand(cmd.to_string())),
+            cmd => Err(DeftError::UnknownCommand(cmd.to_string())),
         }
     }
 
-    fn parse_hello(parts: &[&str]) -> Result<Command, RiftError> {
+    fn parse_hello(parts: &[&str]) -> Result<Command, DeftError> {
         if parts.is_empty() {
-            return Err(RiftError::MissingField("version".into()));
+            return Err(DeftError::MissingField("version".into()));
         }
 
         let version = parts[0].to_string();
@@ -55,9 +55,9 @@ impl Parser {
         })
     }
 
-    fn parse_auth(parts: &[&str]) -> Result<Command, RiftError> {
+    fn parse_auth(parts: &[&str]) -> Result<Command, DeftError> {
         if parts.is_empty() {
-            return Err(RiftError::MissingField("partner_id".into()));
+            return Err(DeftError::MissingField("partner_id".into()));
         }
 
         Ok(Command::Auth {
@@ -65,9 +65,9 @@ impl Parser {
         })
     }
 
-    fn parse_describe(parts: &[&str]) -> Result<Command, RiftError> {
+    fn parse_describe(parts: &[&str]) -> Result<Command, DeftError> {
         if parts.is_empty() {
-            return Err(RiftError::MissingField("virtual_file".into()));
+            return Err(DeftError::MissingField("virtual_file".into()));
         }
 
         Ok(Command::Describe {
@@ -75,15 +75,15 @@ impl Parser {
         })
     }
 
-    fn parse_get(parts: &[&str]) -> Result<Command, RiftError> {
+    fn parse_get(parts: &[&str]) -> Result<Command, DeftError> {
         if parts.is_empty() {
-            return Err(RiftError::MissingField("virtual_file".into()));
+            return Err(DeftError::MissingField("virtual_file".into()));
         }
 
         let virtual_file = parts[0].to_string();
 
         if parts.len() < 3 || parts[1].to_uppercase() != "CHUNKS" {
-            return Err(RiftError::ParseError("GET requires CHUNKS <range>".into()));
+            return Err(DeftError::ParseError("GET requires CHUNKS <range>".into()));
         }
 
         let chunks: ChunkRange = parts[2].parse()?;
@@ -94,10 +94,10 @@ impl Parser {
         })
     }
 
-    fn parse_begin_transfer(parts: &[&str]) -> Result<Command, RiftError> {
+    fn parse_begin_transfer(parts: &[&str]) -> Result<Command, DeftError> {
         // BEGIN_TRANSFER <virtual_file> <total_chunks> <total_bytes> <file_hash>
         if parts.len() < 4 {
-            return Err(RiftError::ParseError(
+            return Err(DeftError::ParseError(
                 "BEGIN_TRANSFER requires <virtual_file> <total_chunks> <total_bytes> <file_hash>"
                     .into(),
             ));
@@ -106,10 +106,10 @@ impl Parser {
         let virtual_file = parts[0].to_string();
         let total_chunks: u64 = parts[1]
             .parse()
-            .map_err(|_| RiftError::ParseError("Invalid total_chunks".into()))?;
+            .map_err(|_| DeftError::ParseError("Invalid total_chunks".into()))?;
         let total_bytes: u64 = parts[2]
             .parse()
-            .map_err(|_| RiftError::ParseError("Invalid total_bytes".into()))?;
+            .map_err(|_| DeftError::ParseError("Invalid total_bytes".into()))?;
         let file_hash = parts[3].to_string();
 
         Ok(Command::BeginTransfer {
@@ -120,10 +120,10 @@ impl Parser {
         })
     }
 
-    fn parse_resume_transfer(parts: &[&str]) -> Result<Command, RiftError> {
+    fn parse_resume_transfer(parts: &[&str]) -> Result<Command, DeftError> {
         // RESUME_TRANSFER <virtual_file> <transfer_id>
         if parts.len() < 2 {
-            return Err(RiftError::ParseError(
+            return Err(DeftError::ParseError(
                 "RESUME_TRANSFER requires <virtual_file> <transfer_id>".into(),
             ));
         }
@@ -134,10 +134,10 @@ impl Parser {
         })
     }
 
-    fn parse_get_status(parts: &[&str]) -> Result<Command, RiftError> {
+    fn parse_get_status(parts: &[&str]) -> Result<Command, DeftError> {
         // GET_STATUS <virtual_file>
         if parts.is_empty() {
-            return Err(RiftError::MissingField("virtual_file".into()));
+            return Err(DeftError::MissingField("virtual_file".into()));
         }
 
         Ok(Command::GetStatus {
@@ -145,32 +145,32 @@ impl Parser {
         })
     }
 
-    fn parse_put(parts: &[&str]) -> Result<Command, RiftError> {
+    fn parse_put(parts: &[&str]) -> Result<Command, DeftError> {
         // PUT <virtual_file> CHUNK <index> SIZE:<bytes> HASH:<hash>
         if parts.is_empty() {
-            return Err(RiftError::MissingField("virtual_file".into()));
+            return Err(DeftError::MissingField("virtual_file".into()));
         }
 
         let virtual_file = parts[0].to_string();
 
         if parts.len() < 5 || parts[1].to_uppercase() != "CHUNK" {
-            return Err(RiftError::ParseError(
+            return Err(DeftError::ParseError(
                 "PUT requires CHUNK <index> SIZE:<bytes> HASH:<hash>".into(),
             ));
         }
 
         let chunk_index: u64 = parts[2]
             .parse()
-            .map_err(|_| RiftError::ParseError("Invalid chunk index".into()))?;
+            .map_err(|_| DeftError::ParseError("Invalid chunk index".into()))?;
 
         // Parse SIZE:<bytes>
         let size_part = parts[3].to_uppercase();
         let size: u64 = if let Some(size_str) = size_part.strip_prefix("SIZE:") {
             size_str
                 .parse()
-                .map_err(|_| RiftError::ParseError("Invalid SIZE value".into()))?
+                .map_err(|_| DeftError::ParseError("Invalid SIZE value".into()))?
         } else {
-            return Err(RiftError::ParseError("Expected SIZE:<bytes>".into()));
+            return Err(DeftError::ParseError("Expected SIZE:<bytes>".into()));
         };
 
         // Parse HASH:<hash>
@@ -181,7 +181,7 @@ impl Parser {
         {
             hash_str.to_string()
         } else {
-            return Err(RiftError::ParseError("Expected HASH:<hash>".into()));
+            return Err(DeftError::ParseError("Expected HASH:<hash>".into()));
         };
 
         // Parse optional NONCE:<nonce> and COMPRESSED flag
@@ -207,11 +207,11 @@ impl Parser {
         })
     }
 
-    pub fn parse_response(line: &str) -> Result<Response, RiftError> {
+    pub fn parse_response(line: &str) -> Result<Response, DeftError> {
         let line = line.trim();
         if !line.starts_with("DEFT ") {
-            return Err(RiftError::ParseError(
-                "Response must start with 'RIFT '".into(),
+            return Err(DeftError::ParseError(
+                "Response must start with 'DEFT '".into(),
             ));
         }
 
@@ -219,7 +219,7 @@ impl Parser {
         let parts: Vec<&str> = rest.split_whitespace().collect();
 
         if parts.is_empty() {
-            return Err(RiftError::ParseError("Empty response".into()));
+            return Err(DeftError::ParseError("Empty response".into()));
         }
 
         match parts[0].to_uppercase().as_str() {
@@ -233,13 +233,13 @@ impl Parser {
             "TRANSFER_ACCEPTED" => Self::parse_transfer_accepted(&parts[1..]),
             "TRANSFER_COMPLETE" => Self::parse_transfer_complete(&parts[1..]),
             "CHUNK_READY" => Self::parse_chunk_ready(&parts[1..]),
-            resp => Err(RiftError::ParseError(format!("Unknown response: {}", resp))),
+            resp => Err(DeftError::ParseError(format!("Unknown response: {}", resp))),
         }
     }
 
-    fn parse_welcome(parts: &[&str]) -> Result<Response, RiftError> {
+    fn parse_welcome(parts: &[&str]) -> Result<Response, DeftError> {
         if parts.is_empty() {
-            return Err(RiftError::MissingField("version".into()));
+            return Err(DeftError::MissingField("version".into()));
         }
 
         let version = parts[0].to_string();
@@ -256,7 +256,7 @@ impl Parser {
             let caps_str = parts[1..parts.len() - 1].join(" ");
             (caps_str.parse()?, session_id)
         } else {
-            return Err(RiftError::MissingField("session_id".into()));
+            return Err(DeftError::MissingField("session_id".into()));
         };
 
         Ok(Response::Welcome {
@@ -266,22 +266,22 @@ impl Parser {
         })
     }
 
-    fn parse_auth_ok(rest: &str) -> Result<Response, RiftError> {
+    fn parse_auth_ok(rest: &str) -> Result<Response, DeftError> {
         let after_auth_ok = rest
             .strip_prefix("AUTH_OK ")
-            .ok_or_else(|| RiftError::ParseError("Invalid AUTH_OK format".into()))?;
+            .ok_or_else(|| DeftError::ParseError("Invalid AUTH_OK format".into()))?;
 
         let (partner_name, vf_part) = if let Some(after_quote) = after_auth_ok.strip_prefix('"') {
             let end_quote = after_quote
                 .find('"')
-                .ok_or_else(|| RiftError::ParseError("Unclosed quote in partner name".into()))?;
+                .ok_or_else(|| DeftError::ParseError("Unclosed quote in partner name".into()))?;
             let name = &after_quote[..end_quote];
             let rest = after_quote[end_quote + 1..].trim();
             (name.to_string(), rest)
         } else {
             let parts: Vec<&str> = after_auth_ok.split_whitespace().collect();
             if parts.is_empty() {
-                return Err(RiftError::MissingField("partner_name".into()));
+                return Err(DeftError::MissingField("partner_name".into()));
             }
             (parts[0].to_string(), parts.get(1).copied().unwrap_or(""))
         };
@@ -298,17 +298,17 @@ impl Parser {
         })
     }
 
-    fn parse_error(parts: &[&str]) -> Result<Response, RiftError> {
+    fn parse_error(parts: &[&str]) -> Result<Response, DeftError> {
         if parts.is_empty() {
-            return Err(RiftError::MissingField("error_code".into()));
+            return Err(DeftError::MissingField("error_code".into()));
         }
 
         let code_num: u16 = parts[0]
             .parse()
-            .map_err(|_| RiftError::ParseError("Invalid error code".into()))?;
+            .map_err(|_| DeftError::ParseError("Invalid error code".into()))?;
 
-        let code = RiftErrorCode::from_code(code_num)
-            .ok_or_else(|| RiftError::ParseError(format!("Unknown error code: {}", code_num)))?;
+        let code = DeftErrorCode::from_code(code_num)
+            .ok_or_else(|| DeftError::ParseError(format!("Unknown error code: {}", code_num)))?;
 
         let message = if parts.len() > 1 {
             Some(parts[1..].join(" "))
@@ -319,9 +319,9 @@ impl Parser {
         Ok(Response::Error { code, message })
     }
 
-    fn parse_chunk_ok(parts: &[&str]) -> Result<Response, RiftError> {
+    fn parse_chunk_ok(parts: &[&str]) -> Result<Response, DeftError> {
         if parts.len() < 2 {
-            return Err(RiftError::MissingField(
+            return Err(DeftError::MissingField(
                 "virtual_file or chunk_index".into(),
             ));
         }
@@ -329,7 +329,7 @@ impl Parser {
         let virtual_file = parts[0].to_string();
         let chunk_index: u64 = parts[1]
             .parse()
-            .map_err(|_| RiftError::ParseError("Invalid chunk index".into()))?;
+            .map_err(|_| DeftError::ParseError("Invalid chunk index".into()))?;
 
         Ok(Response::ChunkOk {
             virtual_file,
@@ -337,9 +337,9 @@ impl Parser {
         })
     }
 
-    fn parse_chunk_ack(parts: &[&str]) -> Result<Response, RiftError> {
+    fn parse_chunk_ack(parts: &[&str]) -> Result<Response, DeftError> {
         if parts.len() < 3 {
-            return Err(RiftError::MissingField(
+            return Err(DeftError::MissingField(
                 "virtual_file, chunk_index or status".into(),
             ));
         }
@@ -347,7 +347,7 @@ impl Parser {
         let virtual_file = parts[0].to_string();
         let chunk_index: u64 = parts[1]
             .parse()
-            .map_err(|_| RiftError::ParseError("Invalid chunk index".into()))?;
+            .map_err(|_| DeftError::ParseError("Invalid chunk index".into()))?;
 
         let status = match parts[2].to_uppercase().as_str() {
             "OK" => AckStatus::Ok,
@@ -360,7 +360,7 @@ impl Parser {
                 AckStatus::Error(reason)
             }
             _ => {
-                return Err(RiftError::ParseError(format!(
+                return Err(DeftError::ParseError(format!(
                     "Invalid ACK status: {}",
                     parts[2]
                 )))
@@ -374,9 +374,9 @@ impl Parser {
         })
     }
 
-    fn parse_chunk_ack_batch(parts: &[&str]) -> Result<Response, RiftError> {
+    fn parse_chunk_ack_batch(parts: &[&str]) -> Result<Response, DeftError> {
         if parts.len() < 2 {
-            return Err(RiftError::MissingField("virtual_file or ranges".into()));
+            return Err(DeftError::MissingField("virtual_file or ranges".into()));
         }
 
         let virtual_file = parts[0].to_string();
@@ -388,9 +388,9 @@ impl Parser {
         })
     }
 
-    fn parse_transfer_complete(parts: &[&str]) -> Result<Response, RiftError> {
+    fn parse_transfer_complete(parts: &[&str]) -> Result<Response, DeftError> {
         if parts.len() < 4 {
-            return Err(RiftError::MissingField(
+            return Err(DeftError::MissingField(
                 "virtual_file, file_hash, total_size or chunk_count".into(),
             ));
         }
@@ -399,10 +399,10 @@ impl Parser {
         let file_hash = parts[1].to_string();
         let total_size: u64 = parts[2]
             .parse()
-            .map_err(|_| RiftError::ParseError("Invalid total_size".into()))?;
+            .map_err(|_| DeftError::ParseError("Invalid total_size".into()))?;
         let chunk_count: u64 = parts[3]
             .parse()
-            .map_err(|_| RiftError::ParseError("Invalid chunk_count".into()))?;
+            .map_err(|_| DeftError::ParseError("Invalid chunk_count".into()))?;
 
         let signature = parts
             .get(4)
@@ -418,10 +418,10 @@ impl Parser {
         })
     }
 
-    fn parse_transfer_accepted(parts: &[&str]) -> Result<Response, RiftError> {
+    fn parse_transfer_accepted(parts: &[&str]) -> Result<Response, DeftError> {
         // TRANSFER_ACCEPTED <transfer_id> <virtual_file> WINDOW_SIZE:<n>
         if parts.len() < 2 {
-            return Err(RiftError::MissingField(
+            return Err(DeftError::MissingField(
                 "transfer_id or virtual_file".into(),
             ));
         }
@@ -442,10 +442,10 @@ impl Parser {
         })
     }
 
-    fn parse_chunk_ready(parts: &[&str]) -> Result<Response, RiftError> {
+    fn parse_chunk_ready(parts: &[&str]) -> Result<Response, DeftError> {
         // CHUNK_READY <virtual_file> <chunk_index> SIZE:<n>
         if parts.len() < 2 {
-            return Err(RiftError::MissingField(
+            return Err(DeftError::MissingField(
                 "virtual_file or chunk_index".into(),
             ));
         }
@@ -453,7 +453,7 @@ impl Parser {
         let virtual_file = parts[0].to_string();
         let chunk_index: u64 = parts[1]
             .parse()
-            .map_err(|_| RiftError::ParseError("Invalid chunk index".into()))?;
+            .map_err(|_| DeftError::ParseError("Invalid chunk index".into()))?;
 
         let size = parts
             .get(2)
@@ -609,7 +609,7 @@ mod tests {
         let resp = Parser::parse_response("DEFT ERROR 401 Unauthorized - Invalid partner").unwrap();
         match resp {
             Response::Error { code, message } => {
-                assert_eq!(code, RiftErrorCode::Unauthorized);
+                assert_eq!(code, DeftErrorCode::Unauthorized);
                 assert!(message.is_some());
             }
             _ => panic!("Expected Error response"),

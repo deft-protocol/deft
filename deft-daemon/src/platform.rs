@@ -24,17 +24,17 @@ pub fn normalize_path(path: &Path) -> PathBuf {
 pub fn default_config_path() -> PathBuf {
     #[cfg(windows)]
     {
-        // Windows: %PROGRAMDATA%\rift\config.toml or C:\rift\config.toml
+        // Windows: %PROGRAMDATA%\deft\config.toml or C:\deft\config.toml
         if let Ok(program_data) = std::env::var("PROGRAMDATA") {
-            PathBuf::from(program_data).join("rift").join("config.toml")
+            PathBuf::from(program_data).join("deft").join("config.toml")
         } else {
-            PathBuf::from("C:\\rift\\config.toml")
+            PathBuf::from("C:\\deft\\config.toml")
         }
     }
 
     #[cfg(not(windows))]
     {
-        PathBuf::from("/etc/rift/config.toml")
+        PathBuf::from("/etc/deft/config.toml")
     }
 }
 
@@ -43,15 +43,15 @@ pub fn default_temp_dir() -> PathBuf {
     #[cfg(windows)]
     {
         if let Ok(temp) = std::env::var("TEMP") {
-            PathBuf::from(temp).join("rift")
+            PathBuf::from(temp).join("deft")
         } else {
-            PathBuf::from("C:\\rift\\tmp")
+            PathBuf::from("C:\\deft\\tmp")
         }
     }
 
     #[cfg(not(windows))]
     {
-        PathBuf::from("/var/rift/tmp")
+        PathBuf::from("/var/deft/tmp")
     }
 }
 
@@ -60,15 +60,15 @@ pub fn default_data_dir() -> PathBuf {
     #[cfg(windows)]
     {
         if let Ok(program_data) = std::env::var("PROGRAMDATA") {
-            PathBuf::from(program_data).join("rift").join("data")
+            PathBuf::from(program_data).join("deft").join("data")
         } else {
-            PathBuf::from("C:\\rift\\data")
+            PathBuf::from("C:\\deft\\data")
         }
     }
 
     #[cfg(not(windows))]
     {
-        PathBuf::from("/var/rift/data")
+        PathBuf::from("/var/deft/data")
     }
 }
 
@@ -77,15 +77,15 @@ pub fn default_certs_dir() -> PathBuf {
     #[cfg(windows)]
     {
         if let Ok(program_data) = std::env::var("PROGRAMDATA") {
-            PathBuf::from(program_data).join("rift").join("certs")
+            PathBuf::from(program_data).join("deft").join("certs")
         } else {
-            PathBuf::from("C:\\rift\\certs")
+            PathBuf::from("C:\\deft\\certs")
         }
     }
 
     #[cfg(not(windows))]
     {
-        PathBuf::from("/etc/rift/certs")
+        PathBuf::from("/etc/deft/certs")
     }
 }
 
@@ -183,9 +183,9 @@ mod tests {
         let temp = default_temp_dir();
         let data = default_data_dir();
 
-        assert!(config.to_string_lossy().contains("rift"));
-        assert!(temp.to_string_lossy().contains("rift"));
-        assert!(data.to_string_lossy().contains("rift"));
+        assert!(config.to_string_lossy().contains("deft"));
+        assert!(temp.to_string_lossy().contains("deft"));
+        assert!(data.to_string_lossy().contains("deft"));
     }
 
     #[test]

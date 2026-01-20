@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// Represents a network endpoint for RIFT connections
+/// Represents a network endpoint for DEFT connections
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Endpoint {
     pub host: String,
@@ -35,12 +35,12 @@ impl fmt::Display for Endpoint {
 }
 
 impl std::str::FromStr for Endpoint {
-    type Err = crate::RiftError;
+    type Err = crate::DeftError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split(':').collect();
         if parts.len() != 2 {
-            return Err(crate::RiftError::ParseError(format!(
+            return Err(crate::DeftError::ParseError(format!(
                 "Invalid endpoint format: {}",
                 s
             )));
@@ -49,7 +49,7 @@ impl std::str::FromStr for Endpoint {
         let host = parts[0].to_string();
         let port: u16 = parts[1]
             .parse()
-            .map_err(|_| crate::RiftError::ParseError(format!("Invalid port: {}", parts[1])))?;
+            .map_err(|_| crate::DeftError::ParseError(format!("Invalid port: {}", parts[1])))?;
 
         Ok(Endpoint::new(host, port))
     }

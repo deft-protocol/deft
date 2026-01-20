@@ -14,90 +14,90 @@ lazy_static! {
 
     // Connection metrics
     pub static ref CONNECTIONS_TOTAL: IntCounter = IntCounter::new(
-        "rift_connections_total",
+        "deft_connections_total",
         "Total number of connections accepted"
     ).unwrap();
 
     pub static ref CONNECTIONS_ACTIVE: IntGauge = IntGauge::new(
-        "rift_connections_active",
+        "deft_connections_active",
         "Number of currently active connections"
     ).unwrap();
 
     pub static ref CONNECTIONS_REJECTED: IntCounterVec = IntCounterVec::new(
-        Opts::new("rift_connections_rejected_total", "Connections rejected"),
+        Opts::new("deft_connections_rejected_total", "Connections rejected"),
         &["reason"]
     ).unwrap();
 
     // Transfer metrics
     pub static ref TRANSFERS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("rift_transfers_total", "Total transfers"),
+        Opts::new("deft_transfers_total", "Total transfers"),
         &["direction", "status"]
     ).unwrap();
 
     pub static ref TRANSFERS_ACTIVE: IntGauge = IntGauge::new(
-        "rift_transfers_active",
+        "deft_transfers_active",
         "Number of currently active transfers"
     ).unwrap();
 
     pub static ref BYTES_TRANSFERRED: IntCounterVec = IntCounterVec::new(
-        Opts::new("rift_bytes_transferred_total", "Total bytes transferred"),
+        Opts::new("deft_bytes_transferred_total", "Total bytes transferred"),
         &["direction"]
     ).unwrap();
 
     pub static ref BYTES_COMPRESSED_SAVED: IntCounter = IntCounter::new(
-        "rift_bytes_compressed_saved_total",
+        "deft_bytes_compressed_saved_total",
         "Total bytes saved by compression"
     ).unwrap();
 
     // Chunk metrics
     pub static ref CHUNKS_SENT: IntCounter = IntCounter::new(
-        "rift_chunks_sent_total",
+        "deft_chunks_sent_total",
         "Total chunks sent"
     ).unwrap();
 
     pub static ref CHUNKS_RECEIVED: IntCounter = IntCounter::new(
-        "rift_chunks_received_total",
+        "deft_chunks_received_total",
         "Total chunks received"
     ).unwrap();
 
     pub static ref CHUNKS_FAILED: IntCounterVec = IntCounterVec::new(
-        Opts::new("rift_chunks_failed_total", "Chunks that failed verification"),
+        Opts::new("deft_chunks_failed_total", "Chunks that failed verification"),
         &["reason"]
     ).unwrap();
 
     // Latency metrics
     pub static ref TRANSFER_DURATION: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("rift_transfer_duration_seconds", "Transfer duration")
+        HistogramOpts::new("deft_transfer_duration_seconds", "Transfer duration")
             .buckets(vec![0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0]),
         &["direction"]
     ).unwrap();
 
     pub static ref CHUNK_LATENCY: Histogram = Histogram::with_opts(
-        HistogramOpts::new("rift_chunk_latency_seconds", "Chunk transfer latency")
+        HistogramOpts::new("deft_chunk_latency_seconds", "Chunk transfer latency")
             .buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0])
     ).unwrap();
 
     // Rate limiting metrics
     pub static ref RATE_LIMITED_REQUESTS: IntCounterVec = IntCounterVec::new(
-        Opts::new("rift_rate_limited_total", "Requests rejected by rate limiting"),
+        Opts::new("deft_rate_limited_total", "Requests rejected by rate limiting"),
         &["type"]
     ).unwrap();
 
     // Partner metrics
     pub static ref PARTNER_TRANSFERS: IntCounterVec = IntCounterVec::new(
-        Opts::new("rift_partner_transfers_total", "Transfers per partner"),
+        Opts::new("deft_partner_transfers_total", "Transfers per partner"),
         &["partner_id", "direction"]
     ).unwrap();
 
     // Endpoint health metrics
     pub static ref ENDPOINT_HEALTH: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("rift_endpoint_health", "Endpoint health status (0=unhealthy, 1=degraded, 2=healthy)"),
+        Opts::new("deft_endpoint_health", "Endpoint health status (0=unhealthy, 1=degraded, 2=healthy)"),
         &["partner_id", "endpoint"]
     ).unwrap();
 
     // Error metrics
     pub static ref ERRORS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("rift_errors_total", "Total errors by type"),
+        Opts::new("deft_errors_total", "Total errors by type"),
         &["type"]
     ).unwrap();
 }
@@ -219,8 +219,8 @@ mod tests {
         record_transfer_complete("send", true, 1024, 1.5);
 
         let metrics = gather_metrics();
-        assert!(metrics.contains("rift_transfers_total"));
-        assert!(metrics.contains("rift_bytes_transferred_total"));
+        assert!(metrics.contains("deft_transfers_total"));
+        assert!(metrics.contains("deft_bytes_transferred_total"));
     }
 
     #[test]
@@ -232,7 +232,7 @@ mod tests {
         record_connection_closed();
 
         let metrics = gather_metrics();
-        assert!(metrics.contains("rift_connections_total"));
-        assert!(metrics.contains("rift_connections_active"));
+        assert!(metrics.contains("deft_connections_total"));
+        assert!(metrics.contains("deft_connections_active"));
     }
 }

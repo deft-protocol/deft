@@ -166,7 +166,7 @@ fn default_chunk_size() -> u32 {
 }
 
 fn default_temp_dir() -> String {
-    "/var/rift/tmp".to_string()
+    "/var/deft/tmp".to_string()
 }
 
 fn default_max_connections_per_ip() -> u32 {

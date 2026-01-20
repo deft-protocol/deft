@@ -12,12 +12,12 @@ use tokio_rustls::TlsConnector;
 use tracing::{info, warn};
 
 use deft_common::{sha256_hex, Chunker};
-use deft_protocol::{Capabilities, Command, Parser as RiftParser, Response, DEFT_VERSION};
+use deft_protocol::{Capabilities, Command, Parser as DeftParser, Response, DEFT_VERSION};
 
 mod chunk_tracker;
 
 #[derive(Parser)]
-#[command(name = "rift")]
+#[command(name = "deft")]
 #[command(about = "DEFT Protocol CLI - Reliable Interoperable File Transfer")]
 struct Cli {
     #[arg(short, long, default_value = "localhost:7741")]
@@ -80,7 +80,7 @@ enum Commands {
     },
     /// Interactive session with handshake
     Connect { partner_id: String },
-    /// Send raw RIFT command
+    /// Send raw DEFT command
     Raw { command: Vec<String> },
 }
 
@@ -233,7 +233,7 @@ async fn run_interactive_session(cli: &Cli, partner_id: &str) -> Result<()> {
         return Err(anyhow::anyhow!("Authentication failed: {}", auth_response));
     }
 
-    println!("\n[Session established. Type RIFT commands or 'quit' to exit]\n");
+    println!("\n[Session established. Type DEFT commands or 'quit' to exit]\n");
 
     // Interactive loop
     let stdin = tokio::io::stdin();
@@ -324,7 +324,7 @@ async fn send_file(
     // Parse welcome to get window size
     let window_size = if let Ok(Response::Welcome {
         ref capabilities, ..
-    }) = RiftParser::parse_response(&welcome)
+    }) = DeftParser::parse_response(&welcome)
     {
         capabilities.window_size.unwrap_or(64)
     } else {

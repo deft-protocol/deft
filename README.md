@@ -50,7 +50,7 @@ cargo build --release
 
 ```bash
 git clone https://github.com/deft/deft.git
-cd rift
+cd deft
 cargo build --release
 
 # Install binaries
@@ -61,8 +61,8 @@ sudo cp target/release/deftd /usr/local/bin/
 
 ```bash
 # Copy example config
-sudo mkdir -p /etc/rift
-sudo cp config.example.toml /etc/rift/config.toml
+sudo mkdir -p /etc/deft
+sudo cp config.example.toml /etc/deft/config.toml
 
 # Generate certificates (see docs/GETTING_STARTED.md)
 ```
@@ -70,7 +70,7 @@ sudo cp config.example.toml /etc/rift/config.toml
 ## 🏗️ Architecture
 
 ```
-rift/
+deft/
 ├── deft-protocol/     # Protocol definitions (commands, responses, parser)
 ├── deft-common/       # Shared utilities (chunking, hashing)
 ├── deft-daemon/       # Unified daemon (server + client + API)
@@ -124,11 +124,11 @@ curl http://localhost:9090/metrics
 ```
 
 Available metrics:
-- `rift_connections_total` / `rift_connections_active`
-- `rift_transfers_total{direction,status}`
-- `rift_bytes_transferred_total{direction}`
-- `rift_transfer_duration_seconds{direction}`
-- `rift_chunks_sent_total` / `rift_chunks_received_total`
+- `deft_connections_total` / `deft_connections_active`
+- `deft_transfers_total{direction,status}`
+- `deft_bytes_transferred_total{direction}`
+- `deft_transfer_duration_seconds{direction}`
+- `deft_chunks_sent_total` / `deft_chunks_received_total`
 
 ### Web Dashboard
 

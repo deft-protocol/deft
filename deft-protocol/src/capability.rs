@@ -22,7 +22,7 @@ impl fmt::Display for Capability {
 }
 
 impl FromStr for Capability {
-    type Err = crate::RiftError;
+    type Err = crate::DeftError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
@@ -30,7 +30,7 @@ impl FromStr for Capability {
             "PARALLEL" => Ok(Capability::Parallel),
             "RESUME" => Ok(Capability::Resume),
             "COMPRESS" | "GZIP" => Ok(Capability::Compress),
-            _ => Err(crate::RiftError::UnknownCapability(s.to_string())),
+            _ => Err(crate::DeftError::UnknownCapability(s.to_string())),
         }
     }
 }
@@ -115,7 +115,7 @@ impl fmt::Display for Capabilities {
 }
 
 impl FromStr for Capabilities {
-    type Err = crate::RiftError;
+    type Err = crate::DeftError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.is_empty() {
@@ -132,7 +132,7 @@ impl FromStr for Capabilities {
             }
             if let Some(ws) = part.strip_prefix("WINDOW_SIZE:") {
                 window_size = Some(ws.parse().map_err(|_| {
-                    crate::RiftError::ParseError(format!("Invalid window size: {}", ws))
+                    crate::DeftError::ParseError(format!("Invalid window size: {}", ws))
                 })?);
             } else {
                 caps.push(part.parse()?);

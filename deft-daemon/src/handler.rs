@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use deft_protocol::{
-    AckStatus, Capabilities, Command, Parser, Response, RiftErrorCode, DEFT_VERSION,
+    AckStatus, Capabilities, Command, Parser, Response, DeftErrorCode, DEFT_VERSION,
 };
 use tracing::{debug, info, warn};
 
@@ -93,7 +93,7 @@ impl CommandHandler {
             Ok(command) => self.handle_command(session, command),
             Err(e) => {
                 warn!("Parse error: {}", e);
-                Response::error(RiftErrorCode::BadRequest, Some(e.to_string()))
+                Response::error(DeftErrorCode::BadRequest, Some(e.to_string()))
             }
         }
     }
@@ -161,7 +161,7 @@ impl CommandHandler {
     ) -> Response {
         if session.state != SessionState::Connected {
             return Response::error(
-                RiftErrorCode::BadRequest,
+                DeftErrorCode::BadRequest,
                 Some("Unexpected HELLO".to_string()),
             );
         }
@@ -169,7 +169,7 @@ impl CommandHandler {
         // Check version compatibility
         if !version.starts_with("1.") {
             return Response::error(
-                RiftErrorCode::UpgradeRequired,
+                DeftErrorCode::UpgradeRequired,
                 Some(format!(
                     "Unsupported version: {}. Server supports 1.x",
                     version
@@ -189,7 +189,7 @@ impl CommandHandler {
     fn handle_auth(&self, session: &mut Session, partner_id: String) -> Response {
         if session.state != SessionState::Welcomed {
             return Response::error(
-                RiftErrorCode::BadRequest,
+                DeftErrorCode::BadRequest,
                 Some("Must HELLO before AUTH".to_string()),
             );
         }
@@ -198,7 +198,7 @@ impl CommandHandler {
             Some(p) => p,
             None => {
                 return Response::error(
-                    RiftErrorCode::Unauthorized,
+                    DeftErrorCode::Unauthorized,
                     Some(format!("Unknown partner: {}", partner_id)),
                 );
             }
@@ -220,7 +220,7 @@ impl CommandHandler {
     fn handle_discover(&self, session: &Session) -> Response {
         if !session.is_authenticated() {
             return Response::error(
-                RiftErrorCode::Unauthorized,
+                DeftErrorCode::Unauthorized,
                 Some("Not authenticated".to_string()),
             );
         }
@@ -235,14 +235,14 @@ impl CommandHandler {
     fn handle_describe(&self, session: &Session, virtual_file: String) -> Response {
         if !session.is_authenticated() {
             return Response::error(
-                RiftErrorCode::Unauthorized,
+                DeftErrorCode::Unauthorized,
                 Some("Not authenticated".to_string()),
             );
         }
 
         if !session.can_access_virtual_file(&virtual_file) {
             return Response::error(
-                RiftErrorCode::Forbidden,
+                DeftErrorCode::Forbidden,
                 Some(format!("Access denied to: {}", virtual_file)),
             );
         }
@@ -250,7 +250,7 @@ impl CommandHandler {
         match self.vf_manager.compute_chunks(&virtual_file) {
             Ok((info, chunks)) => Response::FileInfo { info, chunks },
             Err(e) => Response::error(
-                RiftErrorCode::InternalServerError,
+                DeftErrorCode::InternalServerError,
                 Some(format!("Failed to describe file: {}", e)),
             ),
         }
@@ -264,14 +264,14 @@ impl CommandHandler {
     ) -> Response {
         if !session.is_authenticated() {
             return Response::error(
-                RiftErrorCode::Unauthorized,
+                DeftErrorCode::Unauthorized,
                 Some("Not authenticated".to_string()),
             );
         }
 
         if !session.can_access_virtual_file(&virtual_file) {
             return Response::error(
-                RiftErrorCode::Forbidden,
+                DeftErrorCode::Forbidden,
                 Some(format!("Access denied to: {}", virtual_file)),
             );
         }
@@ -285,7 +285,7 @@ impl CommandHandler {
                 data,
             },
             Err(e) => Response::error(
-                RiftErrorCode::InternalServerError,
+                DeftErrorCode::InternalServerError,
                 Some(format!("Failed to read chunk: {}", e)),
             ),
         }
@@ -301,14 +301,14 @@ impl CommandHandler {
     ) -> Response {
         if !session.is_authenticated() {
             return Response::error(
-                RiftErrorCode::Unauthorized,
+                DeftErrorCode::Unauthorized,
                 Some("Not authenticated".to_string()),
             );
         }
 
         if !session.can_access_virtual_file(&virtual_file) {
             return Response::error(
-                RiftErrorCode::Forbidden,
+                DeftErrorCode::Forbidden,
                 Some(format!("Access denied to: {}", virtual_file)),
             );
         }
@@ -362,14 +362,14 @@ impl CommandHandler {
     ) -> Response {
         if !session.is_authenticated() {
             return Response::error(
-                RiftErrorCode::Unauthorized,
+                DeftErrorCode::Unauthorized,
                 Some("Not authenticated".to_string()),
             );
         }
 
         if !session.can_access_virtual_file(&virtual_file) {
             return Response::error(
-                RiftErrorCode::Forbidden,
+                DeftErrorCode::Forbidden,
                 Some(format!("Access denied to: {}", virtual_file)),
             );
         }
@@ -378,7 +378,7 @@ impl CommandHandler {
         if let Some(transfer) = self.transfer_manager.get_transfer(&transfer_id) {
             if transfer.virtual_file != virtual_file {
                 return Response::error(
-                    RiftErrorCode::BadRequest,
+                    DeftErrorCode::BadRequest,
                     Some("Transfer ID does not match virtual file".to_string()),
                 );
             }
@@ -397,7 +397,7 @@ impl CommandHandler {
             }
         } else {
             Response::error(
-                RiftErrorCode::NotFound,
+                DeftErrorCode::NotFound,
                 Some(format!("Transfer not found: {}", transfer_id)),
             )
         }
@@ -406,14 +406,14 @@ impl CommandHandler {
     fn handle_get_status(&self, session: &Session, virtual_file: String) -> Response {
         if !session.is_authenticated() {
             return Response::error(
-                RiftErrorCode::Unauthorized,
+                DeftErrorCode::Unauthorized,
                 Some("Not authenticated".to_string()),
             );
         }
 
         if !session.can_access_virtual_file(&virtual_file) {
             return Response::error(
-                RiftErrorCode::Forbidden,
+                DeftErrorCode::Forbidden,
                 Some(format!("Access denied to: {}", virtual_file)),
             );
         }
@@ -443,13 +443,13 @@ impl CommandHandler {
                     }
                 } else {
                     Response::error(
-                        RiftErrorCode::NotFound,
+                        DeftErrorCode::NotFound,
                         Some(format!("Transfer not found for: {}", virtual_file)),
                     )
                 }
             }
             None => Response::error(
-                RiftErrorCode::NotFound,
+                DeftErrorCode::NotFound,
                 Some(format!("No active transfer for: {}", virtual_file)),
             ),
         }
@@ -468,14 +468,14 @@ impl CommandHandler {
     ) -> Response {
         if !session.is_authenticated() {
             return Response::error(
-                RiftErrorCode::Unauthorized,
+                DeftErrorCode::Unauthorized,
                 Some("Not authenticated".to_string()),
             );
         }
 
         if !session.can_access_virtual_file(&virtual_file) {
             return Response::error(
-                RiftErrorCode::Forbidden,
+                DeftErrorCode::Forbidden,
                 Some(format!("Access denied to: {}", virtual_file)),
             );
         }
@@ -496,7 +496,7 @@ impl CommandHandler {
                 }
             }
             None => Response::error(
-                RiftErrorCode::BadRequest,
+                DeftErrorCode::BadRequest,
                 Some(format!(
                     "No active transfer for: {}. Use BEGIN_TRANSFER first.",
                     virtual_file
@@ -550,14 +550,14 @@ impl CommandHandler {
         let data = &chunk_data;
         if !session.is_authenticated() {
             return Response::error(
-                RiftErrorCode::Unauthorized,
+                DeftErrorCode::Unauthorized,
                 Some("Not authenticated".to_string()),
             );
         }
 
         if !session.can_access_virtual_file(virtual_file) {
             return Response::error(
-                RiftErrorCode::Forbidden,
+                DeftErrorCode::Forbidden,
                 Some(format!("Access denied to: {}", virtual_file)),
             );
         }
@@ -741,7 +741,7 @@ impl CommandHandler {
     ) -> Response {
         if !session.is_authenticated() {
             return Response::error(
-                RiftErrorCode::Unauthorized,
+                DeftErrorCode::Unauthorized,
                 Some("Not authenticated".to_string()),
             );
         }

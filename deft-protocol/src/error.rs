@@ -3,7 +3,7 @@ use std::fmt;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RiftErrorCode {
+pub enum DeftErrorCode {
     BadRequest = 400,
     Unauthorized = 401,
     Forbidden = 403,
@@ -13,45 +13,45 @@ pub enum RiftErrorCode {
     InternalServerError = 500,
 }
 
-impl RiftErrorCode {
+impl DeftErrorCode {
     pub fn code(&self) -> u16 {
         *self as u16
     }
 
     pub fn message(&self) -> &'static str {
         match self {
-            RiftErrorCode::BadRequest => "Bad Request",
-            RiftErrorCode::Unauthorized => "Unauthorized - Invalid partner",
-            RiftErrorCode::Forbidden => "Forbidden - Partner not allowed",
-            RiftErrorCode::NotFound => "Not Found",
-            RiftErrorCode::UpgradeRequired => "Upgrade Required - Version not supported",
-            RiftErrorCode::RateLimited => "Too Many Requests - Rate limit exceeded",
-            RiftErrorCode::InternalServerError => "Internal Server Error",
+            DeftErrorCode::BadRequest => "Bad Request",
+            DeftErrorCode::Unauthorized => "Unauthorized - Invalid partner",
+            DeftErrorCode::Forbidden => "Forbidden - Partner not allowed",
+            DeftErrorCode::NotFound => "Not Found",
+            DeftErrorCode::UpgradeRequired => "Upgrade Required - Version not supported",
+            DeftErrorCode::RateLimited => "Too Many Requests - Rate limit exceeded",
+            DeftErrorCode::InternalServerError => "Internal Server Error",
         }
     }
 
     pub fn from_code(code: u16) -> Option<Self> {
         match code {
-            400 => Some(RiftErrorCode::BadRequest),
-            401 => Some(RiftErrorCode::Unauthorized),
-            403 => Some(RiftErrorCode::Forbidden),
-            404 => Some(RiftErrorCode::NotFound),
-            426 => Some(RiftErrorCode::UpgradeRequired),
-            429 => Some(RiftErrorCode::RateLimited),
-            500 => Some(RiftErrorCode::InternalServerError),
+            400 => Some(DeftErrorCode::BadRequest),
+            401 => Some(DeftErrorCode::Unauthorized),
+            403 => Some(DeftErrorCode::Forbidden),
+            404 => Some(DeftErrorCode::NotFound),
+            426 => Some(DeftErrorCode::UpgradeRequired),
+            429 => Some(DeftErrorCode::RateLimited),
+            500 => Some(DeftErrorCode::InternalServerError),
             _ => None,
         }
     }
 }
 
-impl fmt::Display for RiftErrorCode {
+impl fmt::Display for DeftErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}", self.code(), self.message())
     }
 }
 
 #[derive(Debug, Error)]
-pub enum RiftError {
+pub enum DeftError {
     #[error("Parse error: {0}")]
     ParseError(String),
 
@@ -65,7 +65,7 @@ pub enum RiftError {
     InvalidChunkRange(String),
 
     #[error("Protocol error: {0}")]
-    ProtocolError(RiftErrorCode),
+    ProtocolError(DeftErrorCode),
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),

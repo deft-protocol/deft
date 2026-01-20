@@ -242,7 +242,7 @@ fn test_error_handling() {
     let result = Parser::parse_command("INVALID COMMAND");
     assert!(result.is_err());
 
-    // Missing RIFT prefix
+    // Missing DEFT prefix
     let result = Parser::parse_command("HELLO 1.0");
     assert!(result.is_err());
 

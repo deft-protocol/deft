@@ -4,7 +4,7 @@ Complete reference for all DEFT configuration options.
 
 ## Configuration File
 
-Default location: `/etc/rift/config.toml`
+Default location: `/etc/deft/config.toml`
 
 Override with: `deftd --config /path/to/config.toml`
 
@@ -29,9 +29,9 @@ Server mode configuration for accepting incoming connections.
 [server]
 enabled = true
 listen = "0.0.0.0:7741"
-cert = "/etc/rift/certs/server.crt"
-key = "/etc/rift/certs/server.key"
-ca = "/etc/rift/certs/ca.crt"
+cert = "/etc/deft/certs/server.crt"
+key = "/etc/deft/certs/server.key"
+ca = "/etc/deft/certs/ca.crt"
 ```
 
 | Option | Type | Default | Description |
@@ -51,9 +51,9 @@ Client mode configuration for outgoing connections.
 ```toml
 [client]
 enabled = true
-cert = "/etc/rift/certs/client.crt"
-key = "/etc/rift/certs/client.key"
-ca = "/etc/rift/certs/ca.crt"
+cert = "/etc/deft/certs/client.crt"
+key = "/etc/deft/certs/client.key"
+ca = "/etc/deft/certs/ca.crt"
 ```
 
 | Option | Type | Default | Description |
@@ -72,13 +72,13 @@ File storage and chunking settings.
 ```toml
 [storage]
 chunk_size = 262144
-temp_dir = "/var/rift/tmp"
+temp_dir = "/var/deft/tmp"
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `chunk_size` | integer | `262144` | Chunk size in bytes (256 KB) |
-| `temp_dir` | string | `"/var/rift/tmp"` | Temporary directory for transfers |
+| `temp_dir` | string | `"/var/deft/tmp"` | Temporary directory for transfers |
 
 ### Chunk Size Guidelines
 
@@ -195,8 +195,8 @@ Partner definitions. Repeat for each trading partner.
 ```toml
 [[partners]]
 id = "acme-corp"
-allowed_certs = ["/etc/rift/partners/acme-corp.crt"]
-endpoints = ["rift.acme.com:7741", "rift-backup.acme.com:7741"]
+allowed_certs = ["/etc/deft/partners/acme-corp.crt"]
+endpoints = ["deft.acme.com:7741", "deft-backup.acme.com:7741"]
 
 [[partners.virtual_files]]
 name = "orders-outbound"
@@ -257,19 +257,19 @@ path = "/data/incoming/"
 [server]
 enabled = true
 listen = "0.0.0.0:7741"
-cert = "/etc/rift/certs/server.crt"
-key = "/etc/rift/certs/server.key"
-ca = "/etc/rift/certs/ca.crt"
+cert = "/etc/deft/certs/server.crt"
+key = "/etc/deft/certs/server.key"
+ca = "/etc/deft/certs/ca.crt"
 
 [client]
 enabled = true
-cert = "/etc/rift/certs/server.crt"
-key = "/etc/rift/certs/server.key"
-ca = "/etc/rift/certs/ca.crt"
+cert = "/etc/deft/certs/server.crt"
+key = "/etc/deft/certs/server.key"
+ca = "/etc/deft/certs/ca.crt"
 
 [storage]
 chunk_size = 262144
-temp_dir = "/var/rift/tmp"
+temp_dir = "/var/deft/tmp"
 
 [limits]
 max_connections_per_ip = 10
@@ -293,8 +293,8 @@ level = "info"
 # Partner: ACME Corporation
 [[partners]]
 id = "acme-corp"
-allowed_certs = ["/etc/rift/partners/acme-corp.crt"]
-endpoints = ["rift.acme.com:7741", "rift-backup.acme.com:7741"]
+allowed_certs = ["/etc/deft/partners/acme-corp.crt"]
+endpoints = ["deft.acme.com:7741", "deft-backup.acme.com:7741"]
 
 [[partners.virtual_files]]
 name = "daily-orders"
@@ -309,8 +309,8 @@ direction = "receive"
 # Partner: Supplier Inc
 [[partners]]
 id = "supplier-inc"
-allowed_certs = ["/etc/rift/partners/supplier.crt"]
-endpoints = ["rift.supplier.com:7741"]
+allowed_certs = ["/etc/deft/partners/supplier.crt"]
+endpoints = ["deft.supplier.com:7741"]
 
 [[partners.virtual_files]]
 name = "product-catalog"
@@ -341,7 +341,7 @@ export DEFT_METRICS_PORT=9091
 Validate configuration without starting:
 
 ```bash
-deftd --config /etc/rift/config.toml --validate
+deftd --config /etc/deft/config.toml --validate
 ```
 
 ---

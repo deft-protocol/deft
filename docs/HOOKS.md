@@ -246,7 +246,7 @@ log_entry = {
 
 # Send to Elasticsearch
 requests.post(
-    'http://elasticsearch:9200/rift-logs/_doc',
+    'http://elasticsearch:9200/deft-logs/_doc',
     json=log_entry,
     headers={'Content-Type': 'application/json'}
 )
@@ -338,7 +338,7 @@ virtual_files = ["invoices", "credit-notes"]
 
 ```bash
 #!/bin/bash
-exec >> /var/log/rift/hooks.log 2>&1
+exec >> /var/log/deft/hooks.log 2>&1
 echo "$(date) - $DEFT_EVENT for $DEFT_VIRTUAL_FILE"
 # ... rest of script
 ```
@@ -365,7 +365,7 @@ echo "Exit code: $?"
 
 1. Check script is executable: `chmod +x /scripts/hook.sh`
 2. Verify path is absolute
-3. Check logs: `journalctl -u rift | grep hook`
+3. Check logs: `journalctl -u deft | grep hook`
 
 ### Hook Timing Out
 
@@ -383,7 +383,7 @@ Add logging to your script:
 
 ```bash
 #!/bin/bash
-exec 2>&1 | tee -a /var/log/rift/hook-debug.log
+exec 2>&1 | tee -a /var/log/deft/hook-debug.log
 set -x  # Debug mode
 ```
 

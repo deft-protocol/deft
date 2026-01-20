@@ -1,5 +1,5 @@
 #!/bin/bash
-# RIFT Protocol Load Test Script
+# DEFT Protocol Load Test Script
 # Usage: ./load_test.sh [num_files] [file_size_kb] [partner_id]
 
 set -e
@@ -9,12 +9,12 @@ FILE_SIZE_KB=${2:-1024}
 PARTNER_ID=${3:-"test-partner"}
 CONFIG=${CONFIG:-"test-env/config.toml"}
 
-RIFTD="./target/release/riftd"
-TEST_DIR="/tmp/rift-load-test"
+DEFTD="./target/release/deftd"
+TEST_DIR="/tmp/deft-load-test"
 RESULTS_FILE="$TEST_DIR/results.csv"
 
 echo "=========================================="
-echo "RIFT Protocol Load Test"
+echo "DEFT Protocol Load Test"
 echo "=========================================="
 echo "Files:       $NUM_FILES"
 echo "Size:        ${FILE_SIZE_KB}KB each"
@@ -22,9 +22,9 @@ echo "Partner:     $PARTNER_ID"
 echo "Config:      $CONFIG"
 echo "=========================================="
 
-# Check if riftd exists
-if [ ! -f "$RIFTD" ]; then
-    echo "Error: $RIFTD not found. Run 'cargo build --release' first."
+# Check if deftd exists
+if [ ! -f "$DEFTD" ]; then
+    echo "Error: $DEFTD not found. Run 'cargo build --release' first."
     exit 1
 fi
 
@@ -51,7 +51,7 @@ send_file() {
     
     local start=$(date +%s%3N)
     
-    if $RIFTD -c "$CONFIG" send "$PARTNER_ID" "$vf_name" "$file" 2>/dev/null; then
+    if $DEFTD -c "$CONFIG" send "$PARTNER_ID" "$vf_name" "$file" 2>/dev/null; then
         local end=$(date +%s%3N)
         local duration=$((end - start))
         local throughput=$(echo "scale=2; ($size / 1048576) / ($duration / 1000)" | bc)

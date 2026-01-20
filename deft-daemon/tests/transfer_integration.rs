@@ -3,10 +3,10 @@ use std::io::Cursor;
 
 use deft_common::{sha256_hex, Chunker};
 use deft_protocol::{
-    AckStatus, Capabilities, Command, Parser, Response, RiftErrorCode, DEFT_VERSION,
+    AckStatus, Capabilities, Command, Parser, Response, DeftErrorCode, DEFT_VERSION,
 };
 
-/// Simulates a RIFT session for testing
+/// Simulates a DEFT session for testing
 struct MockSession {
     state: SessionState,
     partner_id: Option<String>,
@@ -49,7 +49,7 @@ impl MockSession {
             } => {
                 if self.state != SessionState::Connected {
                     return Response::error(
-                        RiftErrorCode::BadRequest,
+                        DeftErrorCode::BadRequest,
                         Some("Already welcomed".into()),
                     );
                 }
@@ -63,7 +63,7 @@ impl MockSession {
             }
             Command::Auth { partner_id } => {
                 if self.state != SessionState::Welcomed {
-                    return Response::error(RiftErrorCode::BadRequest, Some("Not welcomed".into()));
+                    return Response::error(DeftErrorCode::BadRequest, Some("Not welcomed".into()));
                 }
                 self.state = SessionState::Authenticated;
                 self.partner_id = Some(partner_id.clone());
@@ -76,10 +76,10 @@ impl MockSession {
                 file_hash,
             } => {
                 if self.state != SessionState::Authenticated {
-                    return Response::error(RiftErrorCode::Unauthorized, None);
+                    return Response::error(DeftErrorCode::Unauthorized, None);
                 }
                 if !self.virtual_files.contains(virtual_file) {
-                    return Response::error(RiftErrorCode::Forbidden, None);
+                    return Response::error(DeftErrorCode::Forbidden, None);
                 }
                 let transfer_id = format!("txn_{}", self.transfers.len());
                 self.transfers.insert(
@@ -106,7 +106,7 @@ impl MockSession {
                 ..
             } => {
                 if self.state != SessionState::Authenticated {
-                    return Response::error(RiftErrorCode::Unauthorized, None);
+                    return Response::error(DeftErrorCode::Unauthorized, None);
                 }
                 Response::ChunkReady {
                     virtual_file: virtual_file.clone(),
@@ -116,7 +116,7 @@ impl MockSession {
             }
             Command::Bye => Response::Goodbye,
             _ => Response::error(
-                RiftErrorCode::BadRequest,
+                DeftErrorCode::BadRequest,
                 Some("Unsupported command".into()),
             ),
         }
@@ -131,7 +131,7 @@ impl MockSession {
     ) -> Response {
         let transfer = match self.transfers.get_mut(transfer_id) {
             Some(t) => t,
-            None => return Response::error(RiftErrorCode::NotFound, None),
+            None => return Response::error(DeftErrorCode::NotFound, None),
         };
 
         let computed_hash = sha256_hex(&data);
@@ -400,7 +400,7 @@ fn test_unauthorized_transfer() {
     let resp = session.handle_command(&begin);
 
     if let Response::Error { code, .. } = resp {
-        assert_eq!(code, RiftErrorCode::Unauthorized);
+        assert_eq!(code, DeftErrorCode::Unauthorized);
     } else {
         panic!("Expected Unauthorized error");
     }
@@ -418,7 +418,7 @@ fn test_forbidden_virtual_file() {
     let resp = session.handle_command(&begin);
 
     if let Response::Error { code, .. } = resp {
-        assert_eq!(code, RiftErrorCode::Forbidden);
+        assert_eq!(code, DeftErrorCode::Forbidden);
     } else {
         panic!("Expected Forbidden error");
     }

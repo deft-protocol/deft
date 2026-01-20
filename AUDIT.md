@@ -10,7 +10,7 @@
 ### 1.1 Structure du Projet
 
 ```
-rift/
+deft/
 ├── deft-protocol/   # Définition du protocole (1.9K lignes)
 │   ├── command.rs   # Commandes DEFT
 │   ├── response.rs  # Réponses DEFT

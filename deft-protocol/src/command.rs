@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::{Capabilities, RiftError};
+use crate::{Capabilities, DeftError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChunkRange {
@@ -37,24 +37,24 @@ impl fmt::Display for ChunkRange {
 }
 
 impl std::str::FromStr for ChunkRange {
-    type Err = RiftError;
+    type Err = DeftError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some((start, end)) = s.split_once('-') {
             let start: u64 = start
                 .parse()
-                .map_err(|_| RiftError::InvalidChunkRange(s.to_string()))?;
+                .map_err(|_| DeftError::InvalidChunkRange(s.to_string()))?;
             let end: u64 = end
                 .parse()
-                .map_err(|_| RiftError::InvalidChunkRange(s.to_string()))?;
+                .map_err(|_| DeftError::InvalidChunkRange(s.to_string()))?;
             if start > end {
-                return Err(RiftError::InvalidChunkRange(s.to_string()));
+                return Err(DeftError::InvalidChunkRange(s.to_string()));
             }
             Ok(ChunkRange::new(start, end))
         } else {
             let index: u64 = s
                 .parse()
-                .map_err(|_| RiftError::InvalidChunkRange(s.to_string()))?;
+                .map_err(|_| DeftError::InvalidChunkRange(s.to_string()))?;
             Ok(ChunkRange::single(index))
         }
     }

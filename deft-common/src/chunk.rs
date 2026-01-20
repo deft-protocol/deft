@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn test_chunker_small_file() {
-        let data = b"Hello, RIFT Protocol!";
+        let data = b"Hello, DEFT Protocol!";
         let mut cursor = Cursor::new(data.as_slice());
 
         let chunker = Chunker::new(1024);

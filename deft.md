@@ -313,7 +313,7 @@ L'implémentation de référence sera développée en **Rust** pour :
 Chaque instance DEFT est un daemon unique capable d'agir comme client et serveur simultanément :
 
 ```
-rift daemon --config /etc/rift/config.toml
+deftd --config /etc/deft/config.toml
 ```
 
 ### 10.2 Configuration unifiée
@@ -324,21 +324,21 @@ Exemple de fichier de configuration :
 [server]
 enabled = true                    # Accepter les connexions entrantes
 listen = "0.0.0.0:7741"
-cert = "/etc/rift/certs/server.crt"
-key = "/etc/rift/certs/server.key"
-ca = "/etc/rift/certs/ca.crt"    # CA pour valider certificats clients
+cert = "/etc/deft/certs/server.crt"
+key = "/etc/deft/certs/server.key"
+ca = "/etc/deft/certs/ca.crt"    # CA pour valider certificats clients
 
 [client]
 enabled = true                    # Autoriser les connexions sortantes
-cert = "/etc/rift/certs/client.crt"
-key = "/etc/rift/certs/client.key"
-ca = "/etc/rift/certs/ca.crt"    # CA pour valider certificats serveurs
+cert = "/etc/deft/certs/client.crt"
+key = "/etc/deft/certs/client.key"
+ca = "/etc/deft/certs/ca.crt"    # CA pour valider certificats serveurs
 
 # Définition des partenaires
 [[partners]]
 id = "supplier-inc"
 # Certificats autorisés pour ce partenaire (connexions entrantes)
-allowed_certs = ["/etc/rift/partners/supplier.crt"]
+allowed_certs = ["/etc/deft/partners/supplier.crt"]
 # Adresses pour connexions sortantes vers ce partenaire
 endpoints = ["supplier.example.com:7741"]
 
@@ -355,7 +355,7 @@ direction = "receive"            # Ce partenaire peut envoyer (nous recevons)
 
 [[partners]]
 id = "customer-acme"
-allowed_certs = ["/etc/rift/partners/acme.crt"]
+allowed_certs = ["/etc/deft/partners/acme.crt"]
 endpoints = ["acme.example.com:7741", "acme-backup.example.com:7741"]
 
 [[partners.virtual_files]]
@@ -365,7 +365,7 @@ direction = "send"
 
 [storage]
 chunk_size = 262144              # 256 KB
-temp_dir = "/var/rift/tmp"
+temp_dir = "/var/deft/tmp"
 ```
 
 ### 10.3 Modes de fonctionnement
@@ -547,7 +547,7 @@ Le client retransmet immédiatement sans attendre le timeout.
 
 **Stockage des accusés côté serveur :**
 ```
-/var/rift/receipts/
+/var/deft/receipts/
   └── 2026/01/19/
       ├── transfer_uuid1234.json      # Métadonnées complètes
       ├── transfer_uuid1234.sig       # Signature cryptographique

@@ -11,7 +11,7 @@ Get DEFT running in 5 minutes.
 
 ```bash
 git clone https://github.com/deft/deft.git
-cd rift
+cd deft
 cargo build --release
 ```
 
@@ -63,7 +63,7 @@ ca = "test-certs/ca.crt"
 
 [storage]
 chunk_size = 262144
-temp_dir = "/tmp/rift"
+temp_dir = "/tmp/deft"
 
 [limits]
 metrics_enabled = true
@@ -82,7 +82,7 @@ endpoints = ["127.0.0.1:7741"]
 
 [[partners.virtual_files]]
 name = "test-files"
-path = "/tmp/rift-test/"
+path = "/tmp/deft-test/"
 direction = "receive"
 ```
 
@@ -90,7 +90,7 @@ direction = "receive"
 
 ```bash
 # Create data directory
-mkdir -p /tmp/rift-test
+mkdir -p /tmp/deft-test
 
 # Start daemon
 ./target/release/deftd --config test-config.toml
@@ -122,7 +122,7 @@ echo "Hello DEFT!" > /tmp/test-file.txt
 ## 7. Check Metrics
 
 ```bash
-curl http://localhost:9090/metrics | grep rift_
+curl http://localhost:9090/metrics | grep deft_
 ```
 
 ## Next Steps

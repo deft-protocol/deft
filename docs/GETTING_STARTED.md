@@ -53,7 +53,7 @@ source ~/.cargo/env
 
 # Clone and build
 git clone https://github.com/deft/deft.git
-cd rift
+cd deft
 cargo build --release
 
 # Install binary
@@ -68,16 +68,16 @@ deftd --version
 
 ```bash
 # Create standard directories
-sudo mkdir -p /etc/rift/certs
-sudo mkdir -p /etc/rift/partners
-sudo mkdir -p /var/rift/data
-sudo mkdir -p /var/rift/tmp
-sudo mkdir -p /var/rift/receipts
-sudo mkdir -p /var/log/rift
+sudo mkdir -p /etc/deft/certs
+sudo mkdir -p /etc/deft/partners
+sudo mkdir -p /var/deft/data
+sudo mkdir -p /var/deft/tmp
+sudo mkdir -p /var/deft/receipts
+sudo mkdir -p /var/log/deft
 
 # Set permissions
-sudo chown -R rift:rift /var/rift
-sudo chmod 700 /etc/rift/certs
+sudo chown -R deft:deft /var/deft
+sudo chmod 700 /etc/deft/certs
 ```
 
 ---
@@ -93,7 +93,7 @@ DEFT requires mTLS (mutual TLS) for all connections. You need:
 ### Option 1: Self-Signed CA (Development/Internal)
 
 ```bash
-cd /etc/rift/certs
+cd /etc/deft/certs
 
 # 1. Generate CA private key
 openssl genrsa -out ca.key 4096
@@ -107,13 +107,13 @@ openssl genrsa -out server.key 2048
 
 # 4. Generate server CSR
 openssl req -new -key server.key -out server.csr \
-    -subj "/C=FR/O=YourCompany/CN=rift.yourcompany.com"
+    -subj "/C=FR/O=YourCompany/CN=deft.yourcompany.com"
 
 # 5. Sign server certificate
 openssl x509 -req -days 365 -in server.csr \
     -CA ca.crt -CAkey ca.key -CAcreateserial \
     -out server.crt \
-    -extfile <(echo "subjectAltName=DNS:rift.yourcompany.com,DNS:localhost,IP:127.0.0.1")
+    -extfile <(echo "subjectAltName=DNS:deft.yourcompany.com,DNS:localhost,IP:127.0.0.1")
 
 # 6. Set secure permissions
 chmod 600 *.key
@@ -127,9 +127,9 @@ chmod 644 *.crt
 sudo apt install certbot
 
 # Get certificate
-sudo certbot certonly --standalone -d rift.yourcompany.com
+sudo certbot certonly --standalone -d deft.yourcompany.com
 
-# Certificates will be in /etc/letsencrypt/live/rift.yourcompany.com/
+# Certificates will be in /etc/letsencrypt/live/deft.yourcompany.com/
 # - fullchain.pem (certificate)
 # - privkey.pem (private key)
 
@@ -144,20 +144,20 @@ For each trading partner:
 PARTNER_ID="acme-corp"
 
 # Generate partner key
-openssl genrsa -out /etc/rift/partners/${PARTNER_ID}.key 2048
+openssl genrsa -out /etc/deft/partners/${PARTNER_ID}.key 2048
 
 # Generate CSR
-openssl req -new -key /etc/rift/partners/${PARTNER_ID}.key \
-    -out /etc/rift/partners/${PARTNER_ID}.csr \
+openssl req -new -key /etc/deft/partners/${PARTNER_ID}.key \
+    -out /etc/deft/partners/${PARTNER_ID}.csr \
     -subj "/C=US/O=ACME Corporation/CN=${PARTNER_ID}"
 
 # Sign with your CA
 openssl x509 -req -days 365 \
-    -in /etc/rift/partners/${PARTNER_ID}.csr \
-    -CA /etc/rift/certs/ca.crt \
-    -CAkey /etc/rift/certs/ca.key \
+    -in /etc/deft/partners/${PARTNER_ID}.csr \
+    -CA /etc/deft/certs/ca.crt \
+    -CAkey /etc/deft/certs/ca.key \
     -CAcreateserial \
-    -out /etc/rift/partners/${PARTNER_ID}.crt
+    -out /etc/deft/partners/${PARTNER_ID}.crt
 
 # Send to partner: ${PARTNER_ID}.crt and ${PARTNER_ID}.key
 # Keep: ${PARTNER_ID}.crt (for allowed_certs in config)
@@ -167,7 +167,7 @@ openssl x509 -req -days 365 \
 
 ## Configuration
 
-Create `/etc/rift/config.toml`:
+Create `/etc/deft/config.toml`:
 
 ```toml
 #
@@ -177,19 +177,19 @@ Create `/etc/rift/config.toml`:
 [server]
 enabled = true
 listen = "0.0.0.0:7741"
-cert = "/etc/rift/certs/server.crt"
-key = "/etc/rift/certs/server.key"
-ca = "/etc/rift/certs/ca.crt"
+cert = "/etc/deft/certs/server.crt"
+key = "/etc/deft/certs/server.key"
+ca = "/etc/deft/certs/ca.crt"
 
 [client]
 enabled = true
-cert = "/etc/rift/certs/server.crt"
-key = "/etc/rift/certs/server.key"
-ca = "/etc/rift/certs/ca.crt"
+cert = "/etc/deft/certs/server.crt"
+key = "/etc/deft/certs/server.key"
+ca = "/etc/deft/certs/ca.crt"
 
 [storage]
 chunk_size = 262144          # 256 KB chunks
-temp_dir = "/var/rift/tmp"
+temp_dir = "/var/deft/tmp"
 
 [limits]
 # Rate limiting
@@ -233,8 +233,8 @@ Add partners to your configuration:
 # Partner: ACME Corporation
 [[partners]]
 id = "acme-corp"
-allowed_certs = ["/etc/rift/partners/acme-corp.crt"]
-endpoints = ["rift.acme.com:7741", "rift-backup.acme.com:7741"]
+allowed_certs = ["/etc/deft/partners/acme-corp.crt"]
+endpoints = ["deft.acme.com:7741", "deft-backup.acme.com:7741"]
 
 # Virtual files we SEND to this partner (they can GET)
 [[partners.virtual_files]]
@@ -252,8 +252,8 @@ direction = "receive"
 # Partner: Supplier Inc
 [[partners]]
 id = "supplier-inc"
-allowed_certs = ["/etc/rift/partners/supplier.crt"]
-endpoints = ["rift.supplier.com:7741"]
+allowed_certs = ["/etc/deft/partners/supplier.crt"]
+endpoints = ["deft.supplier.com:7741"]
 
 [[partners.virtual_files]]
 name = "product-catalog"
@@ -275,20 +275,20 @@ direction = "receive"
 ### Foreground (Testing)
 
 ```bash
-deftd --config /etc/rift/config.toml
+deftd --config /etc/deft/config.toml
 ```
 
 ### With Custom Log Level
 
 ```bash
-deftd --config /etc/rift/config.toml --log-level debug
+deftd --config /etc/deft/config.toml --log-level debug
 ```
 
 ---
 
 ## Systemd Service
 
-Create `/etc/systemd/system/rift.service`:
+Create `/etc/systemd/system/deft.service`:
 
 ```ini
 [Unit]
@@ -297,9 +297,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=rift
-Group=rift
-ExecStart=/usr/local/bin/deftd --config /etc/rift/config.toml
+User=deft
+Group=deft
+ExecStart=/usr/local/bin/deftd --config /etc/deft/config.toml
 Restart=always
 RestartSec=5
 
@@ -307,7 +307,7 @@ RestartSec=5
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/rift /var/log/rift
+ReadWritePaths=/var/deft /var/log/deft
 PrivateTmp=true
 
 # Resource limits
@@ -320,20 +320,20 @@ WantedBy=multi-user.target
 Enable and start:
 
 ```bash
-# Create rift user
-sudo useradd -r -s /bin/false rift
+# Create deft user
+sudo useradd -r -s /bin/false deft
 
 # Set ownership
-sudo chown -R rift:rift /var/rift /etc/rift
+sudo chown -R deft:deft /var/deft /etc/deft
 
 # Enable service
 sudo systemctl daemon-reload
-sudo systemctl enable rift
-sudo systemctl start rift
+sudo systemctl enable deft
+sudo systemctl start deft
 
 # Check status
-sudo systemctl status rift
-sudo journalctl -u rift -f
+sudo systemctl status deft
+sudo journalctl -u deft -f
 ```
 
 ---
@@ -344,10 +344,10 @@ sudo journalctl -u rift -f
 
 ```bash
 # Service status
-sudo systemctl status rift
+sudo systemctl status deft
 
 # View logs
-sudo journalctl -u rift -f
+sudo journalctl -u deft -f
 
 # Check listening port
 ss -tlnp | grep 7741
@@ -375,7 +375,7 @@ deftd --config /path/to/partner-config.toml \
 
 ```bash
 #!/bin/bash
-# /usr/local/bin/rift-healthcheck.sh
+# /usr/local/bin/deft-healthcheck.sh
 
 # Check process
 if ! pgrep -x deftd > /dev/null; then
@@ -416,7 +416,7 @@ fi
 
 **"Connection refused"**
 - Check firewall rules: `sudo ufw allow 7741/tcp`
-- Verify daemon is running: `systemctl status rift`
+- Verify daemon is running: `systemctl status deft`
 
 **"Certificate verify failed"**
 - Ensure CA certificate matches on both sides
@@ -427,14 +427,14 @@ fi
 - Check certificate CN matches partner ID
 
 **"Permission denied"**
-- Check file ownership: `ls -la /var/rift/`
-- Verify rift user can read certificates
+- Check file ownership: `ls -la /var/deft/`
+- Verify deft user can read certificates
 
 ### Debug Mode
 
 ```bash
 # Run with debug logging
-deftd --config /etc/rift/config.toml --log-level debug
+deftd --config /etc/deft/config.toml --log-level debug
 
 # Or set in config.toml
 [logging]
@@ -443,5 +443,5 @@ level = "debug"
 
 ### Support
 
-- Check logs: `journalctl -u rift -n 100`
+- Check logs: `journalctl -u deft -n 100`
 - Open an issue: https://github.com/deft/deft/issues

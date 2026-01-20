@@ -155,8 +155,8 @@ impl ReceiptStore {
 
 impl Default for ReceiptStore {
     fn default() -> Self {
-        Self::new("/var/rift/receipts").unwrap_or_else(|_| {
-            Self::new("/tmp/rift/receipts").expect("Failed to create receipt store")
+        Self::new("/var/deft/receipts").unwrap_or_else(|_| {
+            Self::new("/tmp/deft/receipts").expect("Failed to create receipt store")
         })
     }
 }
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_store_and_load() {
-        let temp_dir = env::temp_dir().join("rift_test_receipts");
+        let temp_dir = env::temp_dir().join("deft_test_receipts");
         let _ = fs::remove_dir_all(&temp_dir);
 
         let store = ReceiptStore::new(&temp_dir).unwrap();

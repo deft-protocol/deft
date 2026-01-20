@@ -233,7 +233,7 @@ where
                     session.id, partner_id
                 );
                 let error_response = deft_protocol::Response::Error {
-                    code: deft_protocol::RiftErrorCode::RateLimited,
+                    code: deft_protocol::DeftErrorCode::RateLimited,
                     message: Some("Rate limit exceeded".to_string()),
                 };
                 writer
@@ -270,7 +270,7 @@ where
                 {
                     warn!("Session {} bandwidth limit exceeded", session.id);
                     let error_response = deft_protocol::Response::Error {
-                        code: deft_protocol::RiftErrorCode::RateLimited,
+                        code: deft_protocol::DeftErrorCode::RateLimited,
                         message: Some("Bandwidth limit exceeded".to_string()),
                     };
                     writer

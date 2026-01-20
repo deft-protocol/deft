@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::{Capabilities, RiftErrorCode};
+use crate::{Capabilities, DeftErrorCode};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VirtualFileInfo {
@@ -30,13 +30,13 @@ impl fmt::Display for FileDirection {
 }
 
 impl std::str::FromStr for FileDirection {
-    type Err = crate::RiftError;
+    type Err = crate::DeftError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
             "SEND" => Ok(FileDirection::Send),
             "RECV" | "RECEIVE" => Ok(FileDirection::Receive),
-            _ => Err(crate::RiftError::ParseError(format!(
+            _ => Err(crate::DeftError::ParseError(format!(
                 "Invalid direction: {}",
                 s
             ))),
@@ -90,7 +90,7 @@ impl std::fmt::Display for AckErrorReason {
 }
 
 impl std::str::FromStr for AckErrorReason {
-    type Err = crate::RiftError;
+    type Err = crate::DeftError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
@@ -179,7 +179,7 @@ pub enum Response {
         pending_chunks: Vec<u64>,
     },
     Error {
-        code: RiftErrorCode,
+        code: DeftErrorCode,
         message: Option<String>,
     },
     Goodbye,
@@ -205,7 +205,7 @@ impl Response {
         }
     }
 
-    pub fn error(code: RiftErrorCode, message: Option<String>) -> Self {
+    pub fn error(code: DeftErrorCode, message: Option<String>) -> Self {
         Response::Error { code, message }
     }
 
