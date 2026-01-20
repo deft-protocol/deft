@@ -1,6 +1,6 @@
 # DEFT Protocol - Spécification Fonctionnelle v0.1
 
-**Reliable Interoperable File Transfer**
+**Delta-Enabled File Transfer**
 
 *Date: 19 Janvier 2026*  
 *Version: 0.1 (Draft)*

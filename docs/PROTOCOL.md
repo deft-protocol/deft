@@ -4,7 +4,7 @@ Technical specification of the DEFT wire protocol.
 
 ## Overview
 
-DEFT (Reliable Interoperable File Transfer) is a text-based protocol over TLS for secure B2B file transfers.
+DEFT (Delta-Enabled File Transfer) is a text-based protocol over TLS for secure B2B file transfers.
 
 - **Transport**: TCP + TLS 1.3 (mTLS required)
 - **Default Port**: 7741

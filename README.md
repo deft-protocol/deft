@@ -1,4 +1,4 @@
-# ⚡ DEFT - Reliable Interoperable File Transfer
+# ⚡ DEFT - Delta-Enabled File Transfer
 
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
