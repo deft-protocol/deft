@@ -4,23 +4,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DEFT Admin</title>
+    <title>DEFT Console</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 
 <body>
     <div class="container">
         <header>
-            <h1>⚡ DEFT Admin</h1>
+            <h1>⚡ DEFT Console</h1>
             <div class="status-badge" id="connection-status">Connecting...</div>
         </header>
 
         <nav>
             <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
             <button class="nav-btn" data-tab="partners">Partners</button>
+            <button class="nav-btn" data-tab="virtual-files">Virtual Files</button>
             <button class="nav-btn" data-tab="transfers">Transfers</button>
-            <button class="nav-btn" data-tab="config">Config</button>
             <button class="nav-btn" data-tab="history">History</button>
+            <button class="nav-btn" data-tab="client">Client</button>
+            <button class="nav-btn" data-tab="settings">Settings</button>
         </nav>
 
         <main>
@@ -56,20 +58,50 @@
             <!-- Partners Tab -->
             <section id="partners" class="tab-content">
                 <div class="card">
-                    <h2>Configured Partners</h2>
+                    <div class="card-header">
+                        <h2>Partners</h2>
+                        <button class="btn btn-primary" onclick="showPartnerModal()">+ Add Partner</button>
+                    </div>
                     <table class="data-table">
                         <thead>
                             <tr>
                                 <th>Partner ID</th>
                                 <th>Endpoints</th>
+                                <th>Virtual Files</th>
                                 <th>Status</th>
-                                <th>Last Seen</th>
-                                <th>Transfers Today</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="partners-table">
                             <tr>
                                 <td colspan="5" class="empty">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Virtual Files Tab -->
+            <section id="virtual-files" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Virtual Files</h2>
+                        <button class="btn btn-primary" onclick="showVirtualFileModal()">+ Add Virtual File</button>
+                    </div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Path</th>
+                                <th>Direction</th>
+                                <th>Size</th>
+                                <th>Partners</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="virtual-files-table">
+                            <tr>
+                                <td colspan="6" class="empty">Loading...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -89,22 +121,15 @@
                                 <th>Direction</th>
                                 <th>Progress</th>
                                 <th>Status</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="transfers-table">
                             <tr>
-                                <td colspan="6" class="empty">No active transfers</td>
+                                <td colspan="7" class="empty">No active transfers</td>
                             </tr>
                         </tbody>
                     </table>
-                </div>
-            </section>
-
-            <!-- Config Tab -->
-            <section id="config" class="tab-content">
-                <div class="card">
-                    <h2>Configuration</h2>
-                    <pre id="config-display" class="config-view">Loading...</pre>
                 </div>
             </section>
 
@@ -132,13 +157,245 @@
                     </table>
                 </div>
             </section>
+
+            <!-- Client Tab -->
+            <section id="client" class="tab-content">
+                <div class="grid-2">
+                    <div class="card">
+                        <h2>Connect to Server</h2>
+                        <form id="connect-form" class="form">
+                            <div class="form-group">
+                                <label>Partner ID</label>
+                                <select id="client-partner" class="form-control">
+                                    <option value="">Select partner...</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Endpoint</label>
+                                <select id="client-endpoint" class="form-control">
+                                    <option value="">Select endpoint...</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-block">Connect</button>
+                        </form>
+                        <div id="client-status" class="client-status"></div>
+                    </div>
+
+                    <div class="card">
+                        <h2>Remote Virtual Files</h2>
+                        <div id="remote-files-list" class="file-list">
+                            <div class="empty">Connect to a server to see files</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Transfer Operations</h2>
+                    <div class="grid-2">
+                        <div class="operation-panel">
+                            <h3>↓ Pull (Download)</h3>
+                            <form id="pull-form" class="form">
+                                <div class="form-group">
+                                    <label>Remote Virtual File</label>
+                                    <select id="pull-vf" class="form-control">
+                                        <option value="">Select file...</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Local Path</label>
+                                    <input type="text" id="pull-path" class="form-control"
+                                        placeholder="/path/to/save/file">
+                                </div>
+                                <button type="submit" class="btn btn-success btn-block">Start Pull</button>
+                            </form>
+                        </div>
+                        <div class="operation-panel">
+                            <h3>↑ Push (Upload)</h3>
+                            <form id="push-form" class="form">
+                                <div class="form-group">
+                                    <label>Local File</label>
+                                    <input type="text" id="push-file" class="form-control"
+                                        placeholder="/path/to/local/file">
+                                </div>
+                                <div class="form-group">
+                                    <label>Remote Virtual File</label>
+                                    <select id="push-vf" class="form-control">
+                                        <option value="">Select file...</option>
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-info btn-block">Start Push</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings Tab -->
+            <section id="settings" class="tab-content">
+                <div class="grid-2">
+                    <div class="card">
+                        <h2>Server Configuration</h2>
+                        <form id="server-config-form" class="form">
+                            <div class="form-group">
+                                <label>Listen Address</label>
+                                <input type="text" id="cfg-listen" class="form-control" placeholder="0.0.0.0:7741">
+                            </div>
+                            <div class="form-group">
+                                <label>API Listen Address</label>
+                                <input type="text" id="cfg-api-listen" class="form-control"
+                                    placeholder="127.0.0.1:7742">
+                            </div>
+                            <div class="form-group">
+                                <label>Chunk Size (bytes)</label>
+                                <input type="number" id="cfg-chunk-size" class="form-control" value="262144">
+                            </div>
+                            <div class="form-group">
+                                <label>Temp Directory</label>
+                                <input type="text" id="cfg-temp-dir" class="form-control" placeholder="/tmp/deft">
+                            </div>
+                            <div class="form-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="cfg-server-enabled"> Server Mode Enabled
+                                </label>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save Server Config</button>
+                        </form>
+                    </div>
+
+                    <div class="card">
+                        <h2>TLS Certificates</h2>
+                        <form id="cert-config-form" class="form">
+                            <div class="form-group">
+                                <label>Server Certificate</label>
+                                <input type="text" id="cfg-cert" class="form-control" placeholder="/path/to/server.crt">
+                                <small class="form-hint" id="cert-status"></small>
+                            </div>
+                            <div class="form-group">
+                                <label>Server Private Key</label>
+                                <input type="text" id="cfg-key" class="form-control" placeholder="/path/to/server.key">
+                                <small class="form-hint" id="key-status"></small>
+                            </div>
+                            <div class="form-group">
+                                <label>CA Certificate</label>
+                                <input type="text" id="cfg-ca" class="form-control" placeholder="/path/to/ca.crt">
+                                <small class="form-hint" id="ca-status"></small>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save Certificates</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Rate Limits</h2>
+                    <form id="limits-config-form" class="form">
+                        <div class="grid-3">
+                            <div class="form-group">
+                                <label>Max Connections per Partner</label>
+                                <input type="number" id="cfg-max-conn" class="form-control" value="10">
+                            </div>
+                            <div class="form-group">
+                                <label>Max Bandwidth (MB/s)</label>
+                                <input type="number" id="cfg-max-bandwidth" class="form-control" value="100">
+                            </div>
+                            <div class="form-group">
+                                <label>Idle Timeout (seconds)</label>
+                                <input type="number" id="cfg-idle-timeout" class="form-control" value="300">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Save Limits</button>
+                    </form>
+                </div>
+
+                <div class="card">
+                    <h2>Actions</h2>
+                    <div class="btn-group">
+                        <button class="btn btn-warning" onclick="reloadConfig()">🔄 Reload Config</button>
+                        <button class="btn btn-secondary" onclick="exportConfig()">📥 Export Config</button>
+                    </div>
+                </div>
+            </section>
         </main>
 
         <footer>
-            <span>DEFT Protocol v<span id="footer-version">0.2</span></span>
+            <span>DEFT Protocol v<span id="footer-version">1.0</span></span>
             <span>•</span>
             <span id="last-update">Last update: --</span>
         </footer>
+    </div>
+
+    <!-- Partner Modal -->
+    <div id="partner-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="partner-modal-title">Add Partner</h3>
+                <button class="modal-close" onclick="closeModal('partner-modal')">&times;</button>
+            </div>
+            <form id="partner-form" class="form">
+                <input type="hidden" id="partner-edit-id">
+                <div class="form-group">
+                    <label>Partner ID *</label>
+                    <input type="text" id="partner-id" class="form-control" required placeholder="e.g., acme-corp">
+                </div>
+                <div class="form-group">
+                    <label>Endpoints (one per line)</label>
+                    <textarea id="partner-endpoints" class="form-control" rows="3" placeholder="host:port"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Allowed Certificates (paths, one per line)</label>
+                    <textarea id="partner-certs" class="form-control" rows="3"
+                        placeholder="/path/to/cert.crt"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Virtual Files Access</label>
+                    <div id="partner-vf-checkboxes" class="checkbox-grid"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                        onclick="closeModal('partner-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Partner</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Virtual File Modal -->
+    <div id="vf-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="vf-modal-title">Add Virtual File</h3>
+                <button class="modal-close" onclick="closeModal('vf-modal')">&times;</button>
+            </div>
+            <form id="vf-form" class="form">
+                <input type="hidden" id="vf-edit-name">
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" id="vf-name" class="form-control" required placeholder="e.g., invoices">
+                </div>
+                <div class="form-group">
+                    <label>Path *</label>
+                    <input type="text" id="vf-path" class="form-control" required placeholder="/data/files/">
+                </div>
+                <div class="form-group">
+                    <label>Direction *</label>
+                    <select id="vf-direction" class="form-control" required>
+                        <option value="receive">Receive (inbound)</option>
+                        <option value="send">Send (outbound)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Pattern (optional)</label>
+                    <input type="text" id="vf-pattern" class="form-control" placeholder="*.xml">
+                </div>
+                <div class="form-group">
+                    <label>Allowed Partners</label>
+                    <div id="vf-partner-checkboxes" class="checkbox-grid"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('vf-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Virtual File</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <script src="/static/app.js"></script>

@@ -1,51 +1,88 @@
-// DEFT Admin Dashboard
+// DEFT Console
 const API_BASE = window.location.origin;
 let refreshInterval = null;
+let cachedPartners = [];
+let cachedVirtualFiles = [];
+let clientConnected = false;
 
 // Tab navigation
 document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-
         btn.classList.add('active');
         document.getElementById(btn.dataset.tab).classList.add('active');
     });
 });
 
-// Format uptime
+// ============ Utilities ============
 function formatUptime(seconds) {
     const days = Math.floor(seconds / 86400);
     const hours = Math.floor((seconds % 86400) / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
-
     if (days > 0) return `${days}d ${hours}h`;
     if (hours > 0) return `${hours}h ${mins}m`;
     return `${mins}m`;
 }
 
-// Format bytes
 function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
+    if (!bytes || bytes === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-// Fetch with error handling
-async function apiFetch(endpoint) {
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+async function apiFetch(endpoint, options = {}) {
     try {
-        const response = await fetch(`${API_BASE}${endpoint}`);
+        const response = await fetch(`${API_BASE}${endpoint}`, {
+            headers: { 'Content-Type': 'application/json', ...options.headers },
+            ...options
+        });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json();
+        return options.method === 'DELETE' ? true : await response.json();
     } catch (error) {
         console.error(`API error (${endpoint}):`, error);
         return null;
     }
 }
 
-// Update status
+async function apiPost(endpoint, data) {
+    return apiFetch(endpoint, { method: 'POST', body: JSON.stringify(data) });
+}
+
+async function apiPut(endpoint, data) {
+    return apiFetch(endpoint, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+async function apiDelete(endpoint) {
+    return apiFetch(endpoint, { method: 'DELETE' });
+}
+
+// ============ Modal Management ============
+function showModal(id) {
+    document.getElementById(id).classList.add('active');
+}
+
+function closeModal(id) {
+    document.getElementById(id).classList.remove('active');
+}
+
+// Close modal on backdrop click
+document.querySelectorAll('.modal').forEach(modal => {
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal(modal.id);
+    });
+});
+
+// ============ Status Updates ============
 async function updateStatus() {
     const data = await apiFetch('/api/status');
     const badge = document.getElementById('connection-status');
@@ -54,7 +91,6 @@ async function updateStatus() {
         badge.textContent = 'Connected';
         badge.classList.add('connected');
         badge.classList.remove('error');
-
         document.getElementById('stat-uptime').textContent = formatUptime(data.uptime_seconds);
         document.getElementById('stat-connections').textContent = data.active_connections;
         document.getElementById('stat-transfers').textContent = data.active_transfers;
@@ -65,14 +101,13 @@ async function updateStatus() {
         badge.classList.remove('connected');
         badge.classList.add('error');
     }
-
-    document.getElementById('last-update').textContent =
-        `Last update: ${new Date().toLocaleTimeString()}`;
+    document.getElementById('last-update').textContent = `Last update: ${new Date().toLocaleTimeString()}`;
 }
 
-// Update partners table
+// ============ Partners ============
 async function updatePartners() {
     const data = await apiFetch('/api/partners');
+    cachedPartners = data || [];
     const tbody = document.getElementById('partners-table');
 
     if (!data || data.length === 0) {
@@ -83,25 +118,179 @@ async function updatePartners() {
     tbody.innerHTML = data.map(p => `
         <tr>
             <td><strong>${escapeHtml(p.id)}</strong></td>
-            <td>${p.endpoints.map(e => `<code>${escapeHtml(e)}</code>`).join('<br>')}</td>
+            <td>${(p.endpoints || []).map(e => `<code>${escapeHtml(e)}</code>`).join('<br>') || '--'}</td>
+            <td>
+                ${(p.virtual_files || []).map(vf => `<span class="badge badge-info">${escapeHtml(vf)}</span>`).join(' ') || '<span class="badge badge-warning">None</span>'}
+            </td>
             <td>
                 <span class="badge ${p.connected ? 'badge-success' : 'badge-warning'}">
                     ${p.connected ? 'Connected' : 'Idle'}
                 </span>
             </td>
-            <td>${p.last_seen || '--'}</td>
-            <td>${p.transfers_today}</td>
+            <td class="action-btns">
+                <button class="btn btn-sm btn-secondary" onclick="editPartner('${escapeHtml(p.id)}')">Edit</button>
+                <button class="btn btn-sm btn-danger" onclick="deletePartner('${escapeHtml(p.id)}')">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+
+    // Update client partner dropdown
+    updateClientPartnerDropdown();
+}
+
+function showPartnerModal(partner = null) {
+    document.getElementById('partner-modal-title').textContent = partner ? 'Edit Partner' : 'Add Partner';
+    document.getElementById('partner-edit-id').value = partner?.id || '';
+    document.getElementById('partner-id').value = partner?.id || '';
+    document.getElementById('partner-id').disabled = !!partner;
+    document.getElementById('partner-endpoints').value = (partner?.endpoints || []).join('\n');
+    document.getElementById('partner-certs').value = (partner?.allowed_certs || []).join('\n');
+
+    // Populate VF checkboxes
+    const container = document.getElementById('partner-vf-checkboxes');
+    const partnerVfs = partner?.virtual_files || [];
+    container.innerHTML = cachedVirtualFiles.map(vf => `
+        <label>
+            <input type="checkbox" value="${escapeHtml(vf.name)}" ${partnerVfs.includes(vf.name) ? 'checked' : ''}>
+            ${escapeHtml(vf.name)}
+        </label>
+    `).join('') || '<span class="empty">No virtual files defined</span>';
+
+    showModal('partner-modal');
+}
+
+async function editPartner(id) {
+    const partner = cachedPartners.find(p => p.id === id);
+    if (partner) showPartnerModal(partner);
+}
+
+async function deletePartner(id) {
+    if (!confirm(`Delete partner "${id}"?`)) return;
+    const result = await apiDelete(`/api/partners/${id}`);
+    if (result) {
+        addLogEntry(`Deleted partner: ${id}`);
+        await updatePartners();
+    }
+}
+
+document.getElementById('partner-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const editId = document.getElementById('partner-edit-id').value;
+    const partnerId = document.getElementById('partner-id').value;
+    const endpoints = document.getElementById('partner-endpoints').value.split('\n').filter(e => e.trim());
+    const certs = document.getElementById('partner-certs').value.split('\n').filter(c => c.trim());
+    const vfs = Array.from(document.querySelectorAll('#partner-vf-checkboxes input:checked')).map(cb => cb.value);
+
+    const data = { id: partnerId, endpoints, allowed_certs: certs, virtual_files: vfs };
+
+    const result = editId
+        ? await apiPut(`/api/partners/${editId}`, data)
+        : await apiPost('/api/partners', data);
+
+    if (result) {
+        closeModal('partner-modal');
+        addLogEntry(`${editId ? 'Updated' : 'Created'} partner: ${partnerId}`);
+        await updatePartners();
+    }
+});
+
+// ============ Virtual Files ============
+async function updateVirtualFiles() {
+    const data = await apiFetch('/api/virtual-files');
+    cachedVirtualFiles = data || [];
+    const tbody = document.getElementById('virtual-files-table');
+
+    if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">No virtual files configured</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = data.map(vf => `
+        <tr>
+            <td><strong>${escapeHtml(vf.name)}</strong></td>
+            <td><code>${escapeHtml(vf.path)}</code></td>
+            <td>
+                <span class="badge ${vf.direction === 'send' ? 'badge-info' : 'badge-success'}">
+                    ${vf.direction === 'send' ? '↑ Send' : '↓ Receive'}
+                </span>
+            </td>
+            <td>${formatBytes(vf.size)}</td>
+            <td>
+                ${(vf.partners || []).map(p => `<span class="badge badge-warning">${escapeHtml(p)}</span>`).join(' ') || '<span class="badge badge-secondary">All</span>'}
+            </td>
+            <td class="action-btns">
+                <button class="btn btn-sm btn-secondary" onclick="editVirtualFile('${escapeHtml(vf.name)}')">Edit</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteVirtualFile('${escapeHtml(vf.name)}')">Delete</button>
+            </td>
         </tr>
     `).join('');
 }
 
-// Update transfers table
+function showVirtualFileModal(vf = null) {
+    document.getElementById('vf-modal-title').textContent = vf ? 'Edit Virtual File' : 'Add Virtual File';
+    document.getElementById('vf-edit-name').value = vf?.name || '';
+    document.getElementById('vf-name').value = vf?.name || '';
+    document.getElementById('vf-name').disabled = !!vf;
+    document.getElementById('vf-path').value = vf?.path || '';
+    document.getElementById('vf-direction').value = vf?.direction || 'receive';
+    document.getElementById('vf-pattern').value = vf?.pattern || '';
+
+    // Populate partner checkboxes
+    const container = document.getElementById('vf-partner-checkboxes');
+    const vfPartners = vf?.partners || [];
+    container.innerHTML = cachedPartners.map(p => `
+        <label>
+            <input type="checkbox" value="${escapeHtml(p.id)}" ${vfPartners.includes(p.id) ? 'checked' : ''}>
+            ${escapeHtml(p.id)}
+        </label>
+    `).join('') || '<span class="empty">No partners defined</span>';
+
+    showModal('vf-modal');
+}
+
+async function editVirtualFile(name) {
+    const vf = cachedVirtualFiles.find(v => v.name === name);
+    if (vf) showVirtualFileModal(vf);
+}
+
+async function deleteVirtualFile(name) {
+    if (!confirm(`Delete virtual file "${name}"?`)) return;
+    const result = await apiDelete(`/api/virtual-files/${name}`);
+    if (result) {
+        addLogEntry(`Deleted virtual file: ${name}`);
+        await updateVirtualFiles();
+    }
+}
+
+document.getElementById('vf-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const editName = document.getElementById('vf-edit-name').value;
+    const name = document.getElementById('vf-name').value;
+    const path = document.getElementById('vf-path').value;
+    const direction = document.getElementById('vf-direction').value;
+    const pattern = document.getElementById('vf-pattern').value;
+    const partners = Array.from(document.querySelectorAll('#vf-partner-checkboxes input:checked')).map(cb => cb.value);
+
+    const data = { name, path, direction, pattern: pattern || null, partners };
+
+    const result = editName
+        ? await apiPut(`/api/virtual-files/${editName}`, data)
+        : await apiPost('/api/virtual-files', data);
+
+    if (result) {
+        closeModal('vf-modal');
+        addLogEntry(`${editName ? 'Updated' : 'Created'} virtual file: ${name}`);
+        await updateVirtualFiles();
+    }
+});
+
+// ============ Transfers ============
 async function updateTransfers() {
     const data = await apiFetch('/api/transfers');
     const tbody = document.getElementById('transfers-table');
 
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">No active transfers</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No active transfers</td></tr>';
         return;
     }
 
@@ -122,27 +311,25 @@ async function updateTransfers() {
                 <small>${t.progress_percent}% (${formatBytes(t.bytes_transferred)} / ${formatBytes(t.total_bytes)})</small>
             </td>
             <td>
-                <span class="badge badge-${t.status === 'active' ? 'success' : 'warning'}">
-                    ${t.status}
-                </span>
+                <span class="badge badge-${t.status === 'active' ? 'success' : 'warning'}">${t.status}</span>
+            </td>
+            <td class="action-btns">
+                <button class="btn btn-sm btn-danger" onclick="cancelTransfer('${escapeHtml(t.id)}')">Cancel</button>
             </td>
         </tr>
     `).join('');
 }
 
-// Update config display
-async function updateConfig() {
-    const data = await apiFetch('/api/config');
-    const display = document.getElementById('config-display');
-
-    if (data) {
-        display.textContent = JSON.stringify(data, null, 2);
-    } else {
-        display.textContent = 'Failed to load configuration';
+async function cancelTransfer(id) {
+    if (!confirm('Cancel this transfer?')) return;
+    const result = await apiDelete(`/api/transfers/${id}`);
+    if (result) {
+        addLogEntry(`Cancelled transfer: ${id.substring(0, 8)}`);
+        await updateTransfers();
     }
 }
 
-// Update history table
+// ============ History ============
 async function updateHistory() {
     const data = await apiFetch('/api/history');
     const tbody = document.getElementById('history-table');
@@ -152,9 +339,7 @@ async function updateHistory() {
         return;
     }
 
-    // Sort by completed_at descending (most recent first)
     const sorted = [...data].reverse();
-
     tbody.innerHTML = sorted.slice(0, 50).map(t => `
         <tr>
             <td><code>${escapeHtml(t.id.substring(0, 12))}</code></td>
@@ -167,23 +352,235 @@ async function updateHistory() {
             </td>
             <td>${formatBytes(t.total_bytes)}</td>
             <td>
-                <span class="badge ${t.status === 'complete' ? 'badge-success' : 'badge-error'}">
-                    ${t.status}
-                </span>
+                <span class="badge ${t.status === 'complete' ? 'badge-success' : 'badge-error'}">${t.status}</span>
             </td>
             <td>${t.completed_at ? new Date(t.completed_at).toLocaleString() : '--'}</td>
         </tr>
     `).join('');
 }
 
-// Escape HTML
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+// ============ Client ============
+function updateClientPartnerDropdown() {
+    const select = document.getElementById('client-partner');
+    select.innerHTML = '<option value="">Select partner...</option>' +
+        cachedPartners.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.id)}</option>`).join('');
 }
 
-// Add activity log entry
+document.getElementById('client-partner').addEventListener('change', (e) => {
+    const partner = cachedPartners.find(p => p.id === e.target.value);
+    const endpointSelect = document.getElementById('client-endpoint');
+
+    if (partner && partner.endpoints && partner.endpoints.length > 0) {
+        endpointSelect.innerHTML = '<option value="">Select endpoint...</option>' +
+            partner.endpoints.map(ep => `<option value="${escapeHtml(ep)}">${escapeHtml(ep)}</option>`).join('');
+    } else {
+        endpointSelect.innerHTML = '<option value="">No endpoints configured</option>';
+    }
+});
+
+document.getElementById('connect-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const partnerId = document.getElementById('client-partner').value;
+    const endpoint = document.getElementById('client-endpoint').value;
+    const statusDiv = document.getElementById('client-status');
+
+    if (!partnerId || !endpoint) {
+        statusDiv.className = 'client-status error';
+        statusDiv.textContent = 'Please select a partner and endpoint';
+        return;
+    }
+
+    statusDiv.className = 'client-status';
+    statusDiv.textContent = 'Connecting...';
+
+    // Try to connect and list files
+    const result = await apiPost('/api/client/connect', { partner_id: partnerId, endpoint });
+
+    if (result && result.success) {
+        clientConnected = true;
+        statusDiv.className = 'client-status connected';
+        statusDiv.textContent = `Connected to ${endpoint}`;
+        updateRemoteFiles(result.virtual_files || []);
+        addLogEntry(`Connected to ${partnerId} at ${endpoint}`);
+    } else {
+        statusDiv.className = 'client-status error';
+        statusDiv.textContent = result?.error || 'Connection failed';
+    }
+});
+
+function updateRemoteFiles(files) {
+    const container = document.getElementById('remote-files-list');
+    const pullSelect = document.getElementById('pull-vf');
+    const pushSelect = document.getElementById('push-vf');
+
+    if (!files || files.length === 0) {
+        container.innerHTML = '<div class="empty">No virtual files available</div>';
+        pullSelect.innerHTML = '<option value="">No files available</option>';
+        pushSelect.innerHTML = '<option value="">No files available</option>';
+        return;
+    }
+
+    container.innerHTML = files.map(f => `
+        <div class="file-item">
+            <div class="file-info">
+                <span class="file-name">${escapeHtml(f.name)}</span>
+                <span class="file-meta">${formatBytes(f.size)} • ${f.direction}</span>
+            </div>
+            <span class="badge ${f.direction === 'send' ? 'badge-info' : 'badge-success'}">
+                ${f.direction === 'send' ? '↑' : '↓'}
+            </span>
+        </div>
+    `).join('');
+
+    // Files we can pull (direction=send on remote = they send to us)
+    const pullableFiles = files.filter(f => f.direction === 'send');
+    pullSelect.innerHTML = '<option value="">Select file...</option>' +
+        pullableFiles.map(f => `<option value="${escapeHtml(f.name)}">${escapeHtml(f.name)}</option>`).join('');
+
+    // Files we can push to (direction=receive on remote = they receive from us)
+    const pushableFiles = files.filter(f => f.direction === 'receive');
+    pushSelect.innerHTML = '<option value="">Select file...</option>' +
+        pushableFiles.map(f => `<option value="${escapeHtml(f.name)}">${escapeHtml(f.name)}</option>`).join('');
+}
+
+document.getElementById('pull-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const vf = document.getElementById('pull-vf').value;
+    const path = document.getElementById('pull-path').value;
+
+    if (!vf || !path) {
+        alert('Please select a file and specify output path');
+        return;
+    }
+
+    const result = await apiPost('/api/client/pull', { virtual_file: vf, output_path: path });
+    if (result && result.success) {
+        addLogEntry(`Started pull: ${vf} -> ${path}`);
+        await updateTransfers();
+    } else {
+        alert(result?.error || 'Pull failed');
+    }
+});
+
+document.getElementById('push-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const file = document.getElementById('push-file').value;
+    const vf = document.getElementById('push-vf').value;
+
+    if (!file || !vf) {
+        alert('Please specify a file and select destination');
+        return;
+    }
+
+    const result = await apiPost('/api/client/push', { file_path: file, virtual_file: vf });
+    if (result && result.success) {
+        addLogEntry(`Started push: ${file} -> ${vf}`);
+        await updateTransfers();
+    } else {
+        alert(result?.error || 'Push failed');
+    }
+});
+
+// ============ Settings ============
+async function updateSettings() {
+    const config = await apiFetch('/api/config');
+    if (!config) return;
+
+    // Server config
+    document.getElementById('cfg-listen').value = config.server?.listen || '';
+    document.getElementById('cfg-api-listen').value = config.limits?.api_listen || '';
+    document.getElementById('cfg-chunk-size').value = config.storage?.chunk_size || 262144;
+    document.getElementById('cfg-temp-dir').value = config.storage?.temp_dir || '';
+    document.getElementById('cfg-server-enabled').checked = config.server?.enabled !== false;
+
+    // Certs
+    document.getElementById('cfg-cert').value = config.server?.cert || '';
+    document.getElementById('cfg-key').value = config.server?.key || '';
+    document.getElementById('cfg-ca').value = config.server?.ca || '';
+
+    // Limits
+    document.getElementById('cfg-max-conn').value = config.limits?.max_connections_per_partner || 10;
+    document.getElementById('cfg-max-bandwidth').value = config.limits?.max_bandwidth_mbps || 100;
+    document.getElementById('cfg-idle-timeout').value = config.limits?.idle_timeout_seconds || 300;
+}
+
+document.getElementById('server-config-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = {
+        server: {
+            listen: document.getElementById('cfg-listen').value,
+            enabled: document.getElementById('cfg-server-enabled').checked
+        },
+        storage: {
+            chunk_size: parseInt(document.getElementById('cfg-chunk-size').value),
+            temp_dir: document.getElementById('cfg-temp-dir').value
+        },
+        limits: {
+            api_listen: document.getElementById('cfg-api-listen').value
+        }
+    };
+
+    const result = await apiPut('/api/config/server', data);
+    if (result) {
+        addLogEntry('Server configuration updated');
+        alert('Server configuration saved. Some changes may require restart.');
+    }
+});
+
+document.getElementById('cert-config-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = {
+        cert: document.getElementById('cfg-cert').value,
+        key: document.getElementById('cfg-key').value,
+        ca: document.getElementById('cfg-ca').value
+    };
+
+    const result = await apiPut('/api/config/certs', data);
+    if (result) {
+        addLogEntry('Certificate configuration updated');
+        alert('Certificate paths saved. Restart required to apply.');
+    }
+});
+
+document.getElementById('limits-config-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = {
+        max_connections_per_partner: parseInt(document.getElementById('cfg-max-conn').value),
+        max_bandwidth_mbps: parseInt(document.getElementById('cfg-max-bandwidth').value),
+        idle_timeout_seconds: parseInt(document.getElementById('cfg-idle-timeout').value)
+    };
+
+    const result = await apiPut('/api/config/limits', data);
+    if (result) {
+        addLogEntry('Rate limits updated');
+    }
+});
+
+async function reloadConfig() {
+    const result = await apiPost('/api/config/reload', {});
+    if (result) {
+        addLogEntry('Configuration reloaded');
+        alert('Configuration reloaded successfully');
+        await refreshAll();
+    } else {
+        alert('Failed to reload configuration');
+    }
+}
+
+async function exportConfig() {
+    const config = await apiFetch('/api/config');
+    if (config) {
+        const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'deft-config.json';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+}
+
+// ============ Activity Log ============
 function addLogEntry(message, type = 'info') {
     const log = document.getElementById('activity-log');
     const empty = log.querySelector('.log-empty');
@@ -195,29 +592,25 @@ function addLogEntry(message, type = 'info') {
         <span class="log-time">${new Date().toLocaleTimeString()}</span>
         <span>${escapeHtml(message)}</span>
     `;
-
     log.insertBefore(entry, log.firstChild);
-
-    // Keep only last 50 entries
-    while (log.children.length > 50) {
-        log.removeChild(log.lastChild);
-    }
+    while (log.children.length > 50) log.removeChild(log.lastChild);
 }
 
-// Refresh all data
+// ============ Refresh ============
 async function refreshAll() {
     await Promise.all([
         updateStatus(),
         updatePartners(),
+        updateVirtualFiles(),
         updateTransfers(),
-        updateConfig(),
-        updateHistory()
+        updateHistory(),
+        updateSettings()
     ]);
 }
 
-// Initialize
+// ============ Initialize ============
 document.addEventListener('DOMContentLoaded', () => {
     refreshAll();
     refreshInterval = setInterval(refreshAll, 5000);
-    addLogEntry('Dashboard initialized');
+    addLogEntry('Console initialized');
 });

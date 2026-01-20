@@ -49,10 +49,21 @@ pub struct TransferStatus {
 pub struct PartnerStatus {
     pub id: String,
     pub endpoints: Vec<String>,
+    pub virtual_files: Vec<String>,
+    pub allowed_certs: Vec<String>,
     pub connected: bool,
     pub last_seen: Option<String>,
     pub transfers_today: u64,
     pub bytes_today: u64,
+}
+
+/// Request to create/update a partner
+#[derive(Debug, Clone, Deserialize)]
+pub struct PartnerRequest {
+    pub id: String,
+    pub endpoints: Vec<String>,
+    pub allowed_certs: Option<Vec<String>>,
+    pub virtual_files: Option<Vec<String>>,
 }
 
 /// System status for API
@@ -328,6 +339,15 @@ async fn handle_request(
 
         // Partner endpoints
         ("GET", "/api/partners") => handle_partners(&state).await,
+        ("POST", "/api/partners") => handle_create_partner(&state, request_body).await,
+        ("PUT", p) if p.starts_with("/api/partners/") && !p.contains("/virtual-files") => {
+            let partner_id = p.strip_prefix("/api/partners/").unwrap_or("");
+            handle_update_partner(&state, partner_id, request_body).await
+        }
+        ("DELETE", p) if p.starts_with("/api/partners/") && !p.contains("/virtual-files") => {
+            let partner_id = p.strip_prefix("/api/partners/").unwrap_or("");
+            handle_delete_partner(&state, partner_id).await
+        }
         ("GET", p) if p.starts_with("/api/partners/") && p.ends_with("/virtual-files") => {
             let partner_id = p
                 .strip_prefix("/api/partners/")
@@ -342,6 +362,9 @@ async fn handle_request(
                 .unwrap_or("");
             handle_add_partner_virtual_file(&state, partner_id, request_body).await
         }
+
+        // Config endpoints
+        ("POST", "/api/config/reload") => handle_config_reload(&state).await,
 
         // Transfer endpoints
         ("GET", "/api/transfers") => handle_transfers(&state).await,
@@ -474,6 +497,8 @@ async fn handle_partners(state: &ApiState) -> (u16, String) {
         .map(|p| PartnerStatus {
             id: p.id.clone(),
             endpoints: p.endpoints.clone(),
+            virtual_files: p.virtual_files.iter().map(|vf| vf.name.clone()).collect(),
+            allowed_certs: p.allowed_certs.clone(),
             connected: false,
             last_seen: None,
             transfers_today: 0,
@@ -481,6 +506,86 @@ async fn handle_partners(state: &ApiState) -> (u16, String) {
         })
         .collect();
     (200, serde_json::to_string(&partners).unwrap_or_default())
+}
+
+async fn handle_create_partner(state: &ApiState, body: &[u8]) -> (u16, String) {
+    let req: Result<PartnerRequest, _> = serde_json::from_slice(body);
+    match req {
+        Ok(r) => {
+            let mut config = state.config.write().await;
+            if config.partners.iter().any(|p| p.id == r.id) {
+                return (409, r#"{"error":"Partner already exists"}"#.to_string());
+            }
+            let partner = crate::config::PartnerConfig {
+                id: r.id.clone(),
+                endpoints: r.endpoints,
+                allowed_certs: r.allowed_certs.unwrap_or_default(),
+                virtual_files: Vec::new(),
+            };
+            config.partners.push(partner);
+            (
+                201,
+                serde_json::json!({"status":"created", "id": r.id}).to_string(),
+            )
+        }
+        Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
+    }
+}
+
+async fn handle_update_partner(state: &ApiState, partner_id: &str, body: &[u8]) -> (u16, String) {
+    let req: Result<PartnerRequest, _> = serde_json::from_slice(body);
+    match req {
+        Ok(r) => {
+            let mut config = state.config.write().await;
+            if let Some(partner) = config.partners.iter_mut().find(|p| p.id == partner_id) {
+                partner.endpoints = r.endpoints;
+                if let Some(certs) = r.allowed_certs {
+                    partner.allowed_certs = certs;
+                }
+                (200, r#"{"status":"updated"}"#.to_string())
+            } else {
+                (404, r#"{"error":"Partner not found"}"#.to_string())
+            }
+        }
+        Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
+    }
+}
+
+async fn handle_delete_partner(state: &ApiState, partner_id: &str) -> (u16, String) {
+    let mut config = state.config.write().await;
+    let before = config.partners.len();
+    config.partners.retain(|p| p.id != partner_id);
+    if config.partners.len() < before {
+        (200, r#"{"status":"deleted"}"#.to_string())
+    } else {
+        (404, r#"{"error":"Partner not found"}"#.to_string())
+    }
+}
+
+async fn handle_config_reload(_state: &ApiState) -> (u16, String) {
+    // Signal that config should be reloaded via SIGHUP
+    #[cfg(unix)]
+    {
+        use std::process::Command;
+        let pid = std::process::id();
+        let result = Command::new("kill")
+            .args(["-HUP", &pid.to_string()])
+            .output();
+        match result {
+            Ok(_) => (200, r#"{"status":"reload_triggered"}"#.to_string()),
+            Err(e) => (
+                500,
+                format!(r#"{{"error":"Failed to send signal: {}"}}"#, e),
+            ),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        (
+            501,
+            r#"{"error":"Config reload not supported on this platform"}"#.to_string(),
+        )
+    }
 }
 
 async fn handle_transfers(state: &ApiState) -> (u16, String) {
