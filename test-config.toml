@@ -9,8 +9,8 @@ ca = "/tmp/deft-test/ca.crt"
 
 [client]
 enabled = true
-cert = "/tmp/deft-test/server.crt"
-key = "/tmp/deft-test/server.key"
+cert = "/tmp/deft-test/client.crt"
+key = "/tmp/deft-test/client.key"
 ca = "/tmp/deft-test/ca.crt"
 
 [storage]
@@ -31,7 +31,7 @@ level = "info"
 
 [[partners]]
 id = "test-partner"
-allowed_certs = ["/tmp/deft-test/server.crt"]
+allowed_certs = ["/tmp/deft-test/client.crt"]
 endpoints = ["localhost:7741"]
 
 [[partners.virtual_files]]
