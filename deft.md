@@ -606,18 +606,277 @@ DEFT combine le meilleur des mondes : fiabilité granulaire de PESIT avec perfor
 
 ---
 
-## 12. Prochaines étapes de spécification
+## 12. Spécifications techniques d'implémentation
 
-Les sections suivantes restent à définir :
+Cette section documente les détails techniques de l'implémentation de référence.
 
-1. Spécification détaillée du handshake et négociation de fenêtre
-2. Commandes de découverte et métadonnées
-3. Protocole complet de transfert de chunks avec ACKs
-4. Gestion des erreurs, timeouts et retry
-5. Format de configuration serveur
-6. Schéma de métadonnées (JSON)
-7. Signature cryptographique des accusés de réception
+### 12.1 Format des commandes protocolaires
+
+Toutes les commandes commencent par `DEFT ` et se terminent par `\r\n`.
+
+**Handshake :**
+```
+→ DEFT HELLO <version> <capabilities>
+← DEFT WELCOME <version> <capabilities> WINDOW_SIZE:<n> <session_id>
+
+Exemple :
+→ DEFT HELLO 1.0 CHUNKED,PARALLEL,RESUME
+← DEFT WELCOME 1.0 CHUNKED,PARALLEL,RESUME,COMPRESS WINDOW_SIZE:64 sess_1234567890_000
+```
+
+**Authentification :**
+```
+→ DEFT AUTH <partner_id>
+← DEFT AUTH_OK "<partner_id>" VF:<virtual_files_list>
+
+Exemple :
+→ DEFT AUTH acme-corp
+← DEFT AUTH_OK "acme-corp" VF:orders,invoices,catalog
+```
+
+**Découverte :**
+```
+→ DEFT DISCOVER
+← DEFT FILES <count>
+  <name> <size> <direction> <timestamp>
+  ...
+```
+
+**Description d'un fichier virtuel :**
+```
+→ DEFT DESCRIBE <virtual_file>
+← DEFT FILE_INFO <name> SIZE:<bytes> CHUNKS:<count> CHUNK_SIZE:<size> HASH:<sha256>
+  CHUNK <index> SIZE:<size> HASH:<sha256>
+  ...
+```
+
+**Transfert Push (envoi) :**
+```
+→ DEFT BEGIN_TRANSFER <virtual_file> <total_chunks> <total_bytes> <file_hash>
+← DEFT TRANSFER_ACCEPTED <transfer_id> <virtual_file> WINDOW_SIZE:<n>
+
+→ DEFT PUT <virtual_file> <chunk_index> <size> <hash>
+← DEFT CHUNK_READY <virtual_file> <chunk_index> <size>
+→ [binary chunk data]
+← DEFT CHUNK_ACK <virtual_file> <chunk_index> OK
+
+← DEFT TRANSFER_COMPLETE <virtual_file> <hash> <size> <chunks> sig:<signature>
+```
+
+**Transfert Pull (réception) :**
+```
+→ DEFT GET <virtual_file> CHUNKS <start>-<end>
+← DEFT CHUNK_DATA <virtual_file> <chunk_index> SIZE:<size>
+← [binary chunk data]
+```
+
+### 12.2 Architecture des modules Rust
+
+```
+deft/
+├── deft-protocol/          # Définitions protocolaires (crate)
+│   ├── command.rs          # Enum Command avec tous les types de commandes
+│   ├── response.rs         # Enum Response avec tous les types de réponses
+│   ├── parser.rs           # Parser bidirectionnel commandes ↔ texte
+│   ├── capability.rs       # Négociation des capacités (CHUNKED, PARALLEL, etc.)
+│   └── endpoint.rs         # Gestion multi-endpoints
+│
+├── deft-daemon/            # Daemon serveur + client
+│   ├── main.rs             # Point d'entrée, CLI args, signal handling
+│   ├── server.rs           # Accepte connexions TLS, dispatch vers handler
+│   ├── handler.rs          # CommandHandler - traite chaque commande
+│   ├── session.rs          # État de session (auth, permissions)
+│   ├── config.rs           # Parsing config TOML
+│   ├── virtual_file.rs     # VirtualFileManager - mapping VF ↔ filesystem
+│   ├── transfer.rs         # TransferManager - suivi transferts actifs
+│   ├── chunk_store.rs      # Stockage temporaire des chunks reçus
+│   ├── api.rs              # API REST HTTP pour dashboard/monitoring
+│   ├── hooks.rs            # Exécution scripts pre/post transfert
+│   ├── signer.rs           # Signature Ed25519 des accusés
+│   ├── receipt.rs          # Stockage des preuves de livraison
+│   ├── metrics.rs          # Métriques Prometheus
+│   └── rate_limit.rs       # Limitation connexions/bande passante
+│
+├── deft-cli/               # Client ligne de commande
+│   └── main.rs             # Commandes: send, receive, history, status
+│
+└── deft-common/            # Utilitaires partagés
+    ├── chunker.rs          # Découpage fichiers en chunks
+    └── hash.rs             # Fonctions de hachage SHA-256
+```
+
+### 12.3 Flux de traitement serveur
+
+```
+1. TcpListener::accept()
+2. TLS handshake (mTLS)
+3. Création Session (non authentifiée)
+4. Boucle lecture commandes :
+   a. read_line() → texte commande
+   b. Parser::parse_command() → Command enum
+   c. handler.handle_command() → Response enum
+   d. write response texte
+   e. Si ChunkReady → lire binary data
+   f. Si ChunkData → envoyer binary data
+5. BYE ou timeout → fermeture session
+```
+
+### 12.4 État partagé (ApiState)
+
+```rust
+pub struct ApiState {
+    pub config: RwLock<Config>,           // Config rechargeable à chaud
+    pub start_time: Instant,              // Pour uptime
+    pub transfers: RwLock<HashMap<String, TransferStatus>>,  // Transferts actifs
+    pub history: RwLock<Vec<TransferHistoryEntry>>,          // Historique
+    history_path: PathBuf,                // Persistance JSON
+}
+```
+
+**Méthodes clés :**
+- `register_transfer()` - Démarre le tracking d'un transfert
+- `update_transfer_progress()` - Met à jour bytes/pourcentage
+- `complete_transfer()` - Finalise et ajoute à l'historique
+- `fail_transfer()` - Marque en erreur avec raison
+- `save_history()` - Persiste dans `history.json`
+
+### 12.5 API REST
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| GET | `/api/status` | Uptime, version, connexions actives |
+| GET | `/api/transfers` | Liste transferts en cours |
+| GET | `/api/transfers/:id` | Détail d'un transfert |
+| POST | `/api/transfers` | Démarrer un transfert |
+| DELETE | `/api/transfers/:id` | Annuler un transfert |
+| GET | `/api/history` | Historique des transferts |
+| GET | `/api/partners` | Liste des partenaires configurés |
+| GET | `/api/virtual-files` | Liste des fichiers virtuels |
+| GET | `/api/config` | Configuration courante (sanitized) |
+
+**Dashboard web** : Accessible sur `http://127.0.0.1:7742/`
+
+### 12.6 Rechargement à chaud de la configuration
+
+Le daemon supporte le rechargement de configuration sans redémarrage :
+
+```bash
+# Envoyer signal SIGHUP
+kill -HUP $(pgrep deftd)
+```
+
+**Ce qui est rechargé :**
+- Partenaires et leurs virtual files
+- Paramètres de limites (rate limiting)
+- Clé API
+
+**Ce qui nécessite un redémarrage :**
+- Changement de port d'écoute
+- Changement de certificats TLS
+
+### 12.7 Hooks d'événements
+
+Scripts exécutables déclenchés sur événements :
+
+```toml
+[[hooks]]
+event = "file-received"
+command = "/usr/local/bin/process-invoice.sh"
+partners = ["acme-corp"]
+```
+
+**Événements disponibles :**
+- `pre-transfer` - Avant réception d'un fichier
+- `post-transfer` - Après transfert complet
+- `file-received` - Fichier assemblé avec succès
+- `transfer-error` - Erreur pendant transfert
+
+**Variables d'environnement passées :**
+- `DEFT_TRANSFER_ID`
+- `DEFT_VIRTUAL_FILE`
+- `DEFT_PARTNER_ID`
+- `DEFT_FILE_PATH` (si applicable)
+- `DEFT_ERROR` (si erreur)
+
+### 12.8 Signature des accusés de réception
+
+Algorithme : **Ed25519**
+
+```rust
+pub struct ReceiptSigner {
+    signing_key: SigningKey,  // Clé privée Ed25519
+    verifying_key: VerifyingKey,
+}
+```
+
+Format signature dans TRANSFER_COMPLETE :
+```
+sig:ed25519:<base64_signature>
+```
+
+La clé est générée au démarrage si non fournie. Pour la persistance, configurer :
+```toml
+[server]
+signing_key = "/etc/deft/signing.key"
+```
+
+### 12.9 Métriques Prometheus
+
+Disponibles sur `http://127.0.0.1:9090/metrics` :
+
+| Métrique | Type | Description |
+|----------|------|-------------|
+| `deft_connections_total` | counter | Total connexions |
+| `deft_connections_active` | gauge | Connexions actives |
+| `deft_transfers_total{direction,status}` | counter | Transferts par direction/status |
+| `deft_bytes_transferred_total{direction}` | counter | Bytes transférés |
+| `deft_chunks_sent_total` | counter | Chunks envoyés |
+| `deft_chunks_received_total` | counter | Chunks reçus |
+| `deft_transfer_duration_seconds` | histogram | Durée des transferts |
+
+### 12.10 Commandes CLI
+
+```bash
+# Envoyer un fichier (push)
+deft --cert client.crt --key client.key --ca ca.crt \
+    send <partner> <virtual_file> <file_path>
+
+# Recevoir un fichier (pull)
+deft --cert client.crt --key client.key --ca ca.crt \
+    receive <partner> <virtual_file> <output_path>
+
+# Voir l'historique des transferts
+deft history --api http://127.0.0.1:7742 --limit 20
+
+# Voir les transferts actifs
+deft status --api http://127.0.0.1:7742
+
+# Session interactive
+deft --cert ... connect <partner>
+```
 
 ---
 
-*Document vivant - sera mis à jour au fur et à mesure de l'avancement du projet*
+## 13. Prochaines étapes
+
+**Implémenté :**
+- ✅ Handshake et authentification mTLS
+- ✅ Transfert push avec chunks et validation hash
+- ✅ Transfert pull avec DESCRIBE/GET
+- ✅ API REST avec dashboard web
+- ✅ Historique persistant des transferts
+- ✅ Rechargement à chaud de la config (SIGHUP)
+- ✅ Hooks d'événements
+- ✅ Signature Ed25519 des accusés
+- ✅ Métriques Prometheus
+
+**À faire :**
+- Delta sync (transfert incrémental)
+- Compression des chunks (COMPRESS capability)
+- Transfert parallèle multi-connexions
+- Watchdir (surveillance répertoire auto-envoi)
+- Interface web d'administration
+
+---
+
+*Document vivant - mis à jour le 20 Janvier 2026*
