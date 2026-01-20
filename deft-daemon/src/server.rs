@@ -24,10 +24,12 @@ pub struct Server {
     tls_acceptor: TlsAcceptor,
     handler: Arc<CommandHandler>,
     rate_limiter: Arc<RateLimiter>,
+    #[allow(dead_code)]
     api_state: Option<Arc<ApiState>>,
 }
 
 impl Server {
+    #[allow(dead_code)]
     pub fn new(config: Config) -> Result<Self> {
         Self::with_api_state(config, None)
     }

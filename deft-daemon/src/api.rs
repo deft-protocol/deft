@@ -7,7 +7,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
-use crate::config::{Config, Direction, PartnerConfig, VirtualFileConfig};
+use crate::config::{Config, Direction, VirtualFileConfig};
 use crate::metrics;
 
 /// API Server configuration
@@ -91,6 +91,7 @@ pub struct TransferHistoryEntry {
 
 /// Request to create a transfer
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct CreateTransferRequest {
     pub partner_id: String,
     pub virtual_file: String,
