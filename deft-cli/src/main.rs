@@ -6,7 +6,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use rustls::pki_types::CertificateDer;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tracing::{info, warn};
@@ -66,7 +66,7 @@ enum Commands {
         #[arg(short = 'H', long)]
         hash: String,
     },
-    /// Send a file to a virtual file destination
+    /// Send a file to a virtual file destination (push)
     Send {
         /// Partner ID to authenticate as
         partner_id: String,
@@ -77,6 +77,15 @@ enum Commands {
         /// Chunk size in bytes (default: 256KB)
         #[arg(long, default_value = "262144")]
         chunk_size: u32,
+    },
+    /// Receive a file from a virtual file source (pull)
+    Receive {
+        /// Partner ID to authenticate as
+        partner_id: String,
+        /// Virtual file name (source)
+        virtual_file: String,
+        /// Local output path
+        output_path: PathBuf,
     },
     /// Interactive session with handshake
     Connect { partner_id: String },
@@ -156,6 +165,13 @@ async fn main() -> Result<()> {
             chunk_size,
         } => {
             send_file(&cli, partner_id, virtual_file, file_path, chunk_size).await?;
+        }
+        Commands::Receive {
+            ref partner_id,
+            ref virtual_file,
+            ref output_path,
+        } => {
+            receive_file(&cli, partner_id, virtual_file, output_path).await?;
         }
         Commands::Connect { ref partner_id } => {
             run_interactive_session(&cli, partner_id).await?;
@@ -521,6 +537,136 @@ async fn send_file(
             "\n✗ Transfer incomplete: {} chunks failed: {:?}",
             failed_chunks.len(),
             failed_chunks
+        );
+    }
+
+    // BYE
+    let _ = send_command(&mut conn, &Command::bye()).await;
+
+    Ok(())
+}
+
+async fn receive_file(
+    cli: &Cli,
+    partner_id: &str,
+    virtual_file: &str,
+    output_path: &PathBuf,
+) -> Result<()> {
+    println!(
+        "Preparing to receive from: {} -> {:?}",
+        virtual_file, output_path
+    );
+
+    // Connect and authenticate
+    let mut conn = connect(cli).await?;
+
+    // HELLO
+    println!("\n>>> Handshake...");
+    let hello = Command::hello(DEFT_VERSION, Capabilities::all());
+    let welcome = send_command(&mut conn, &hello).await?;
+    println!("<<< {}", welcome);
+
+    if welcome.contains("ERROR") {
+        return Err(anyhow::anyhow!("Handshake failed: {}", welcome));
+    }
+
+    // AUTH
+    println!("\n>>> Authenticating as {}...", partner_id);
+    let auth = Command::auth(partner_id);
+    let auth_response = send_command(&mut conn, &auth).await?;
+    println!("<<< {}", auth_response);
+
+    if auth_response.contains("ERROR") {
+        return Err(anyhow::anyhow!("Authentication failed: {}", auth_response));
+    }
+
+    // DESCRIBE to get file info
+    println!("\n>>> Describing {}...", virtual_file);
+    let describe_cmd = format!("DEFT DESCRIBE {}\n", virtual_file);
+    let describe_response = send_raw(&mut conn, &describe_cmd).await?;
+    println!("<<< {}", describe_response);
+
+    if describe_response.contains("ERROR") {
+        return Err(anyhow::anyhow!("Describe failed: {}", describe_response));
+    }
+
+    // Parse DESCRIBE response to get chunk count and file hash
+    // Format: DEFT FILE_INFO <virtual_file> <total_chunks> <total_bytes> <hash>
+    let parts: Vec<&str> = describe_response.split_whitespace().collect();
+    if parts.len() < 6 || parts[1] != "FILE_INFO" {
+        return Err(anyhow::anyhow!(
+            "Unexpected DESCRIBE response: {}",
+            describe_response
+        ));
+    }
+
+    let total_chunks: u64 = parts[3].parse().context("Invalid chunk count")?;
+    let total_bytes: u64 = parts[4].parse().context("Invalid file size")?;
+    let expected_hash = parts[5];
+
+    println!(
+        "    File size: {} bytes, {} chunks",
+        total_bytes, total_chunks
+    );
+
+    // Create output file
+    let mut output_file = std::fs::File::create(output_path)
+        .with_context(|| format!("Failed to create output file: {:?}", output_path))?;
+
+    // GET all chunks
+    println!("\n>>> Receiving {} chunks...", total_chunks);
+    let mut received_bytes = 0u64;
+
+    for chunk_index in 0..total_chunks {
+        let get_cmd = format!("DEFT GET {} {}\n", virtual_file, chunk_index);
+        let get_response = send_raw(&mut conn, &get_cmd).await?;
+
+        if get_response.contains("CHUNK_DATA") {
+            // Parse chunk size from response
+            let resp_parts: Vec<&str> = get_response.split_whitespace().collect();
+            if resp_parts.len() >= 4 {
+                let chunk_size: usize = resp_parts[3].parse().unwrap_or(0);
+
+                // Read binary chunk data
+                let mut chunk_data = vec![0u8; chunk_size];
+                conn.reader.read_exact(&mut chunk_data).await?;
+
+                // Write to output file
+                use std::io::Write;
+                output_file.write_all(&chunk_data)?;
+                received_bytes += chunk_size as u64;
+
+                print!(
+                    "\r    Received chunk {}/{} ({:.1}%)",
+                    chunk_index + 1,
+                    total_chunks,
+                    (chunk_index + 1) as f64 / total_chunks as f64 * 100.0
+                );
+                std::io::Write::flush(&mut std::io::stdout())?;
+            }
+        } else {
+            warn!("Unexpected response to GET: {}", get_response);
+        }
+    }
+
+    println!(
+        "\n\n✓ Receive complete: {} bytes received to {:?}",
+        received_bytes, output_path
+    );
+
+    // Verify hash
+    let mut verify_file = std::fs::File::open(output_path)?;
+    let mut hasher = sha2::Sha256::new();
+    use sha2::Digest;
+    std::io::copy(&mut verify_file, &mut hasher)?;
+    let result_hash = format!("{:x}", hasher.finalize());
+
+    if result_hash == expected_hash {
+        println!("✓ Hash verified: {}", result_hash);
+    } else {
+        println!(
+            "✗ Hash mismatch! Expected: {}, Got: {}",
+            expected_hash, result_hash
         );
     }
 

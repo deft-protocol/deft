@@ -38,3 +38,8 @@ endpoints = ["localhost:7741"]
 name = "test-files"
 path = "/tmp/deft-test/data/"
 direction = "receive"
+
+[[partners.virtual_files]]
+name = "outbox"
+path = "/tmp/deft-test/send/"
+direction = "send"
