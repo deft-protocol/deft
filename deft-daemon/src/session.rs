@@ -30,6 +30,11 @@ pub struct Session {
     pub allowed_virtual_files: Vec<String>,
     pub active_transfer_ids: Vec<String>,
     pub cert_cn: Option<String>,
+    // Pull transfer tracking
+    pub active_pull_transfer: Option<String>,
+    pub active_pull_vf: Option<String>,
+    pub pull_total_chunks: u64,
+    pub pull_chunks_sent: u64,
 }
 
 impl Session {
@@ -46,6 +51,10 @@ impl Session {
             allowed_virtual_files: Vec::new(),
             active_transfer_ids: Vec::new(),
             cert_cn: None,
+            active_pull_transfer: None,
+            active_pull_vf: None,
+            pull_total_chunks: 0,
+            pull_chunks_sent: 0,
         }
     }
 

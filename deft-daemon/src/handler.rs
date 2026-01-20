@@ -80,14 +80,22 @@ impl CommandHandler {
         }
     }
 
-    pub fn register_transfer_to_api(&self, id: &str, vf: &str, partner: &str, total_bytes: u64) {
+    pub fn register_transfer_to_api(
+        &self,
+        id: &str,
+        vf: &str,
+        partner: &str,
+        direction: &str,
+        total_bytes: u64,
+    ) {
         if let Some(ref api) = self.api_state {
             let api = api.clone();
             let id = id.to_string();
             let vf = vf.to_string();
             let partner = partner.to_string();
+            let direction = direction.to_string();
             tokio::spawn(async move {
-                api.register_transfer(id, vf, partner, "receive".to_string(), total_bytes)
+                api.register_transfer(id, vf, partner, direction, total_bytes)
                     .await;
             });
         }
@@ -286,7 +294,7 @@ impl CommandHandler {
         Response::Files { files }
     }
 
-    fn handle_describe(&self, session: &Session, virtual_file: String) -> Response {
+    fn handle_describe(&self, session: &mut Session, virtual_file: String) -> Response {
         if !session.is_authenticated() {
             return Response::error(
                 DeftErrorCode::Unauthorized,
@@ -302,7 +310,32 @@ impl CommandHandler {
         }
 
         match self.vf_manager.compute_chunks(&virtual_file) {
-            Ok((info, chunks)) => Response::FileInfo { info, chunks },
+            Ok((info, chunks)) => {
+                // Register outbound transfer for tracking
+                let transfer_id = format!(
+                    "pull-{}-{}",
+                    session.id,
+                    chrono::Utc::now().timestamp_millis()
+                );
+                let partner_id = session.partner_id.clone().unwrap_or_default();
+
+                // Store transfer info in session for tracking
+                session.active_pull_transfer = Some(transfer_id.clone());
+                session.active_pull_vf = Some(virtual_file.clone());
+                session.pull_total_chunks = info.chunk_count;
+                session.pull_chunks_sent = 0;
+
+                // Register in API state
+                self.register_transfer_to_api(
+                    &transfer_id,
+                    &virtual_file,
+                    &partner_id,
+                    "send",
+                    info.size,
+                );
+
+                Response::FileInfo { info, chunks }
+            }
             Err(e) => Response::error(
                 DeftErrorCode::InternalServerError,
                 Some(format!("Failed to describe file: {}", e)),
@@ -312,7 +345,7 @@ impl CommandHandler {
 
     fn handle_get(
         &self,
-        session: &Session,
+        session: &mut Session,
         virtual_file: String,
         chunks: deft_protocol::ChunkRange,
     ) -> Response {
@@ -330,14 +363,32 @@ impl CommandHandler {
             );
         }
 
-        // For now, return first chunk of the range
-        // Full implementation would stream all chunks
         match self.vf_manager.read_chunk(&virtual_file, chunks.start) {
-            Ok(data) => Response::ChunkData {
-                virtual_file,
-                chunk_index: chunks.start,
-                data,
-            },
+            Ok(data) => {
+                // Track pull transfer progress
+                session.pull_chunks_sent += 1;
+
+                // Update API progress
+                if let Some(ref transfer_id) = session.active_pull_transfer {
+                    let total = session.pull_total_chunks;
+                    let sent = session.pull_chunks_sent;
+                    let bytes = sent * 262144; // Approximate
+                    let total_bytes = total * 262144;
+                    self.update_transfer_progress_to_api(transfer_id, bytes, total_bytes);
+
+                    // Complete transfer when all chunks sent
+                    if sent >= total {
+                        self.complete_transfer_to_api(transfer_id);
+                        session.active_pull_transfer = None;
+                    }
+                }
+
+                Response::ChunkData {
+                    virtual_file,
+                    chunk_index: chunks.start,
+                    data,
+                }
+            }
             Err(e) => Response::error(
                 DeftErrorCode::InternalServerError,
                 Some(format!("Failed to read chunk: {}", e)),
@@ -393,6 +444,7 @@ impl CommandHandler {
             &transfer_id,
             &virtual_file,
             session.partner_id.as_deref().unwrap_or("unknown"),
+            "receive",
             total_bytes,
         );
 
