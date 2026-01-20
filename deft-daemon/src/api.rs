@@ -402,6 +402,11 @@ async fn handle_request(
             handle_delete_virtual_file(&state, name).await
         }
 
+        // Client endpoints (outgoing connections)
+        ("POST", "/api/client/connect") => handle_client_connect(&state, request_body).await,
+        ("POST", "/api/client/pull") => handle_client_pull(&state, request_body).await,
+        ("POST", "/api/client/push") => handle_client_push(&state, request_body).await,
+
         // Static files
         ("GET", "/") | ("GET", "/index.html") => {
             send_html(&mut stream).await;
@@ -871,6 +876,199 @@ async fn handle_add_partner_virtual_file(
             } else {
                 (404, r#"{"error":"Partner not found"}"#.to_string())
             }
+        }
+        Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
+    }
+}
+
+// ============ Client handlers (outgoing connections) ============
+
+#[derive(Debug, Deserialize)]
+struct ClientConnectRequest {
+    server: String,
+    partner_id: String,
+    cert: Option<String>,
+    key: Option<String>,
+}
+
+async fn handle_client_connect(state: &ApiState, body: &[u8]) -> (u16, String) {
+    let req: Result<ClientConnectRequest, _> = serde_json::from_slice(body);
+    match req {
+        Ok(r) => {
+            // Get client config from state
+            let config = state.config.read().await;
+            let client_config = &config.client;
+
+            // Use provided certs or fall back to config
+            let cert_path = r.cert.as_deref().unwrap_or(&client_config.cert);
+            let key_path = r.key.as_deref().unwrap_or(&client_config.key);
+            let ca_path = &client_config.ca;
+
+            // Try to establish TLS connection
+            match connect_to_server(&r.server, cert_path, key_path, ca_path, &r.partner_id).await {
+                Ok(virtual_files) => (
+                    200,
+                    serde_json::json!({
+                        "success": true,
+                        "server": r.server,
+                        "partner_id": r.partner_id,
+                        "virtual_files": virtual_files
+                    })
+                    .to_string(),
+                ),
+                Err(e) => (
+                    200,
+                    serde_json::json!({
+                        "success": false,
+                        "error": format!("{}", e)
+                    })
+                    .to_string(),
+                ),
+            }
+        }
+        Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
+    }
+}
+
+async fn connect_to_server(
+    server: &str,
+    cert_path: &str,
+    key_path: &str,
+    ca_path: &str,
+    partner_id: &str,
+) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
+    use std::sync::Arc;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio_rustls::TlsConnector;
+
+    // Load TLS config
+    let cert_pem = std::fs::read(cert_path)?;
+    let key_pem = std::fs::read(key_path)?;
+    let ca_pem = std::fs::read(ca_path)?;
+
+    let certs = rustls_pemfile::certs(&mut cert_pem.as_slice())
+        .filter_map(|r| r.ok())
+        .collect::<Vec<_>>();
+    let key =
+        rustls_pemfile::private_key(&mut key_pem.as_slice())?.ok_or("No private key found")?;
+    let ca_certs = rustls_pemfile::certs(&mut ca_pem.as_slice())
+        .filter_map(|r| r.ok())
+        .collect::<Vec<_>>();
+
+    let mut root_store = rustls::RootCertStore::empty();
+    for cert in ca_certs {
+        root_store.add(cert)?;
+    }
+
+    let tls_config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_client_auth_cert(certs, key)?;
+
+    let connector = TlsConnector::from(Arc::new(tls_config));
+
+    // Connect
+    let tcp = tokio::net::TcpStream::connect(server).await?;
+    let domain = rustls::pki_types::ServerName::try_from("localhost")?;
+    let stream = connector.connect(domain, tcp).await?;
+
+    // Split into read/write halves
+    let (read_half, mut write_half) = tokio::io::split(stream);
+    let mut reader = BufReader::new(read_half);
+    let mut line = String::new();
+
+    // HELLO
+    write_half
+        .write_all(b"DEFT HELLO 1.0 CHUNKED,PARALLEL,RESUME\n")
+        .await?;
+    reader.read_line(&mut line).await?;
+
+    if !line.contains("WELCOME") {
+        return Err(format!("Unexpected response: {}", line).into());
+    }
+
+    // AUTH
+    line.clear();
+    let auth_cmd = format!("DEFT AUTH {}\n", partner_id);
+    write_half.write_all(auth_cmd.as_bytes()).await?;
+    reader.read_line(&mut line).await?;
+
+    if !line.contains("AUTH_OK") {
+        return Err(format!("Auth failed: {}", line).into());
+    }
+
+    // DISCOVER to get virtual files
+    line.clear();
+    write_half.write_all(b"DEFT DISCOVER\n").await?;
+    reader.read_line(&mut line).await?;
+
+    let mut virtual_files = Vec::new();
+
+    // Parse: DEFT FILES <count>
+    if line.starts_with("DEFT FILES ") {
+        let count: usize = line
+            .strip_prefix("DEFT FILES ")
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(0);
+
+        // Read each file line: "  <name> <size> <direction> <modified>"
+        for _ in 0..count {
+            line.clear();
+            if reader.read_line(&mut line).await? == 0 {
+                break;
+            }
+            let parts: Vec<&str> = line.trim().split_whitespace().collect();
+            if parts.len() >= 3 {
+                let name = parts[0];
+                let size: u64 = parts[1].parse().unwrap_or(0);
+                let direction = parts[2].to_lowercase();
+                virtual_files.push(serde_json::json!({
+                    "name": name,
+                    "size": size,
+                    "direction": direction
+                }));
+            }
+        }
+    }
+
+    // BYE
+    let _ = write_half.write_all(b"DEFT BYE\n").await;
+
+    Ok(virtual_files)
+}
+
+async fn handle_client_pull(_state: &ApiState, body: &[u8]) -> (u16, String) {
+    #[derive(Deserialize)]
+    struct PullRequest {
+        virtual_file: String,
+        output_path: String,
+    }
+    let req: Result<PullRequest, _> = serde_json::from_slice(body);
+    match req {
+        Ok(r) => {
+            // TODO: Implement actual pull using stored connection
+            (200, serde_json::json!({
+                "success": true,
+                "message": format!("Pull {} to {} - not yet implemented", r.virtual_file, r.output_path)
+            }).to_string())
+        }
+        Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
+    }
+}
+
+async fn handle_client_push(_state: &ApiState, body: &[u8]) -> (u16, String) {
+    #[derive(Deserialize)]
+    struct PushRequest {
+        file_path: String,
+        virtual_file: String,
+    }
+    let req: Result<PushRequest, _> = serde_json::from_slice(body);
+    match req {
+        Ok(r) => {
+            // TODO: Implement actual push using stored connection
+            (200, serde_json::json!({
+                "success": true,
+                "message": format!("Push {} to {} - not yet implemented", r.file_path, r.virtual_file)
+            }).to_string())
         }
         Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
     }
