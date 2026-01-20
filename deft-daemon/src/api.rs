@@ -677,9 +677,39 @@ async fn handle_cancel_transfer(state: &ApiState, id: &str) -> (u16, String) {
 }
 
 async fn handle_retry_transfer(state: &ApiState, id: &str) -> (u16, String) {
-    if state.history.read().await.iter().any(|t| t.id == id) {
-        // TODO: Actually retry the transfer
-        (202, r#"{"status":"retry_queued"}"#.to_string())
+    let history = state.history.read().await;
+    if let Some(entry) = history.iter().find(|t| t.id == id) {
+        // Clone the entry data we need before releasing the lock
+        let virtual_file = entry.virtual_file.clone();
+        let partner_id = entry.partner_id.clone();
+        let direction = entry.direction.clone();
+        let total_bytes = entry.total_bytes;
+        drop(history);
+
+        // Create a new transfer with retry ID
+        let retry_id = format!("retry_{}_{}", id, chrono::Utc::now().timestamp_millis());
+        state
+            .register_transfer(
+                retry_id.clone(),
+                virtual_file.clone(),
+                partner_id.clone(),
+                direction.clone(),
+                total_bytes,
+            )
+            .await;
+
+        (
+            202,
+            serde_json::json!({
+                "status": "retry_queued",
+                "retry_id": retry_id,
+                "original_id": id,
+                "virtual_file": virtual_file,
+                "partner_id": partner_id,
+                "direction": direction
+            })
+            .to_string(),
+        )
     } else {
         (
             404,

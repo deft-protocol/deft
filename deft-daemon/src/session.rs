@@ -35,6 +35,8 @@ pub struct Session {
     pub active_pull_vf: Option<String>,
     pub pull_total_chunks: u64,
     pub pull_chunks_sent: u64,
+    // Push transfer tracking
+    pub last_chunk_compressed: bool,
 }
 
 impl Session {
@@ -55,6 +57,7 @@ impl Session {
             active_pull_vf: None,
             pull_total_chunks: 0,
             pull_chunks_sent: 0,
+            last_chunk_compressed: false,
         }
     }
 

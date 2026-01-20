@@ -578,7 +578,7 @@ impl CommandHandler {
         size: u64,
         expected_hash: String,
         _nonce: Option<u64>,
-        _compressed: bool,
+        compressed: bool,
     ) -> Response {
         if !session.is_authenticated() {
             return Response::error(
@@ -593,6 +593,9 @@ impl CommandHandler {
                 Some(format!("Access denied to: {}", virtual_file)),
             );
         }
+
+        // Track compressed flag for binary data reception
+        session.last_chunk_compressed = compressed;
 
         // Find active transfer for this virtual file
         let transfer_id = self.find_transfer_for_file(session, &virtual_file);
@@ -909,12 +912,19 @@ impl CommandHandler {
             );
         }
 
+        // Generate cryptographic signature for non-repudiation
+        let signature_data = format!(
+            "{}:{}:{}:{}",
+            virtual_file, file_hash, total_size, chunk_count
+        );
+        let signature = self.signer.sign_receipt(&signature_data);
+
         Response::TransferComplete {
             virtual_file: virtual_file.to_string(),
             file_hash: file_hash.to_string(),
             total_size,
             chunk_count,
-            signature: None, // TODO: Add cryptographic signature
+            signature,
         }
     }
 

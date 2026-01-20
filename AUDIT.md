@@ -397,15 +397,15 @@ curl -X POST http://127.0.0.1:7752/api/client/push \
 
 ### 5.3 📝 TODOs dans le Code
 
-Les TODOs restants identifiés dans la codebase :
+Tous les TODOs ont été implémentés :
 
-| Fichier | TODO | Priorité |
-|---------|------|----------|
-| `handler.rs:914` | Ajouter signature cryptographique aux TRANSFER_COMPLETE | Basse |
-| `server.rs:281` | Tracker flag compressed depuis PUT dans session | Basse |
-| `api.rs:868` | Implémenter retry réel des transferts | Moyenne |
+| Fichier | TODO | Statut |
+|---------|------|--------|
+| `handler.rs` | Signature cryptographique TRANSFER_COMPLETE | ✅ Implémenté |
+| `server.rs` | Tracker flag compressed depuis PUT | ✅ Implémenté |
+| `api.rs` | Retry réel des transferts | ✅ Implémenté |
 
-**Total : 3 TODOs** - Aucun critique pour la production.
+**Total : 0 TODOs restants**
 
 ### 5.4 🔄 Reste à Faire - Futur (v2.0)
 
@@ -413,9 +413,9 @@ Les TODOs restants identifiés dans la codebase :
 |-------|--------|--------|
 | Clustering/HA | 5j | Haute disponibilité |
 | Chiffrement E2E (au repos) | 3j | Sécurité renforcée |
+| Gestion des priorités | 3j | QoS transferts |
 | SDK clients (Python, JS) | 5j | Intégration facilitée |
 | Documentation API OpenAPI | 1j | DX |
-| Signature TRANSFER_COMPLETE | 1j | Non-répudiation complète |
 
 ### 5.5 📋 Commandes CLI Disponibles
 
@@ -461,6 +461,7 @@ v1.0 ✅ (Enterprise) - ACTUEL
 v2.0 (Futur)
 ├── Clustering/HA
 ├── Chiffrement E2E au repos
+├── Gestion des priorités de transfert
 ├── SDK Python/JavaScript/Go
 └── Documentation OpenAPI
 ```

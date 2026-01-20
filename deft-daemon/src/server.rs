@@ -291,8 +291,8 @@ where
                 }
             }
 
-            // TODO: Track compressed flag from PUT command in session
-            let compressed = false; // For now, assume uncompressed
+            // Use compressed flag tracked from PUT command in session
+            let compressed = session.last_chunk_compressed;
             let ack_response = receive_chunk_data(
                 &mut reader,
                 &handler,
