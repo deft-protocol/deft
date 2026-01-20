@@ -1,10 +1,10 @@
-# ⚡ FlowPact - Reliable Interoperable File Transfer
+# ⚡ DEFT - Reliable Interoperable File Transfer
 
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](CHANGELOG.md)
 
-**FlowPact** is a modern, secure file transfer protocol designed for B2B (Business-to-Business) exchanges. It provides reliable, resumable transfers with enterprise-grade security and observability.
+**DEFT** is a modern, secure file transfer protocol designed for B2B (Business-to-Business) exchanges. It provides reliable, resumable transfers with enterprise-grade security and observability.
 
 ## ✨ Features
 
@@ -33,13 +33,13 @@
 cargo build --release
 
 # Run daemon
-./target/release/flowpactd --config config.example.toml
+./target/release/deftd --config config.example.toml
 
 # Send a file
-./target/release/flowpactd send partner-id invoices /path/to/file.xml
+./target/release/deftd send partner-id invoices /path/to/file.xml
 
 # Watch a directory
-./target/release/flowpactd watch /data/outbound partner-id orders --pattern "*.xml"
+./target/release/deftd watch /data/outbound partner-id orders --pattern "*.xml"
 ```
 
 ## 📦 Installation
@@ -47,12 +47,12 @@ cargo build --release
 ### From Source
 
 ```bash
-git clone https://github.com/flowpact/flowpact.git
+git clone https://github.com/deft/deft.git
 cd rift
 cargo build --release
 
 # Install binaries
-sudo cp target/release/flowpactd /usr/local/bin/
+sudo cp target/release/deftd /usr/local/bin/
 ```
 
 ### Configuration
@@ -69,9 +69,9 @@ sudo cp config.example.toml /etc/rift/config.toml
 
 ```
 rift/
-├── flowpact-protocol/     # Protocol definitions (commands, responses, parser)
-├── flowpact-common/       # Shared utilities (chunking, hashing)
-├── flowpact-daemon/       # Unified daemon (server + client + API)
+├── deft-protocol/     # Protocol definitions (commands, responses, parser)
+├── deft-common/       # Shared utilities (chunking, hashing)
+├── deft-daemon/       # Unified daemon (server + client + API)
 │   ├── src/
 │   │   ├── server.rs      # TLS server
 │   │   ├── client.rs      # TLS client
@@ -89,19 +89,19 @@ rift/
 
 ```bash
 # Start daemon (server mode)
-flowpactd daemon
+deftd daemon
 
 # Send a file to a partner
-flowpactd send <partner-id> <virtual-file> <local-file>
+deftd send <partner-id> <virtual-file> <local-file>
 
 # Receive a file from a partner
-flowpactd get <partner-id> <virtual-file> <output-file>
+deftd get <partner-id> <virtual-file> <output-file>
 
 # List available files from a partner
-flowpactd list <partner-id>
+deftd list <partner-id>
 
 # Watch directory and auto-send new files
-flowpactd watch <directory> <partner-id> <virtual-file> [options]
+deftd watch <directory> <partner-id> <virtual-file> [options]
     --pattern "*.xml"    # File pattern (glob)
     --interval 30        # Poll interval in seconds
     --delete-after       # Delete files after successful send
@@ -154,7 +154,7 @@ partners = ["acme-corp"]  # Optional filter
 
 Available events: `pre_transfer`, `post_transfer`, `transfer_error`, `file_received`, `file_sent`
 
-Environment variables: `FlowPact_EVENT`, `FlowPact_PARTNER_ID`, `FlowPact_VIRTUAL_FILE`, `FlowPact_FILE_SIZE`, `FlowPact_CONTEXT_JSON`
+Environment variables: `DEFT_EVENT`, `DEFT_PARTNER_ID`, `DEFT_VIRTUAL_FILE`, `DEFT_FILE_SIZE`, `DEFT_CONTEXT_JSON`
 
 ## 🔒 Security
 
@@ -182,5 +182,5 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## 📞 Support
 
 - 📖 [Documentation](docs/)
-- 🐛 [Issue Tracker](https://github.com/flowpact/flowpact/issues)
-- 💬 [Discussions](https://github.com/flowpact/flowpact/discussions)
+- 🐛 [Issue Tracker](https://github.com/deft/deft/issues)
+- 💬 [Discussions](https://github.com/deft/deft/discussions)

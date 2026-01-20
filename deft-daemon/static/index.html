@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DEFT Admin</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚡ DEFT Admin</h1>
+            <div class="status-badge" id="connection-status">Connecting...</div>
+        </header>
+
+        <nav>
+            <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
+            <button class="nav-btn" data-tab="partners">Partners</button>
+            <button class="nav-btn" data-tab="transfers">Transfers</button>
+            <button class="nav-btn" data-tab="config">Config</button>
+        </nav>
+
+        <main>
+            <!-- Dashboard Tab -->
+            <section id="dashboard" class="tab-content active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-uptime">--</div>
+                        <div class="stat-label">Uptime</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-connections">--</div>
+                        <div class="stat-label">Active Connections</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-transfers">--</div>
+                        <div class="stat-label">Active Transfers</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-version">--</div>
+                        <div class="stat-label">Version</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Recent Activity</h2>
+                    <div id="activity-log" class="log-container">
+                        <div class="log-empty">No recent activity</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Partners Tab -->
+            <section id="partners" class="tab-content">
+                <div class="card">
+                    <h2>Configured Partners</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Partner ID</th>
+                                <th>Endpoints</th>
+                                <th>Status</th>
+                                <th>Last Seen</th>
+                                <th>Transfers Today</th>
+                            </tr>
+                        </thead>
+                        <tbody id="partners-table">
+                            <tr><td colspan="5" class="empty">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Transfers Tab -->
+            <section id="transfers" class="tab-content">
+                <div class="card">
+                    <h2>Active Transfers</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Virtual File</th>
+                                <th>Partner</th>
+                                <th>Direction</th>
+                                <th>Progress</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="transfers-table">
+                            <tr><td colspan="6" class="empty">No active transfers</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Config Tab -->
+            <section id="config" class="tab-content">
+                <div class="card">
+                    <h2>Configuration</h2>
+                    <pre id="config-display" class="config-view">Loading...</pre>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <span>DEFT Protocol v<span id="footer-version">0.2</span></span>
+            <span>•</span>
+            <span id="last-update">Last update: --</span>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

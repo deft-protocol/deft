@@ -1,0 +1,12 @@
+[package]
+name = "deft-protocol"
+version.workspace = true
+edition.workspace = true
+description = "DEFT protocol definitions and parser"
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

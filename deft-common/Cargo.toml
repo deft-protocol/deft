@@ -1,0 +1,10 @@
+[package]
+name = "deft-common"
+version.workspace = true
+edition.workspace = true
+description = "DEFT shared utilities (chunking, hashing)"
+
+[dependencies]
+sha2.workspace = true
+thiserror.workspace = true
+serde.workspace = true

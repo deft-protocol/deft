@@ -1,6 +1,6 @@
 # ⚡ Quick Start
 
-Get FlowPact running in 5 minutes.
+Get DEFT running in 5 minutes.
 
 ## Prerequisites
 
@@ -10,7 +10,7 @@ Get FlowPact running in 5 minutes.
 ## 1. Build
 
 ```bash
-git clone https://github.com/flowpact/flowpact.git
+git clone https://github.com/deft/deft.git
 cd rift
 cargo build --release
 ```
@@ -24,7 +24,7 @@ mkdir -p test-certs
 # Generate CA
 openssl genrsa -out test-certs/ca.key 4096
 openssl req -new -x509 -days 365 -key test-certs/ca.key \
-    -out test-certs/ca.crt -subj "/CN=FlowPact Test CA"
+    -out test-certs/ca.crt -subj "/CN=DEFT Test CA"
 
 # Generate server certificate
 openssl genrsa -out test-certs/server.key 2048
@@ -93,15 +93,15 @@ direction = "receive"
 mkdir -p /tmp/rift-test
 
 # Start daemon
-./target/release/flowpactd --config test-config.toml
+./target/release/deftd --config test-config.toml
 ```
 
 You should see:
 ```
-INFO flowpactd: FlowPact Daemon starting...
-INFO flowpactd: Metrics server started on port 9090
-INFO flowpactd: API server started on 127.0.0.1:7742
-INFO flowpactd::server: Server listening on 127.0.0.1:7741
+INFO deftd: DEFT Daemon starting...
+INFO deftd: Metrics server started on port 9090
+INFO deftd: API server started on 127.0.0.1:7742
+INFO deftd::server: Server listening on 127.0.0.1:7741
 ```
 
 ## 5. Test the Dashboard
@@ -112,10 +112,10 @@ Open http://localhost:7742 in your browser to see the web dashboard.
 
 ```bash
 # Create a test file
-echo "Hello FlowPact!" > /tmp/test-file.txt
+echo "Hello DEFT!" > /tmp/test-file.txt
 
 # Send it
-./target/release/flowpactd --config test-config.toml \
+./target/release/deftd --config test-config.toml \
     send test-partner test-files /tmp/test-file.txt
 ```
 
@@ -148,4 +148,4 @@ curl http://localhost:9090/metrics | grep rift_
 
 ---
 
-Need help? Check the [full documentation](GETTING_STARTED.md) or [open an issue](https://github.com/flowpact/flowpact/issues).
+Need help? Check the [full documentation](GETTING_STARTED.md) or [open an issue](https://github.com/deft/deft/issues).

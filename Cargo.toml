@@ -1,18 +1,18 @@
 [workspace]
 resolver = "2"
 members = [
-    "flowpact-protocol",
-    "flowpact-common",
-    "flowpact-daemon",
-    "flowpact-cli",
+    "deft-protocol",
+    "deft-common",
+    "deft-daemon",
+    "deft-cli",
 ]
 
 [workspace.package]
 version = "1.0.0"
 edition = "2021"
-authors = ["FlowPact Contributors"]
+authors = ["DEFT Contributors"]
 license = "MIT"
-repository = "https://github.com/flowpact/flowpact"
+repository = "https://github.com/deft-protocol/deft"
 
 [workspace.dependencies]
 # Async runtime
@@ -50,5 +50,5 @@ chrono = "0.4"
 tempfile = "3.10"
 
 # Internal crates
-flowpact-protocol = { path = "flowpact-protocol" }
-flowpact-common = { path = "flowpact-common" }
+deft-protocol = { path = "deft-protocol" }
+deft-common = { path = "deft-common" }

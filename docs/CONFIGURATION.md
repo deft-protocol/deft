@@ -1,12 +1,12 @@
 # ⚙️ Configuration Reference
 
-Complete reference for all FlowPact configuration options.
+Complete reference for all DEFT configuration options.
 
 ## Configuration File
 
 Default location: `/etc/rift/config.toml`
 
-Override with: `flowpactd --config /path/to/config.toml`
+Override with: `deftd --config /path/to/config.toml`
 
 ---
 
@@ -183,7 +183,7 @@ level = "info"
 When `format = "json"`, logs are structured for log aggregators:
 
 ```json
-{"timestamp":"2026-01-20T12:00:00Z","level":"INFO","target":"flowpactd::server","message":"Connection accepted","peer":"192.168.1.100:54321"}
+{"timestamp":"2026-01-20T12:00:00Z","level":"INFO","target":"deftd::server","message":"Connection accepted","peer":"192.168.1.100:54321"}
 ```
 
 ---
@@ -251,7 +251,7 @@ path = "/data/incoming/"
 
 ```toml
 #
-# FlowPact Configuration - Production Example
+# DEFT Configuration - Production Example
 #
 
 [server]
@@ -330,8 +330,8 @@ direction = "send"
 Configuration values can be overridden with environment variables:
 
 ```bash
-export FlowPact_LOG_LEVEL=debug
-export FlowPact_METRICS_PORT=9091
+export DEFT_LOG_LEVEL=debug
+export DEFT_METRICS_PORT=9091
 ```
 
 ---
@@ -341,7 +341,7 @@ export FlowPact_METRICS_PORT=9091
 Validate configuration without starting:
 
 ```bash
-flowpactd --config /etc/rift/config.toml --validate
+deftd --config /etc/rift/config.toml --validate
 ```
 
 ---

@@ -231,6 +231,70 @@ dependencies = [
 ]
 
 [[package]]
+name = "deft-cli"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "deft-common",
+ "deft-protocol",
+ "rustls",
+ "rustls-pemfile",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
+ "webpki-roots 0.26.11",
+]
+
+[[package]]
+name = "deft-common"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
+name = "deft-daemon"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "chrono",
+ "clap",
+ "deft-common",
+ "deft-protocol",
+ "flate2",
+ "lazy_static",
+ "prometheus",
+ "rand",
+ "ring",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-rustls",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "deft-protocol"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -276,70 +340,6 @@ checksum = "b375d6465b98090a5f25b1c7703f3859783755aa9a80433b36e0379a3ec2f369"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
-]
-
-[[package]]
-name = "flowpact-cli"
-version = "1.0.0"
-dependencies = [
- "anyhow",
- "clap",
- "flowpact-common",
- "flowpact-protocol",
- "rustls",
- "rustls-pemfile",
- "tokio",
- "tokio-rustls",
- "tracing",
- "tracing-subscriber",
- "webpki-roots 0.26.11",
-]
-
-[[package]]
-name = "flowpact-common"
-version = "1.0.0"
-dependencies = [
- "serde",
- "sha2",
- "thiserror",
-]
-
-[[package]]
-name = "flowpact-daemon"
-version = "1.0.0"
-dependencies = [
- "anyhow",
- "base64",
- "chrono",
- "clap",
- "flate2",
- "flowpact-common",
- "flowpact-protocol",
- "lazy_static",
- "prometheus",
- "rand",
- "ring",
- "rustls",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-rustls",
- "toml",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "flowpact-protocol"
-version = "1.0.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror",
 ]
 
 [[package]]

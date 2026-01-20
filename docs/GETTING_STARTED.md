@@ -1,6 +1,6 @@
 # 📖 Getting Started Guide
 
-Complete guide to deploying FlowPact in production.
+Complete guide to deploying DEFT in production.
 
 ## Table of Contents
 
@@ -36,7 +36,7 @@ Complete guide to deploying FlowPact in production.
 
 | Port | Protocol | Description |
 |------|----------|-------------|
-| 7741 | TCP/TLS | FlowPact protocol (configurable) |
+| 7741 | TCP/TLS | DEFT protocol (configurable) |
 | 9090 | TCP/HTTP | Prometheus metrics (optional) |
 | 7742 | TCP/HTTP | Web dashboard API (optional) |
 
@@ -52,16 +52,16 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
 # Clone and build
-git clone https://github.com/flowpact/flowpact.git
+git clone https://github.com/deft/deft.git
 cd rift
 cargo build --release
 
 # Install binary
-sudo cp target/release/flowpactd /usr/local/bin/
-sudo chmod +x /usr/local/bin/flowpactd
+sudo cp target/release/deftd /usr/local/bin/
+sudo chmod +x /usr/local/bin/deftd
 
 # Verify installation
-flowpactd --version
+deftd --version
 ```
 
 ### Directory Structure
@@ -84,10 +84,10 @@ sudo chmod 700 /etc/rift/certs
 
 ## Certificate Setup
 
-FlowPact requires mTLS (mutual TLS) for all connections. You need:
+DEFT requires mTLS (mutual TLS) for all connections. You need:
 
 1. **CA certificate** - Signs all partner certificates
-2. **Server certificate** - Identifies your FlowPact instance
+2. **Server certificate** - Identifies your DEFT instance
 3. **Partner certificates** - One per trading partner
 
 ### Option 1: Self-Signed CA (Development/Internal)
@@ -100,7 +100,7 @@ openssl genrsa -out ca.key 4096
 
 # 2. Generate CA certificate (valid 10 years)
 openssl req -new -x509 -days 3650 -key ca.key -out ca.crt \
-    -subj "/C=FR/O=YourCompany/CN=FlowPact Internal CA"
+    -subj "/C=FR/O=YourCompany/CN=DEFT Internal CA"
 
 # 3. Generate server private key
 openssl genrsa -out server.key 2048
@@ -171,7 +171,7 @@ Create `/etc/rift/config.toml`:
 
 ```toml
 #
-# FlowPact Configuration
+# DEFT Configuration
 #
 
 [server]
@@ -275,13 +275,13 @@ direction = "receive"
 ### Foreground (Testing)
 
 ```bash
-flowpactd --config /etc/rift/config.toml
+deftd --config /etc/rift/config.toml
 ```
 
 ### With Custom Log Level
 
 ```bash
-flowpactd --config /etc/rift/config.toml --log-level debug
+deftd --config /etc/rift/config.toml --log-level debug
 ```
 
 ---
@@ -292,14 +292,14 @@ Create `/etc/systemd/system/rift.service`:
 
 ```ini
 [Unit]
-Description=FlowPact Protocol Daemon
+Description=DEFT Protocol Daemon
 After=network.target
 
 [Service]
 Type=simple
 User=rift
 Group=rift
-ExecStart=/usr/local/bin/flowpactd --config /etc/rift/config.toml
+ExecStart=/usr/local/bin/deftd --config /etc/rift/config.toml
 Restart=always
 RestartSec=5
 
@@ -367,7 +367,7 @@ Open http://localhost:7742 in a browser.
 
 ```bash
 # From partner's machine
-flowpactd --config /path/to/partner-config.toml \
+deftd --config /path/to/partner-config.toml \
     list your-partner-id
 ```
 
@@ -378,8 +378,8 @@ flowpactd --config /path/to/partner-config.toml \
 # /usr/local/bin/rift-healthcheck.sh
 
 # Check process
-if ! pgrep -x flowpactd > /dev/null; then
-    echo "CRITICAL: flowpactd not running"
+if ! pgrep -x deftd > /dev/null; then
+    echo "CRITICAL: deftd not running"
     exit 2
 fi
 
@@ -391,7 +391,7 @@ fi
 
 # Check metrics
 if curl -sf http://localhost:9090/metrics > /dev/null; then
-    echo "OK: FlowPact daemon healthy"
+    echo "OK: DEFT daemon healthy"
     exit 0
 else
     echo "WARNING: Metrics endpoint not responding"
@@ -434,7 +434,7 @@ fi
 
 ```bash
 # Run with debug logging
-flowpactd --config /etc/rift/config.toml --log-level debug
+deftd --config /etc/rift/config.toml --log-level debug
 
 # Or set in config.toml
 [logging]
@@ -444,4 +444,4 @@ level = "debug"
 ### Support
 
 - Check logs: `journalctl -u rift -n 100`
-- Open an issue: https://github.com/flowpact/flowpact/issues
+- Open an issue: https://github.com/deft/deft/issues

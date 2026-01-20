@@ -1,10 +1,10 @@
-# 📡 FlowPact Protocol Specification
+# 📡 DEFT Protocol Specification
 
-Technical specification of the FlowPact wire protocol.
+Technical specification of the DEFT wire protocol.
 
 ## Overview
 
-FlowPact (Reliable Interoperable File Transfer) is a text-based protocol over TLS for secure B2B file transfers.
+DEFT (Reliable Interoperable File Transfer) is a text-based protocol over TLS for secure B2B file transfers.
 
 - **Transport**: TCP + TLS 1.3 (mTLS required)
 - **Default Port**: 7741
@@ -26,19 +26,19 @@ FlowPact (Reliable Interoperable File Transfer) is a text-based protocol over TL
      │──── TLS Handshake (mTLS) ─────>│
      │<─── TLS Established ───────────│
      │                                │
-     │──── FlowPact HELLO 1.0 ... ───────>│
-     │<─── FlowPact WELCOME 1.0 ... ──────│
+     │──── DEFT HELLO 1.0 ... ───────>│
+     │<─── DEFT WELCOME 1.0 ... ──────│
      │                                │
-     │──── FlowPact AUTH partner-id ─────>│
-     │<─── FlowPact AUTH_OK ... ──────────│
+     │──── DEFT AUTH partner-id ─────>│
+     │<─── DEFT AUTH_OK ... ──────────│
      │                                │
      │     [Session Established]      │
      │                                │
      │──── Commands... ──────────────>│
      │<─── Responses... ──────────────│
      │                                │
-     │──── FlowPact BYE ─────────────────>│
-     │<─── FlowPact GOODBYE ──────────────│
+     │──── DEFT BYE ─────────────────>│
+     │<─── DEFT GOODBYE ──────────────│
      │                                │
      └────────────────────────────────┘
 ```
@@ -47,14 +47,14 @@ FlowPact (Reliable Interoperable File Transfer) is a text-based protocol over TL
 
 ## Commands
 
-All commands start with `FlowPact ` prefix.
+All commands start with `DEFT ` prefix.
 
 ### HELLO
 
 Initiates session with capability negotiation.
 
 ```
-FlowPact HELLO <version> [capabilities] [WINDOW_SIZE:<n>]
+DEFT HELLO <version> [capabilities] [WINDOW_SIZE:<n>]
 ```
 
 | Parameter | Required | Description |
@@ -65,7 +65,7 @@ FlowPact HELLO <version> [capabilities] [WINDOW_SIZE:<n>]
 
 **Example:**
 ```
-FlowPact HELLO 1.0 CHUNKED,PARALLEL,RESUME,COMPRESS WINDOW_SIZE:128
+DEFT HELLO 1.0 CHUNKED,PARALLEL,RESUME,COMPRESS WINDOW_SIZE:128
 ```
 
 ### AUTH
@@ -73,12 +73,12 @@ FlowPact HELLO 1.0 CHUNKED,PARALLEL,RESUME,COMPRESS WINDOW_SIZE:128
 Authenticates partner identity.
 
 ```
-FlowPact AUTH <partner-id>
+DEFT AUTH <partner-id>
 ```
 
 **Example:**
 ```
-FlowPact AUTH acme-corp
+DEFT AUTH acme-corp
 ```
 
 ### DISCOVER
@@ -86,7 +86,7 @@ FlowPact AUTH acme-corp
 Lists available virtual files.
 
 ```
-FlowPact DISCOVER
+DEFT DISCOVER
 ```
 
 ### DESCRIBE
@@ -94,12 +94,12 @@ FlowPact DISCOVER
 Gets metadata for a virtual file.
 
 ```
-FlowPact DESCRIBE <virtual-file>
+DEFT DESCRIBE <virtual-file>
 ```
 
 **Example:**
 ```
-FlowPact DESCRIBE daily-orders
+DEFT DESCRIBE daily-orders
 ```
 
 ### GET
@@ -107,7 +107,7 @@ FlowPact DESCRIBE daily-orders
 Downloads chunks from a virtual file.
 
 ```
-FlowPact GET <virtual-file> CHUNKS <range>
+DEFT GET <virtual-file> CHUNKS <range>
 ```
 
 | Range Format | Description |
@@ -118,7 +118,7 @@ FlowPact GET <virtual-file> CHUNKS <range>
 
 **Example:**
 ```
-FlowPact GET daily-orders CHUNKS 0-99
+DEFT GET daily-orders CHUNKS 0-99
 ```
 
 ### PUT
@@ -126,7 +126,7 @@ FlowPact GET daily-orders CHUNKS 0-99
 Uploads a chunk to a virtual file.
 
 ```
-FlowPact PUT <virtual-file> CHUNK <index> SIZE:<size> HASH:<hash> [NONCE:<nonce>] [COMPRESSED]
+DEFT PUT <virtual-file> CHUNK <index> SIZE:<size> HASH:<hash> [NONCE:<nonce>] [COMPRESSED]
 ```
 
 | Parameter | Required | Description |
@@ -140,7 +140,7 @@ FlowPact PUT <virtual-file> CHUNK <index> SIZE:<size> HASH:<hash> [NONCE:<nonce>
 
 **Example:**
 ```
-FlowPact PUT invoices CHUNK 0 SIZE:262144 HASH:abc123... NONCE:1705756800 COMPRESSED
+DEFT PUT invoices CHUNK 0 SIZE:262144 HASH:abc123... NONCE:1705756800 COMPRESSED
 [binary data follows]
 ```
 
@@ -149,26 +149,26 @@ FlowPact PUT invoices CHUNK 0 SIZE:262144 HASH:abc123... NONCE:1705756800 COMPRE
 Closes the session gracefully.
 
 ```
-FlowPact BYE
+DEFT BYE
 ```
 
 ---
 
 ## Responses
 
-All responses start with `FlowPact ` prefix.
+All responses start with `DEFT ` prefix.
 
 ### WELCOME
 
 Session established response.
 
 ```
-FlowPact WELCOME <version> [capabilities] [WINDOW_SIZE:<n>] <session-id>
+DEFT WELCOME <version> [capabilities] [WINDOW_SIZE:<n>] <session-id>
 ```
 
 **Example:**
 ```
-FlowPact WELCOME 1.0 CHUNKED,PARALLEL,RESUME WINDOW_SIZE:64 sess_20260120_001
+DEFT WELCOME 1.0 CHUNKED,PARALLEL,RESUME WINDOW_SIZE:64 sess_20260120_001
 ```
 
 ### AUTH_OK
@@ -176,12 +176,12 @@ FlowPact WELCOME 1.0 CHUNKED,PARALLEL,RESUME WINDOW_SIZE:64 sess_20260120_001
 Authentication successful.
 
 ```
-FlowPact AUTH_OK "<partner-name>" VF:<virtual-files>
+DEFT AUTH_OK "<partner-name>" VF:<virtual-files>
 ```
 
 **Example:**
 ```
-FlowPact AUTH_OK "ACME Corporation" VF:daily-orders,invoices
+DEFT AUTH_OK "ACME Corporation" VF:daily-orders,invoices
 ```
 
 ### FILES
@@ -189,14 +189,14 @@ FlowPact AUTH_OK "ACME Corporation" VF:daily-orders,invoices
 List of available files (follows DISCOVER).
 
 ```
-FlowPact FILES <count>
+DEFT FILES <count>
 <name> <size> <direction> <timestamp>
 ...
 ```
 
 **Example:**
 ```
-FlowPact FILES 2
+DEFT FILES 2
 daily-orders 1048576 SEND 1705756800
 product-catalog 524288 SEND 1705753200
 ```
@@ -206,14 +206,14 @@ product-catalog 524288 SEND 1705753200
 File metadata (follows DESCRIBE).
 
 ```
-FlowPact FILE_INFO <name> SIZE:<size> CHUNKS:<count> CHUNK_SIZE:<size> HASH:<hash>
+DEFT FILE_INFO <name> SIZE:<size> CHUNKS:<count> CHUNK_SIZE:<size> HASH:<hash>
 CHUNK <index> SIZE:<size> HASH:<hash>
 ...
 ```
 
 **Example:**
 ```
-FlowPact FILE_INFO daily-orders SIZE:1048576 CHUNKS:4 CHUNK_SIZE:262144 HASH:abc123...
+DEFT FILE_INFO daily-orders SIZE:1048576 CHUNKS:4 CHUNK_SIZE:262144 HASH:abc123...
 CHUNK 0 SIZE:262144 HASH:def456...
 CHUNK 1 SIZE:262144 HASH:789012...
 CHUNK 2 SIZE:262144 HASH:345678...
@@ -225,7 +225,7 @@ CHUNK 3 SIZE:262144 HASH:901234...
 Chunk data (follows GET).
 
 ```
-FlowPact CHUNK_DATA <virtual-file> <index> SIZE:<size>
+DEFT CHUNK_DATA <virtual-file> <index> SIZE:<size>
 [binary data]
 ```
 
@@ -234,13 +234,13 @@ FlowPact CHUNK_DATA <virtual-file> <index> SIZE:<size>
 Acknowledgment for PUT.
 
 ```
-FlowPact CHUNK_ACK <virtual-file> <index> OK|ERROR [reason]
+DEFT CHUNK_ACK <virtual-file> <index> OK|ERROR [reason]
 ```
 
 **Examples:**
 ```
-FlowPact CHUNK_ACK invoices 0 OK
-FlowPact CHUNK_ACK invoices 1 ERROR Hash mismatch
+DEFT CHUNK_ACK invoices 0 OK
+DEFT CHUNK_ACK invoices 1 ERROR Hash mismatch
 ```
 
 ### CHUNK_ACK_BATCH
@@ -248,12 +248,12 @@ FlowPact CHUNK_ACK invoices 1 ERROR Hash mismatch
 Batch acknowledgment (optimization).
 
 ```
-FlowPact CHUNK_ACK_BATCH <virtual-file> <ranges>
+DEFT CHUNK_ACK_BATCH <virtual-file> <ranges>
 ```
 
 **Example:**
 ```
-FlowPact CHUNK_ACK_BATCH invoices 0-4,6-9
+DEFT CHUNK_ACK_BATCH invoices 0-4,6-9
 ```
 
 ### TRANSFER_COMPLETE
@@ -261,12 +261,12 @@ FlowPact CHUNK_ACK_BATCH invoices 0-4,6-9
 Transfer finished with receipt.
 
 ```
-FlowPact TRANSFER_COMPLETE <virtual-file> HASH:<hash> SIZE:<size> CHUNKS:<count> [SIG:<signature>]
+DEFT TRANSFER_COMPLETE <virtual-file> HASH:<hash> SIZE:<size> CHUNKS:<count> [SIG:<signature>]
 ```
 
 **Example:**
 ```
-FlowPact TRANSFER_COMPLETE invoices HASH:abc123... SIZE:1048576 CHUNKS:4 SIG:ed25519:base64...
+DEFT TRANSFER_COMPLETE invoices HASH:abc123... SIZE:1048576 CHUNKS:4 SIG:ed25519:base64...
 ```
 
 ### ERROR
@@ -274,7 +274,7 @@ FlowPact TRANSFER_COMPLETE invoices HASH:abc123... SIZE:1048576 CHUNKS:4 SIG:ed2
 Error response.
 
 ```
-FlowPact ERROR <code> <message>
+DEFT ERROR <code> <message>
 ```
 
 ### GOODBYE
@@ -282,7 +282,7 @@ FlowPact ERROR <code> <message>
 Session closed response.
 
 ```
-FlowPact GOODBYE
+DEFT GOODBYE
 ```
 
 ---
@@ -425,7 +425,7 @@ When `COMPRESS` capability is negotiated:
 5. Receiver decompresses after verification
 
 ```
-FlowPact PUT invoices CHUNK 0 SIZE:180000 HASH:... COMPRESSED
+DEFT PUT invoices CHUNK 0 SIZE:180000 HASH:... COMPRESSED
 [180000 bytes of gzip compressed data]
 ```
 
@@ -448,45 +448,45 @@ This is handled at application level, not protocol level.
 ```
 [TLS Handshake Complete]
 
-C: FlowPact HELLO 1.0 CHUNKED,PARALLEL,COMPRESS WINDOW_SIZE:64
-S: FlowPact WELCOME 1.0 CHUNKED,PARALLEL,COMPRESS WINDOW_SIZE:32 sess_001
+C: DEFT HELLO 1.0 CHUNKED,PARALLEL,COMPRESS WINDOW_SIZE:64
+S: DEFT WELCOME 1.0 CHUNKED,PARALLEL,COMPRESS WINDOW_SIZE:32 sess_001
 
-C: FlowPact AUTH acme-corp
-S: FlowPact AUTH_OK "ACME Corporation" VF:orders,invoices
+C: DEFT AUTH acme-corp
+S: DEFT AUTH_OK "ACME Corporation" VF:orders,invoices
 
-C: FlowPact DISCOVER
-S: FlowPact FILES 2
+C: DEFT DISCOVER
+S: DEFT FILES 2
    orders 1048576 SEND 1705756800
    invoices 524288 RECEIVE 1705753200
 
-C: FlowPact DESCRIBE orders
-S: FlowPact FILE_INFO orders SIZE:1048576 CHUNKS:4 CHUNK_SIZE:262144 HASH:abc...
+C: DEFT DESCRIBE orders
+S: DEFT FILE_INFO orders SIZE:1048576 CHUNKS:4 CHUNK_SIZE:262144 HASH:abc...
    CHUNK 0 SIZE:262144 HASH:def...
    CHUNK 1 SIZE:262144 HASH:123...
    CHUNK 2 SIZE:262144 HASH:456...
    CHUNK 3 SIZE:262144 HASH:789...
 
-C: FlowPact GET orders CHUNKS 0-3
-S: FlowPact CHUNK_DATA orders 0 SIZE:262144
+C: DEFT GET orders CHUNKS 0-3
+S: DEFT CHUNK_DATA orders 0 SIZE:262144
    [binary data...]
-S: FlowPact CHUNK_DATA orders 1 SIZE:262144
+S: DEFT CHUNK_DATA orders 1 SIZE:262144
    [binary data...]
-S: FlowPact CHUNK_DATA orders 2 SIZE:262144
+S: DEFT CHUNK_DATA orders 2 SIZE:262144
    [binary data...]
-S: FlowPact CHUNK_DATA orders 3 SIZE:262144
+S: DEFT CHUNK_DATA orders 3 SIZE:262144
    [binary data...]
 
-C: FlowPact PUT invoices CHUNK 0 SIZE:200000 HASH:aaa... NONCE:12345 COMPRESSED
+C: DEFT PUT invoices CHUNK 0 SIZE:200000 HASH:aaa... NONCE:12345 COMPRESSED
    [compressed binary data...]
-S: FlowPact CHUNK_ACK invoices 0 OK
+S: DEFT CHUNK_ACK invoices 0 OK
 
-C: FlowPact PUT invoices CHUNK 1 SIZE:180000 HASH:bbb... NONCE:12346 COMPRESSED
+C: DEFT PUT invoices CHUNK 1 SIZE:180000 HASH:bbb... NONCE:12346 COMPRESSED
    [compressed binary data...]
-S: FlowPact CHUNK_ACK invoices 1 OK
-S: FlowPact TRANSFER_COMPLETE invoices HASH:xyz... SIZE:524288 CHUNKS:2 SIG:ed25519:...
+S: DEFT CHUNK_ACK invoices 1 OK
+S: DEFT TRANSFER_COMPLETE invoices HASH:xyz... SIZE:524288 CHUNKS:2 SIG:ed25519:...
 
-C: FlowPact BYE
-S: FlowPact GOODBYE
+C: DEFT BYE
+S: DEFT GOODBYE
 
 [Connection Closed]
 ```
