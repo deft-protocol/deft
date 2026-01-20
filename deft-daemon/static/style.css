@@ -239,10 +239,23 @@ nav {
     font-weight: 500;
 }
 
-.badge-success { background: var(--success); color: #000; }
-.badge-warning { background: var(--warning); color: #000; }
-.badge-error { background: var(--error); }
-.badge-info { background: var(--accent); }
+.badge-success {
+    background: var(--success);
+    color: #000;
+}
+
+.badge-warning {
+    background: var(--warning);
+    color: #000;
+}
+
+.badge-error {
+    background: var(--error);
+}
+
+.badge-info {
+    background: var(--accent);
+}
 
 footer {
     display: flex;
@@ -266,19 +279,64 @@ footer {
     transition: all 0.2s;
 }
 
-.btn-primary { background: var(--accent); color: white; }
-.btn-primary:hover { background: var(--accent-hover); }
-.btn-secondary { background: var(--bg-card); color: var(--text-primary); }
-.btn-secondary:hover { background: var(--border); }
-.btn-success { background: var(--success); color: #000; }
-.btn-success:hover { opacity: 0.9; }
-.btn-warning { background: var(--warning); color: #000; }
-.btn-warning:hover { opacity: 0.9; }
-.btn-info { background: var(--accent); color: white; }
-.btn-danger { background: var(--error); color: white; }
-.btn-danger:hover { opacity: 0.9; }
-.btn-block { width: 100%; }
-.btn-sm { padding: 0.375rem 0.75rem; font-size: 0.75rem; }
+.btn-primary {
+    background: var(--accent);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: var(--accent-hover);
+}
+
+.btn-secondary {
+    background: var(--bg-card);
+    color: var(--text-primary);
+}
+
+.btn-secondary:hover {
+    background: var(--border);
+}
+
+.btn-success {
+    background: var(--success);
+    color: #000;
+}
+
+.btn-success:hover {
+    opacity: 0.9;
+}
+
+.btn-warning {
+    background: var(--warning);
+    color: #000;
+}
+
+.btn-warning:hover {
+    opacity: 0.9;
+}
+
+.btn-info {
+    background: var(--accent);
+    color: white;
+}
+
+.btn-danger {
+    background: var(--error);
+    color: white;
+}
+
+.btn-danger:hover {
+    opacity: 0.9;
+}
+
+.btn-block {
+    width: 100%;
+}
+
+.btn-sm {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+}
 
 .btn-group {
     display: flex;
@@ -366,6 +424,14 @@ select.form-control {
 .form-hint {
     font-size: 0.75rem;
     color: var(--text-secondary);
+    display: block;
+    margin-top: 0.25rem;
+}
+
+.card-desc {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    margin: -0.5rem 0 1rem 0;
 }
 
 .checkbox-label {
@@ -548,7 +614,9 @@ select.form-control {
 }
 
 @media (max-width: 1024px) {
-    .grid-2, .grid-3 {
+
+    .grid-2,
+    .grid-3 {
         grid-template-columns: 1fr;
     }
 }
@@ -557,18 +625,18 @@ select.form-control {
     .stats-grid {
         grid-template-columns: repeat(2, 1fr);
     }
-    
+
     .data-table {
         display: block;
         overflow-x: auto;
     }
-    
+
     nav {
         overflow-x: auto;
         flex-wrap: nowrap;
         padding-bottom: 0.5rem;
     }
-    
+
     .nav-btn {
         flex-shrink: 0;
     }

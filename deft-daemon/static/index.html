@@ -263,24 +263,26 @@
                     </div>
 
                     <div class="card">
-                        <h2>TLS Certificates</h2>
+                        <h2>🔐 TLS Server (ce serveur)</h2>
+                        <p class="card-desc">Certificats utilisés par ce serveur DEFT pour les connexions entrantes.</p>
                         <form id="cert-config-form" class="form">
                             <div class="form-group">
-                                <label>Server Certificate</label>
+                                <label>Certificat du serveur</label>
                                 <input type="text" id="cfg-cert" class="form-control" placeholder="/path/to/server.crt">
-                                <small class="form-hint" id="cert-status"></small>
+                                <small class="form-hint">Certificat X.509 présenté aux clients qui se connectent</small>
                             </div>
                             <div class="form-group">
-                                <label>Server Private Key</label>
+                                <label>Clé privée du serveur</label>
                                 <input type="text" id="cfg-key" class="form-control" placeholder="/path/to/server.key">
-                                <small class="form-hint" id="key-status"></small>
+                                <small class="form-hint">Clé privée associée au certificat (format PEM)</small>
                             </div>
                             <div class="form-group">
-                                <label>CA Certificate</label>
+                                <label>CA de confiance (optionnel)</label>
                                 <input type="text" id="cfg-ca" class="form-control" placeholder="/path/to/ca.crt">
-                                <small class="form-hint" id="ca-status"></small>
+                                <small class="form-hint">Autorité de certification pour valider les certificats
+                                    clients</small>
                             </div>
-                            <button type="submit" class="btn btn-primary">Save Certificates</button>
+                            <button type="submit" class="btn btn-primary">Sauvegarder</button>
                         </form>
                     </div>
                 </div>
@@ -341,9 +343,11 @@
                     <textarea id="partner-endpoints" class="form-control" rows="3" placeholder="host:port"></textarea>
                 </div>
                 <div class="form-group">
-                    <label>Allowed Certificates (paths, one per line)</label>
+                    <label>🔑 Certificats autorisés pour ce partenaire</label>
                     <textarea id="partner-certs" class="form-control" rows="3"
-                        placeholder="/path/to/cert.crt"></textarea>
+                        placeholder="/path/to/partner-cert.crt"></textarea>
+                    <small class="form-hint">Chemins vers les certificats X.509 que ce partenaire peut utiliser pour
+                        s'authentifier (un par ligne)</small>
                 </div>
                 <div class="form-group">
                     <label>Virtual Files Access</label>
