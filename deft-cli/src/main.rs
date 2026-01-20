@@ -583,26 +583,39 @@ async fn receive_file(
     // DESCRIBE to get file info
     println!("\n>>> Describing {}...", virtual_file);
     let describe_cmd = format!("DEFT DESCRIBE {}\n", virtual_file);
-    let describe_response = send_raw(&mut conn, &describe_cmd).await?;
-    println!("<<< {}", describe_response);
+    conn.writer.write_all(describe_cmd.as_bytes()).await?;
+    conn.writer.flush().await?;
 
-    if describe_response.contains("ERROR") {
-        return Err(anyhow::anyhow!("Describe failed: {}", describe_response));
+    // Read FILE_INFO header line
+    let mut file_info_line = String::new();
+    conn.reader.read_line(&mut file_info_line).await?;
+    let file_info_line = file_info_line.trim();
+    println!("<<< {}", file_info_line);
+
+    if file_info_line.contains("ERROR") {
+        return Err(anyhow::anyhow!("Describe failed: {}", file_info_line));
     }
 
-    // Parse DESCRIBE response to get chunk count and file hash
-    // Format: DEFT FILE_INFO <virtual_file> <total_chunks> <total_bytes> <hash>
-    let parts: Vec<&str> = describe_response.split_whitespace().collect();
-    if parts.len() < 6 || parts[1] != "FILE_INFO" {
-        return Err(anyhow::anyhow!(
-            "Unexpected DESCRIBE response: {}",
-            describe_response
-        ));
+    // Parse: DEFT FILE_INFO <name> SIZE:<size> CHUNKS:<count> CHUNK_SIZE:<cs> HASH:<hash>
+    let mut total_bytes: u64 = 0;
+    let mut total_chunks: u64 = 0;
+    let mut expected_hash = String::new();
+
+    for part in file_info_line.split_whitespace() {
+        if let Some(val) = part.strip_prefix("SIZE:") {
+            total_bytes = val.parse().unwrap_or(0);
+        } else if let Some(val) = part.strip_prefix("CHUNKS:") {
+            total_chunks = val.parse().unwrap_or(0);
+        } else if let Some(val) = part.strip_prefix("HASH:") {
+            expected_hash = val.to_string();
+        }
     }
 
-    let total_chunks: u64 = parts[3].parse().context("Invalid chunk count")?;
-    let total_bytes: u64 = parts[4].parse().context("Invalid file size")?;
-    let expected_hash = parts[5];
+    // Read and skip chunk detail lines
+    for _ in 0..total_chunks {
+        let mut chunk_line = String::new();
+        conn.reader.read_line(&mut chunk_line).await?;
+    }
 
     println!(
         "    File size: {} bytes, {} chunks",
@@ -618,15 +631,37 @@ async fn receive_file(
     let mut received_bytes = 0u64;
 
     for chunk_index in 0..total_chunks {
-        let get_cmd = format!("DEFT GET {} {}\n", virtual_file, chunk_index);
-        let get_response = send_raw(&mut conn, &get_cmd).await?;
+        // Send GET command with CHUNKS range format
+        let get_cmd = format!(
+            "DEFT GET {} CHUNKS {}-{}\n",
+            virtual_file, chunk_index, chunk_index
+        );
+        conn.writer.write_all(get_cmd.as_bytes()).await?;
+        conn.writer.flush().await?;
 
-        if get_response.contains("CHUNK_DATA") {
-            // Parse chunk size from response
-            let resp_parts: Vec<&str> = get_response.split_whitespace().collect();
-            if resp_parts.len() >= 4 {
-                let chunk_size: usize = resp_parts[3].parse().unwrap_or(0);
+        // Read response line: DEFT CHUNK_DATA <vf> <index> SIZE:<size>
+        // Skip any empty lines
+        let mut response_line = String::new();
+        loop {
+            response_line.clear();
+            conn.reader.read_line(&mut response_line).await?;
+            let trimmed = response_line.trim();
+            if !trimmed.is_empty() {
+                response_line = trimmed.to_string();
+                break;
+            }
+        }
 
+        if response_line.contains("CHUNK_DATA") {
+            // Parse SIZE:<size> from response
+            let mut chunk_size: usize = 0;
+            for part in response_line.split_whitespace() {
+                if let Some(val) = part.strip_prefix("SIZE:") {
+                    chunk_size = val.parse().unwrap_or(0);
+                }
+            }
+
+            if chunk_size > 0 {
                 // Read binary chunk data
                 let mut chunk_data = vec![0u8; chunk_size];
                 conn.reader.read_exact(&mut chunk_data).await?;
@@ -645,7 +680,7 @@ async fn receive_file(
                 std::io::Write::flush(&mut std::io::stdout())?;
             }
         } else {
-            warn!("Unexpected response to GET: {}", get_response);
+            warn!("Unexpected response to GET: {}", response_line);
         }
     }
 

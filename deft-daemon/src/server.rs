@@ -258,6 +258,12 @@ where
         writer.write_all(response_str.as_bytes()).await?;
         writer.flush().await?;
 
+        // Handle binary data sending after ChunkData (for GET requests)
+        if let deft_protocol::Response::ChunkData { ref data, .. } = response {
+            writer.write_all(data).await?;
+            writer.flush().await?;
+        }
+
         // Handle binary data reception after ChunkReady
         if let deft_protocol::Response::ChunkReady {
             ref virtual_file,

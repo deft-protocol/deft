@@ -41,5 +41,5 @@ direction = "receive"
 
 [[partners.virtual_files]]
 name = "outbox"
-path = "/tmp/deft-test/send/"
+path = "/tmp/deft-test/send/test1.bin"
 direction = "send"
