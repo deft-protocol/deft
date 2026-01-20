@@ -1082,26 +1082,50 @@ async fn handle_client_pull(state: &ApiState, body: &[u8]) -> (u16, String) {
             let conn = conn.clone();
             drop(conn);
 
+            // Generate transfer ID and register
+            let transfer_id = format!("pull_{}", chrono::Utc::now().timestamp_millis());
+            let partner_id = {
+                let conn = state.client_connection.read().await;
+                conn.as_ref()
+                    .map(|c| c.partner_id.clone())
+                    .unwrap_or_default()
+            };
+            state
+                .register_transfer(
+                    transfer_id.clone(),
+                    r.virtual_file.clone(),
+                    partner_id,
+                    "pull".to_string(),
+                    0, // Size unknown until transfer starts
+                )
+                .await;
+
             // Perform pull
-            match pull_file(state, &r.virtual_file, &r.output_path).await {
-                Ok(bytes) => (
-                    200,
-                    serde_json::json!({
-                        "success": true,
-                        "virtual_file": r.virtual_file,
-                        "output_path": r.output_path,
-                        "bytes": bytes
-                    })
-                    .to_string(),
-                ),
-                Err(e) => (
-                    200,
-                    serde_json::json!({
-                        "success": false,
-                        "error": format!("{}", e)
-                    })
-                    .to_string(),
-                ),
+            match pull_file(state, &r.virtual_file, &r.output_path, &transfer_id).await {
+                Ok(bytes) => {
+                    state.complete_transfer(&transfer_id).await;
+                    (
+                        200,
+                        serde_json::json!({
+                            "success": true,
+                            "virtual_file": r.virtual_file,
+                            "output_path": r.output_path,
+                            "bytes": bytes
+                        })
+                        .to_string(),
+                    )
+                }
+                Err(e) => {
+                    state.fail_transfer(&transfer_id, &e.to_string()).await;
+                    (
+                        200,
+                        serde_json::json!({
+                            "success": false,
+                            "error": format!("{}", e)
+                        })
+                        .to_string(),
+                    )
+                }
             }
         }
         Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
@@ -1112,6 +1136,7 @@ async fn pull_file(
     state: &ApiState,
     virtual_file: &str,
     output_path: &str,
+    transfer_id: &str,
 ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
     use std::sync::Arc;
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -1264,7 +1289,18 @@ async fn pull_file(
         reader.read_exact(&mut chunk_data).await?;
         file.write_all(&chunk_data).await?;
         total_bytes += size;
+
+        // Update progress
+        let total_size = total_chunks * chunk_size;
+        state
+            .update_transfer_progress(transfer_id, total_bytes, total_size)
+            .await;
     }
+
+    // Final progress update with actual total
+    state
+        .update_transfer_progress(transfer_id, total_bytes, total_bytes)
+        .await;
 
     // BYE
     let _ = write_half.write_all(b"DEFT BYE\n").await;
@@ -1291,26 +1327,55 @@ async fn handle_client_push(state: &ApiState, body: &[u8]) -> (u16, String) {
             };
             drop(conn);
 
+            // Get file size for registration
+            let file_size = std::fs::metadata(&r.file_path)
+                .map(|m| m.len())
+                .unwrap_or(0);
+
+            // Generate transfer ID and register
+            let transfer_id = format!("push_{}", chrono::Utc::now().timestamp_millis());
+            let partner_id = {
+                let conn = state.client_connection.read().await;
+                conn.as_ref()
+                    .map(|c| c.partner_id.clone())
+                    .unwrap_or_default()
+            };
+            state
+                .register_transfer(
+                    transfer_id.clone(),
+                    r.virtual_file.clone(),
+                    partner_id,
+                    "push".to_string(),
+                    file_size,
+                )
+                .await;
+
             // Perform push
-            match push_file(state, &r.file_path, &r.virtual_file).await {
-                Ok(bytes) => (
-                    200,
-                    serde_json::json!({
-                        "success": true,
-                        "file_path": r.file_path,
-                        "virtual_file": r.virtual_file,
-                        "bytes": bytes
-                    })
-                    .to_string(),
-                ),
-                Err(e) => (
-                    200,
-                    serde_json::json!({
-                        "success": false,
-                        "error": format!("{}", e)
-                    })
-                    .to_string(),
-                ),
+            match push_file(state, &r.file_path, &r.virtual_file, &transfer_id).await {
+                Ok(bytes) => {
+                    state.complete_transfer(&transfer_id).await;
+                    (
+                        200,
+                        serde_json::json!({
+                            "success": true,
+                            "file_path": r.file_path,
+                            "virtual_file": r.virtual_file,
+                            "bytes": bytes
+                        })
+                        .to_string(),
+                    )
+                }
+                Err(e) => {
+                    state.fail_transfer(&transfer_id, &e.to_string()).await;
+                    (
+                        200,
+                        serde_json::json!({
+                            "success": false,
+                            "error": format!("{}", e)
+                        })
+                        .to_string(),
+                    )
+                }
             }
         }
         Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
@@ -1321,6 +1386,7 @@ async fn push_file(
     state: &ApiState,
     file_path: &str,
     virtual_file: &str,
+    transfer_id: &str,
 ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
     use sha2::{Digest, Sha256};
     use std::sync::Arc;
@@ -1452,6 +1518,12 @@ async fn push_file(
         if !line.contains("CHUNK_ACK") {
             return Err(format!("CHUNK_ACK failed: {}", line).into());
         }
+
+        // Update progress
+        let bytes_sent = (chunk_idx + 1) * chunk_size as u64;
+        state
+            .update_transfer_progress(transfer_id, bytes_sent.min(file_size), file_size)
+            .await;
     }
 
     // Server sends TRANSFER_COMPLETE automatically after last chunk
