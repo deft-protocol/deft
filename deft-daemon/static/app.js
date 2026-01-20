@@ -4,6 +4,11 @@ let refreshInterval = null;
 let cachedPartners = [];
 let cachedVirtualFiles = [];
 let clientConnected = false;
+let refreshPaused = false;
+
+// Pause refresh when any modal is open or form input is focused
+function pauseRefresh() { refreshPaused = true; }
+function resumeRefresh() { refreshPaused = false; }
 
 // Tab navigation
 document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -69,10 +74,12 @@ async function apiDelete(endpoint) {
 // ============ Modal Management ============
 function showModal(id) {
     document.getElementById(id).classList.add('active');
+    pauseRefresh();
 }
 
 function closeModal(id) {
     document.getElementById(id).classList.remove('active');
+    resumeRefresh();
 }
 
 // Close modal on backdrop click
@@ -133,9 +140,6 @@ async function updatePartners() {
             </td>
         </tr>
     `).join('');
-
-    // Update client partner dropdown
-    updateClientPartnerDropdown();
 }
 
 function showPartnerModal(partner = null) {
@@ -364,33 +368,17 @@ async function updateHistory() {
 }
 
 // ============ Client ============
-function updateClientPartnerDropdown() {
-    const select = document.getElementById('client-partner');
-    select.innerHTML = '<option value="">Select partner...</option>' +
-        cachedPartners.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.id)}</option>`).join('');
-}
-
-document.getElementById('client-partner').addEventListener('change', (e) => {
-    const partner = cachedPartners.find(p => p.id === e.target.value);
-    const endpointSelect = document.getElementById('client-endpoint');
-
-    if (partner && partner.endpoints && partner.endpoints.length > 0) {
-        endpointSelect.innerHTML = '<option value="">Select endpoint...</option>' +
-            partner.endpoints.map(ep => `<option value="${escapeHtml(ep)}">${escapeHtml(ep)}</option>`).join('');
-    } else {
-        endpointSelect.innerHTML = '<option value="">No endpoints configured</option>';
-    }
-});
-
 document.getElementById('connect-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const partnerId = document.getElementById('client-partner').value;
-    const endpoint = document.getElementById('client-endpoint').value;
+    const server = document.getElementById('client-server').value.trim();
+    const partnerId = document.getElementById('client-partner-id').value.trim();
+    const cert = document.getElementById('client-cert').value.trim();
+    const key = document.getElementById('client-key').value.trim();
     const statusDiv = document.getElementById('client-status');
 
-    if (!partnerId || !endpoint) {
+    if (!server || !partnerId) {
         statusDiv.className = 'client-status error';
-        statusDiv.textContent = 'Please select a partner and endpoint';
+        statusDiv.textContent = 'Server address and Partner ID are required';
         return;
     }
 
@@ -398,14 +386,19 @@ document.getElementById('connect-form').addEventListener('submit', async (e) => 
     statusDiv.textContent = 'Connecting...';
 
     // Try to connect and list files
-    const result = await apiPost('/api/client/connect', { partner_id: partnerId, endpoint });
+    const result = await apiPost('/api/client/connect', {
+        server,
+        partner_id: partnerId,
+        cert: cert || undefined,
+        key: key || undefined
+    });
 
     if (result && result.success) {
         clientConnected = true;
         statusDiv.className = 'client-status connected';
-        statusDiv.textContent = `Connected to ${endpoint}`;
+        statusDiv.textContent = `Connected to ${server} as ${partnerId}`;
         updateRemoteFiles(result.virtual_files || []);
-        addLogEntry(`Connected to ${partnerId} at ${endpoint}`);
+        addLogEntry(`Connected to ${server} as ${partnerId}`);
     } else {
         statusDiv.className = 'client-status error';
         statusDiv.textContent = result?.error || 'Connection failed';
@@ -602,19 +595,26 @@ function addLogEntry(message, type = 'info') {
 
 // ============ Refresh ============
 async function refreshAll() {
+    if (refreshPaused) return;
     await Promise.all([
         updateStatus(),
         updatePartners(),
         updateVirtualFiles(),
         updateTransfers(),
-        updateHistory(),
-        updateSettings()
+        updateHistory()
     ]);
 }
 
 // ============ Initialize ============
 document.addEventListener('DOMContentLoaded', () => {
+    // Pause refresh when any input/textarea/select is focused
+    document.querySelectorAll('input, textarea, select').forEach(el => {
+        el.addEventListener('focus', pauseRefresh);
+        el.addEventListener('blur', resumeRefresh);
+    });
+
     refreshAll();
+    updateSettings(); // Load settings once on init
     refreshInterval = setInterval(refreshAll, 5000);
     addLogEntry('Console initialized');
 });
