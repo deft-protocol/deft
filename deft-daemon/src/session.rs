@@ -1,3 +1,8 @@
+//! Session management.
+//! 
+//! Some methods reserved for session introspection.
+#![allow(dead_code)]
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 

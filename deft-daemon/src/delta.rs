@@ -1,3 +1,8 @@
+//! Delta transfer module for incremental file synchronization.
+//! 
+//! This module is reserved for future use (v2 feature).
+#![allow(dead_code)]
+
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};

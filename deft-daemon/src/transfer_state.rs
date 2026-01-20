@@ -1,3 +1,8 @@
+//! Transfer state persistence for resumable transfers.
+//! 
+//! Reserved for transfer resume functionality.
+#![allow(dead_code)]
+
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter};
@@ -24,6 +29,7 @@ pub struct TransferState {
 }
 
 impl TransferState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         transfer_id: String,
         virtual_file: String,

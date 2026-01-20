@@ -1,3 +1,8 @@
+//! Prometheus metrics for monitoring.
+//! 
+//! Some functions reserved for advanced monitoring.
+#![allow(dead_code)]
+
 use lazy_static::lazy_static;
 use prometheus::{
     Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts,

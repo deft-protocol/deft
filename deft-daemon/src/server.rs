@@ -14,6 +14,7 @@ use tracing::{error, info, warn};
 
 use crate::config::Config;
 use crate::handler::CommandHandler;
+use crate::metrics;
 use crate::rate_limit::{RateLimitConfig, RateLimiter};
 use crate::session::Session;
 
@@ -73,10 +74,13 @@ impl Server {
                     let ip = addr.ip();
                     if !self.rate_limiter.check_ip(ip).await.is_allowed() {
                         warn!("Connection rejected from {} (rate limited)", addr);
+                        metrics::record_connection_rejected("rate_limited");
+                        metrics::record_rate_limited("ip");
                         drop(stream);
                         continue;
                     }
 
+                    metrics::record_connection_accepted();
                     info!("New connection from {}", addr);
 
                     let acceptor = self.tls_acceptor.clone();
@@ -103,9 +107,11 @@ impl Server {
                                 {
                                     warn!("Connection error: {}", e);
                                 }
+                                metrics::record_connection_closed();
                             }
                             Err(e) => {
                                 warn!("TLS handshake failed from {}: {}", addr, e);
+                                metrics::record_connection_rejected("tls_failed");
                             }
                         }
                     });
@@ -275,6 +281,8 @@ where
                 }
             }
 
+            // TODO: Track compressed flag from PUT command in session
+            let compressed = false; // For now, assume uncompressed
             let ack_response = receive_chunk_data(
                 &mut reader,
                 &handler,
@@ -282,6 +290,7 @@ where
                 virtual_file,
                 chunk_index,
                 size,
+                compressed,
             )
             .await;
 
@@ -317,6 +326,7 @@ async fn receive_chunk_data<R>(
     virtual_file: &str,
     chunk_index: u64,
     size: u64,
+    compressed: bool,
 ) -> deft_protocol::Response
 where
     R: tokio::io::AsyncRead + Unpin,
@@ -326,8 +336,8 @@ where
     match reader.read_exact(&mut buffer).await {
         Ok(_) => {
             info!(
-                "Session {} received {} bytes for chunk {}",
-                session.id, size, chunk_index
+                "Session {} received {} bytes for chunk {} (compressed: {})",
+                session.id, size, chunk_index, compressed
             );
 
             // Validate and process the chunk
@@ -337,6 +347,7 @@ where
                 chunk_index,
                 &buffer,
                 "", // Hash already stored via update_chunk_hash
+                compressed,
             )
         }
         Err(e) => {

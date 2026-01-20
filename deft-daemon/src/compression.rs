@@ -4,19 +4,15 @@ use flate2::read::{GzDecoder, GzEncoder};
 use flate2::Compression;
 
 /// Compression level for data transfer
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CompressionLevel {
     None,
     Fast,
+    #[default]
     Default,
     Best,
 }
 
-impl Default for CompressionLevel {
-    fn default() -> Self {
-        CompressionLevel::Default
-    }
-}
 
 impl From<CompressionLevel> for Compression {
     fn from(level: CompressionLevel) -> Compression {

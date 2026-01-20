@@ -1,3 +1,8 @@
+//! Parallel chunk transfer module.
+//! 
+//! This module is reserved for future use (v2 feature).
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
@@ -96,6 +101,7 @@ impl ParallelSender {
 }
 
 /// Manages parallel chunk receiving
+#[allow(clippy::type_complexity)]
 pub struct ParallelReceiver {
     config: ParallelConfig,
     /// Received chunks: index -> (data, hash)

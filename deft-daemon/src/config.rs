@@ -1,6 +1,13 @@
+//! Configuration management.
+//! 
+//! Some methods reserved for config introspection.
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+
+use crate::hooks::HookConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -13,6 +20,8 @@ pub struct Config {
     pub logging: LoggingConfig,
     #[serde(default)]
     pub partners: Vec<PartnerConfig>,
+    #[serde(default)]
+    pub hooks: Vec<HookConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

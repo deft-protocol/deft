@@ -32,14 +32,15 @@ mod watcher;
 
 use client::Client;
 use config::Config;
+use platform::default_config_path;
 use server::Server;
 
 #[derive(Parser)]
 #[command(name = "deftd")]
 #[command(about = "DEFT Protocol Daemon - Reliable Interoperable File Transfer")]
 struct Cli {
-    #[arg(short, long, default_value = "/etc/rift/config.toml")]
-    config: String,
+    #[arg(short, long)]
+    config: Option<String>,
 
     #[arg(long, default_value = "info")]
     log_level: String,
@@ -102,8 +103,13 @@ enum Commands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Use platform-specific default config path if not specified
+    let config_path = cli.config.unwrap_or_else(|| {
+        default_config_path().to_string_lossy().to_string()
+    });
+
     // Load config first to get logging settings
-    let config = Config::load(&cli.config)?;
+    let config = Config::load(&config_path)?;
 
     // Initialize logging based on config
     let log_level = if cli.log_level != "info" {
@@ -125,8 +131,8 @@ async fn main() -> Result<()> {
         }
     }
 
-    info!("Starting RIFT daemon v{}", env!("CARGO_PKG_VERSION"));
-    info!("Configuration loaded from {}", cli.config);
+    info!("Starting DEFT daemon v{}", env!("CARGO_PKG_VERSION"));
+    info!("Configuration loaded from {}", config_path);
 
     match cli.command {
         Some(Commands::Send {

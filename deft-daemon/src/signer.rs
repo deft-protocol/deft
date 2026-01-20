@@ -1,3 +1,8 @@
+//! Receipt signing and verification.
+//! 
+//! Some methods reserved for signature verification scenarios.
+#![allow(dead_code)]
+
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -9,18 +14,13 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, info, warn};
 
 /// Signature algorithm
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SignatureAlgorithm {
     /// SHA-256 hash only (not cryptographically secure for non-repudiation)
     Sha256,
     /// Ed25519 signature (recommended)
+    #[default]
     Ed25519,
-}
-
-impl Default for SignatureAlgorithm {
-    fn default() -> Self {
-        SignatureAlgorithm::Ed25519
-    }
 }
 
 /// Signs data using the server's private key

@@ -1,3 +1,8 @@
+//! Transfer management and chunk tracking.
+//! 
+//! Some methods reserved for advanced transfer scenarios.
+#![allow(dead_code)]
+
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -50,6 +55,7 @@ pub enum TransferDirection {
 }
 
 impl ActiveTransfer {
+    #[allow(clippy::too_many_arguments)]
     pub fn new_receive(
         virtual_file: String,
         sender_partner: String,

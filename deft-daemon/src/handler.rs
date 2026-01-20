@@ -1,3 +1,8 @@
+//! Command handler for DEFT protocol.
+//! 
+//! Some methods reserved for sender-side completion.
+#![allow(dead_code)]
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -7,6 +12,7 @@ use deft_protocol::{
 use tracing::{debug, info, warn};
 
 use crate::chunk_store::ChunkStore;
+use crate::compression::decompress;
 use crate::config::{Config, Direction};
 use crate::hooks::{HookContext, HookEvent, HookManager};
 use crate::metrics;
@@ -31,15 +37,15 @@ impl CommandHandler {
         let vf_manager = VirtualFileManager::new(config.storage.chunk_size);
         let transfer_manager = Arc::new(TransferManager::new());
         let receipt_store = Arc::new(
-            ReceiptStore::new(&config.storage.temp_dir.replace("tmp", "receipts"))
+            ReceiptStore::new(config.storage.temp_dir.replace("tmp", "receipts"))
                 .unwrap_or_else(|_| ReceiptStore::default()),
         );
         let chunk_store = Arc::new(
             ChunkStore::new(&config.storage.temp_dir).expect("Failed to initialize chunk store"),
         );
 
-        // Initialize hook manager
-        let hook_manager = Arc::new(HookManager::new());
+        // Initialize hook manager from config
+        let hook_manager = Arc::new(HookManager::from_configs(config.hooks.clone()));
 
         // Initialize receipt signer (try Ed25519, fallback to SHA256)
         let signer = Arc::new(
@@ -449,6 +455,7 @@ impl CommandHandler {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_put(
         &self,
         session: &mut Session,
@@ -521,7 +528,26 @@ impl CommandHandler {
         chunk_index: u64,
         data: &[u8],
         _expected_hash: &str,
+        compressed: bool,
     ) -> Response {
+        // Decompress if needed
+        let chunk_data: Vec<u8> = if compressed {
+            match decompress(data) {
+                Ok(decompressed) => decompressed,
+                Err(e) => {
+                    warn!("Failed to decompress chunk {}: {}", chunk_index, e);
+                    metrics::record_chunk_failed("decompress_error");
+                    return Response::ChunkAck {
+                        virtual_file: virtual_file.to_string(),
+                        chunk_index,
+                        status: AckStatus::Error(deft_protocol::AckErrorReason::HashMismatch),
+                    };
+                }
+            }
+        } else {
+            data.to_vec()
+        };
+        let data = &chunk_data;
         if !session.is_authenticated() {
             return Response::error(
                 RiftErrorCode::Unauthorized,
@@ -598,10 +624,10 @@ impl CommandHandler {
             let output_path = self.get_virtual_file_path(session, virtual_file);
 
             // Assemble the final file from chunks
-            if let Some(path) = output_path {
+            if let Some(ref path) = output_path {
                 match self.chunk_store.assemble_file(
                     &transfer_id,
-                    &path,
+                    path,
                     total_chunks,
                     chunk_size,
                     total_bytes,
@@ -615,6 +641,14 @@ impl CommandHandler {
                     }
                     Err(e) => {
                         warn!("Failed to assemble file: {}", e);
+                        // Execute error hook
+                        let ctx = HookContext::new(HookEvent::TransferError)
+                            .with_transfer(&transfer_id)
+                            .with_partner(session.partner_id.as_deref().unwrap_or("unknown"))
+                            .with_virtual_file(virtual_file)
+                            .with_path(path)
+                            .with_error(&e.to_string());
+                        self.execute_hook(ctx);
                     }
                 }
             }
@@ -636,20 +670,26 @@ impl CommandHandler {
             // Record metrics
             metrics::record_transfer_complete("receive", true, receipt.total_bytes, 0.0);
 
-            // Execute post-transfer hook
-            let ctx = HookContext::new(HookEvent::PostTransfer)
+            // Execute post-transfer hook with path if available
+            let mut ctx = HookContext::new(HookEvent::PostTransfer)
                 .with_transfer(&transfer_id)
                 .with_partner(session.partner_id.as_deref().unwrap_or("unknown"))
                 .with_virtual_file(&receipt.virtual_file)
                 .with_size(receipt.total_bytes);
+            if let Some(ref path) = output_path {
+                ctx = ctx.with_path(path);
+            }
             self.execute_hook(ctx);
 
-            // Execute file_received hook
-            let ctx = HookContext::new(HookEvent::FileReceived)
+            // Execute file_received hook with path if available
+            let mut ctx = HookContext::new(HookEvent::FileReceived)
                 .with_transfer(&transfer_id)
                 .with_partner(session.partner_id.as_deref().unwrap_or("unknown"))
                 .with_virtual_file(&receipt.virtual_file)
                 .with_size(receipt.total_bytes);
+            if let Some(ref path) = output_path {
+                ctx = ctx.with_path(path);
+            }
             self.execute_hook(ctx);
 
             // Remove transfer from session

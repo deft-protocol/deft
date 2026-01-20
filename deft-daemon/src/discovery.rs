@@ -1,3 +1,8 @@
+//! Endpoint discovery and health tracking.
+//! 
+//! Some methods reserved for advanced failover scenarios.
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -233,7 +238,7 @@ impl EndpointDiscovery {
         match eps.get(partner_id) {
             Some(states) => {
                 let mut sorted: Vec<&EndpointState> = states.iter().collect();
-                sorted.sort_by(|a, b| b.score().cmp(&a.score()));
+                sorted.sort_by_key(|s| std::cmp::Reverse(s.score()));
                 sorted.iter().map(|s| s.endpoint.clone()).collect()
             }
             None => Vec::new(),

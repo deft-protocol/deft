@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.0.0-green.svg)](CHANGELOG.md)
 
+![image](docs/deft.png)
+
 **DEFT** is a modern, secure file transfer protocol designed for B2B (Business-to-Business) exchanges. It provides reliable, resumable transfers with enterprise-grade security and observability.
 
 ## ✨ Features

@@ -1,3 +1,8 @@
+//! Directory watcher module for automatic file detection.
+//! 
+//! This module is reserved for future use (v2 feature).
+#![allow(dead_code)]
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};

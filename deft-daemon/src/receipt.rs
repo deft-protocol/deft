@@ -1,3 +1,8 @@
+//! Receipt storage and retrieval.
+//! 
+//! Some methods reserved for receipt querying.
+#![allow(dead_code)]
+
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};

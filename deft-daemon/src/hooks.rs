@@ -176,6 +176,7 @@ fn default_timeout() -> u64 {
 
 /// Hook execution result
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct HookResult {
     pub success: bool,
     pub exit_code: Option<i32>,

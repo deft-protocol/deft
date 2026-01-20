@@ -13,6 +13,7 @@ pub struct VirtualFileManager {
     chunk_size: u32,
 }
 
+#[allow(dead_code)]
 pub struct VirtualFile {
     pub name: String,
     pub physical_path: PathBuf,

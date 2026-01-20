@@ -1,3 +1,8 @@
+//! DEFT client for outgoing file transfers.
+//! 
+//! Some methods reserved for alternative transfer modes.
+#![allow(dead_code)]
+
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -17,22 +22,26 @@ use deft_protocol::{AckStatus, Capabilities, ChunkRange, Command, Parser, Respon
 use crate::chunk_ordering::ChunkOrderer;
 use crate::compression::{compress, is_compression_beneficial, CompressionLevel};
 use crate::config::{ClientConfig, PartnerConfig};
+use crate::discovery::{DiscoveryConfig, EndpointDiscovery};
 use crate::metrics;
 
-/// RIFT client for outgoing connections
+/// DEFT client for outgoing connections
 pub struct Client {
     config: ClientConfig,
     tls_connector: TlsConnector,
+    discovery: EndpointDiscovery,
 }
 
 impl Client {
     pub fn new(config: ClientConfig) -> Result<Self> {
         let tls_config = build_client_tls_config(&config)?;
         let tls_connector = TlsConnector::from(Arc::new(tls_config));
+        let discovery = EndpointDiscovery::new(DiscoveryConfig::default());
 
         Ok(Self {
             config,
             tls_connector,
+            discovery,
         })
     }
 
@@ -66,19 +75,26 @@ impl Client {
         file_path: &Path,
         chunk_size: u32,
     ) -> Result<TransferResult> {
-        // Try each endpoint with failover
+        // Register endpoints with discovery for health tracking
+        self.discovery.register_partner(&partner.id, partner.endpoints.clone()).await;
+
+        // Try each endpoint with failover and health tracking
         let mut last_error = None;
         let mut conn = None;
         let mut connected_endpoint = String::new();
 
         for endpoint in &partner.endpoints {
+            let start = std::time::Instant::now();
             match self.connect(endpoint).await {
                 Ok(c) => {
+                    let latency_ms = start.elapsed().as_millis() as u64;
+                    self.discovery.record_success(&partner.id, endpoint, latency_ms).await;
                     conn = Some(c);
                     connected_endpoint = endpoint.clone();
                     break;
                 }
                 Err(e) => {
+                    self.discovery.record_failure(&partner.id, endpoint).await;
                     warn!("Failed to connect to {}: {}", endpoint, e);
                     metrics::record_error("connection_failed");
                     last_error = Some(e);
@@ -181,21 +197,32 @@ impl Client {
                 conn.send_raw_data(&send_data).await?;
 
                 // Wait for ACK
+                let start_time = std::time::Instant::now();
                 let ack = conn.read_response().await?;
+                let latency = start_time.elapsed().as_secs_f64();
+                
                 match &ack {
                     Response::ChunkAck { status, .. } => {
                         if *status == AckStatus::Ok {
                             chunks_sent += 1;
+                            metrics::record_chunk_sent(latency);
+                            if compressed && bytes_saved > 0 {
+                                metrics::record_compression_saved(
+                                    (chunk_data.len() - send_data.len()) as u64
+                                );
+                            }
                             debug!(
                                 "Chunk {} acknowledged (random order position {})",
                                 chunk_index, chunks_sent
                             );
                         } else {
                             warn!("Chunk {} rejected: {:?}", chunk_index, status);
+                            metrics::record_error("chunk_rejected");
                         }
                     }
                     Response::TransferComplete { .. } => {
                         chunks_sent += 1;
+                        metrics::record_chunk_sent(latency);
                         info!("Transfer complete received");
                         break;
                     }

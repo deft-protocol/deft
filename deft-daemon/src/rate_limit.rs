@@ -1,3 +1,8 @@
+//! Rate limiting for connections and bandwidth.
+//! 
+//! Some methods reserved for monitoring/stats.
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
