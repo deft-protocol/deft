@@ -59,6 +59,7 @@ pub struct PartnerStatus {
 
 /// Request to create/update a partner
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct PartnerRequest {
     pub id: String,
     pub endpoints: Vec<String>,
@@ -1041,7 +1042,7 @@ async fn connect_to_server(
             if reader.read_line(&mut line).await? == 0 {
                 break;
             }
-            let parts: Vec<&str> = line.trim().split_whitespace().collect();
+            let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 3 {
                 let name = parts[0];
                 let size: u64 = parts[1].parse().unwrap_or(0);
@@ -1336,7 +1337,7 @@ async fn push_file(
     let file_data = std::fs::read(file_path)?;
     let file_size = file_data.len() as u64;
     let chunk_size = 262144usize;
-    let total_chunks = (file_size + chunk_size as u64 - 1) / chunk_size as u64;
+    let total_chunks = file_size.div_ceil(chunk_size as u64);
 
     // Compute hash
     let mut hasher = Sha256::new();
