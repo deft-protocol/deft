@@ -235,9 +235,13 @@ function showVirtualFileModal(vf = null) {
     document.getElementById('vf-direction').value = vf?.direction || 'receive';
     document.getElementById('vf-pattern').value = vf?.pattern || '';
 
+    // Compute which partners have access to this VF from cachedPartners
+    const vfPartners = vf ? cachedPartners
+        .filter(p => (p.virtual_files || []).includes(vf.name))
+        .map(p => p.id) : [];
+
     // Populate partner checkboxes
     const container = document.getElementById('vf-partner-checkboxes');
-    const vfPartners = vf?.partners || [];
     container.innerHTML = cachedPartners.map(p => `
         <label>
             <input type="checkbox" value="${escapeHtml(p.id)}" ${vfPartners.includes(p.id) ? 'checked' : ''}>
