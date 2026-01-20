@@ -18,7 +18,7 @@ mod chunk_tracker;
 
 #[derive(Parser)]
 #[command(name = "deft")]
-#[command(about = "DEFT Protocol CLI - Reliable Interoperable File Transfer")]
+#[command(about = "DEFT Protocol CLI - Delta-Enabled File Transfer")]
 struct Cli {
     #[arg(short, long, default_value = "localhost:7741")]
     server: String,
@@ -82,6 +82,21 @@ enum Commands {
     Connect { partner_id: String },
     /// Send raw DEFT command
     Raw { command: Vec<String> },
+    /// Show transfer history from API
+    History {
+        /// API server address
+        #[arg(long, default_value = "http://127.0.0.1:7742")]
+        api: String,
+        /// Limit number of entries
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
+    },
+    /// Show active transfers from API
+    Status {
+        /// API server address
+        #[arg(long, default_value = "http://127.0.0.1:7742")]
+        api: String,
+    },
 }
 
 #[tokio::main]
@@ -151,6 +166,94 @@ async fn main() -> Result<()> {
             let response = send_raw(&mut conn, &raw_cmd).await?;
             println!("{}", response);
         }
+        Commands::History { ref api, limit } => {
+            show_history(api, limit).await?;
+        }
+        Commands::Status { ref api } => {
+            show_status(api).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn show_history(api: &str, limit: usize) -> Result<()> {
+    let url = format!("{}/api/history", api);
+    let resp = reqwest::get(&url)
+        .await
+        .context("Failed to connect to API")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("API error: {}", resp.status());
+    }
+
+    let history: Vec<serde_json::Value> = resp.json().await?;
+
+    if history.is_empty() {
+        println!("No transfer history.");
+        return Ok(());
+    }
+
+    println!(
+        "{:<20} {:<15} {:<15} {:<10} {:<12} COMPLETED",
+        "ID", "PARTNER", "VIRTUAL_FILE", "DIRECTION", "STATUS"
+    );
+    println!("{}", "-".repeat(90));
+
+    for entry in history.iter().rev().take(limit) {
+        let id = entry["id"].as_str().unwrap_or("-");
+        let short_id = if id.len() > 18 { &id[..18] } else { id };
+        println!(
+            "{:<20} {:<15} {:<15} {:<10} {:<12} {}",
+            short_id,
+            entry["partner_id"].as_str().unwrap_or("-"),
+            entry["virtual_file"].as_str().unwrap_or("-"),
+            entry["direction"].as_str().unwrap_or("-"),
+            entry["status"].as_str().unwrap_or("-"),
+            entry["completed_at"].as_str().unwrap_or("-"),
+        );
+    }
+
+    println!("\nTotal: {} transfers", history.len());
+    Ok(())
+}
+
+async fn show_status(api: &str) -> Result<()> {
+    let url = format!("{}/api/transfers", api);
+    let resp = reqwest::get(&url)
+        .await
+        .context("Failed to connect to API")?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("API error: {}", resp.status());
+    }
+
+    let transfers: Vec<serde_json::Value> = resp.json().await?;
+
+    if transfers.is_empty() {
+        println!("No active transfers.");
+        return Ok(());
+    }
+
+    println!(
+        "{:<20} {:<15} {:<15} {:<10} {:>8} STATUS",
+        "ID", "PARTNER", "VIRTUAL_FILE", "DIRECTION", "PROGRESS"
+    );
+    println!("{}", "-".repeat(90));
+
+    for t in &transfers {
+        let id = t["id"].as_str().unwrap_or("-");
+        let short_id = if id.len() > 18 { &id[..18] } else { id };
+        let progress = t["progress_percent"].as_u64().unwrap_or(0);
+        println!(
+            "{:<20} {:<15} {:<15} {:<10} {:>7}% {}",
+            short_id,
+            t["partner_id"].as_str().unwrap_or("-"),
+            t["virtual_file"].as_str().unwrap_or("-"),
+            t["direction"].as_str().unwrap_or("-"),
+            progress,
+            t["status"].as_str().unwrap_or("-"),
+        );
     }
 
     Ok(())

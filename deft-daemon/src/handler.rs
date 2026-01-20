@@ -116,6 +116,19 @@ impl CommandHandler {
         }
     }
 
+    pub fn fail_transfer_to_api(&self, id: &str, error: &str) {
+        if let Some(ref api) = self.api_state {
+            let api = api.clone();
+            let id = id.to_string();
+            let error = error.to_string();
+            tokio::spawn(async move {
+                api.fail_transfer(&id, &error).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                api.remove_transfer(&id).await;
+            });
+        }
+    }
+
     /// Execute a hook asynchronously
     fn execute_hook(&self, ctx: HookContext) {
         let hook_manager = self.hook_manager.clone();
@@ -708,6 +721,8 @@ impl CommandHandler {
                     }
                     Err(e) => {
                         warn!("Failed to assemble file: {}", e);
+                        // Mark transfer as failed in API
+                        self.fail_transfer_to_api(&transfer_id, &e.to_string());
                         // Execute error hook
                         let ctx = HookContext::new(HookEvent::TransferError)
                             .with_transfer(&transfer_id)

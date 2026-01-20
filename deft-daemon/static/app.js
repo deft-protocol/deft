@@ -142,6 +142,40 @@ async function updateConfig() {
     }
 }
 
+// Update history table
+async function updateHistory() {
+    const data = await apiFetch('/api/history');
+    const tbody = document.getElementById('history-table');
+
+    if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No transfer history</td></tr>';
+        return;
+    }
+
+    // Sort by completed_at descending (most recent first)
+    const sorted = [...data].reverse();
+
+    tbody.innerHTML = sorted.slice(0, 50).map(t => `
+        <tr>
+            <td><code>${escapeHtml(t.id.substring(0, 12))}</code></td>
+            <td>${escapeHtml(t.virtual_file)}</td>
+            <td>${escapeHtml(t.partner_id)}</td>
+            <td>
+                <span class="badge ${t.direction === 'send' ? 'badge-info' : 'badge-success'}">
+                    ${t.direction === 'send' ? '↑ Send' : '↓ Receive'}
+                </span>
+            </td>
+            <td>${formatBytes(t.total_bytes)}</td>
+            <td>
+                <span class="badge ${t.status === 'complete' ? 'badge-success' : 'badge-error'}">
+                    ${t.status}
+                </span>
+            </td>
+            <td>${t.completed_at ? new Date(t.completed_at).toLocaleString() : '--'}</td>
+        </tr>
+    `).join('');
+}
+
 // Escape HTML
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -176,7 +210,8 @@ async function refreshAll() {
         updateStatus(),
         updatePartners(),
         updateTransfers(),
-        updateConfig()
+        updateConfig(),
+        updateHistory()
     ]);
 }
 

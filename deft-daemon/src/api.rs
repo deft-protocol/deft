@@ -77,7 +77,7 @@ pub struct VirtualFileInfo {
 }
 
 /// Transfer history entry
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferHistoryEntry {
     pub id: String,
     pub virtual_file: String,
@@ -112,15 +112,35 @@ pub struct ApiState {
     pub start_time: std::time::Instant,
     pub transfers: RwLock<HashMap<String, TransferStatus>>,
     pub history: RwLock<Vec<TransferHistoryEntry>>,
+    history_path: std::path::PathBuf,
 }
 
 impl ApiState {
     pub fn new(config: Config) -> Self {
+        let history_path = std::path::PathBuf::from(&config.storage.temp_dir).join("history.json");
+        let history = Self::load_history(&history_path).unwrap_or_default();
+
         Self {
             config: RwLock::new(config),
             start_time: std::time::Instant::now(),
             transfers: RwLock::new(HashMap::new()),
-            history: RwLock::new(Vec::new()),
+            history: RwLock::new(history),
+            history_path,
+        }
+    }
+
+    fn load_history(path: &std::path::Path) -> Option<Vec<TransferHistoryEntry>> {
+        let content = std::fs::read_to_string(path).ok()?;
+        serde_json::from_str(&content).ok()
+    }
+
+    async fn save_history(&self) {
+        let history = self.history.read().await;
+        if let Ok(json) = serde_json::to_string_pretty(&*history) {
+            if let Some(parent) = self.history_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&self.history_path, json);
         }
     }
 
@@ -177,7 +197,31 @@ impl ApiState {
                 started_at: t.started_at.clone(),
                 completed_at: Some(t.updated_at.clone()),
             };
+            drop(transfers); // Release lock before acquiring another
             self.history.write().await.push(entry);
+            self.save_history().await;
+        }
+    }
+
+    pub async fn fail_transfer(&self, id: &str, error: &str) {
+        let mut transfers = self.transfers.write().await;
+        if let Some(t) = transfers.get_mut(id) {
+            t.status = "failed".to_string();
+            t.updated_at = chrono::Utc::now().to_rfc3339();
+
+            let entry = TransferHistoryEntry {
+                id: t.id.clone(),
+                virtual_file: t.virtual_file.clone(),
+                partner_id: t.partner_id.clone(),
+                direction: t.direction.clone(),
+                status: format!("failed: {}", error),
+                total_bytes: t.total_bytes,
+                started_at: t.started_at.clone(),
+                completed_at: Some(t.updated_at.clone()),
+            };
+            drop(transfers);
+            self.history.write().await.push(entry);
+            self.save_history().await;
         }
     }
 
