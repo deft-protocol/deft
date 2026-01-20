@@ -1,0 +1,54 @@
+[workspace]
+resolver = "2"
+members = [
+    "rift-protocol",
+    "rift-common",
+    "rift-daemon",
+    "rift-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["RIFT Contributors"]
+license = "MIT"
+repository = "https://github.com/rift-protocol/rift"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# TLS
+tokio-rustls = "0.25"
+rustls = "0.22"
+rustls-pemfile = "2.0"
+webpki-roots = "0.26"
+
+# Crypto
+sha2 = "0.10"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI
+clap = { version = "4.4", features = ["derive"] }
+
+# Time
+chrono = "0.4"
+
+# Testing
+tempfile = "3.10"
+
+# Internal crates
+rift-protocol = { path = "rift-protocol" }
+rift-common = { path = "rift-common" }

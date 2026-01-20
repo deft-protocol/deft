@@ -1,0 +1,41 @@
+# Build artifacts
+/target/
+**/*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Certificates (keep examples)
+*.key
+*.csr
+*.pem
+!test-certs/
+
+# Logs
+*.log
+/logs/
+
+# Temporary files
+/tmp/
+*.tmp
+
+# Test data
+/test-data/
+/test-env/
+
+# Coverage
+/coverage/
+*.profraw
+*.profdata

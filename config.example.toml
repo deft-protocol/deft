@@ -1,0 +1,80 @@
+# RIFT Protocol - Example Configuration
+# Copy to /etc/rift/config.toml and customize
+
+[server]
+enabled = true                    # Accept incoming connections
+listen = "0.0.0.0:7741"
+cert = "/etc/rift/certs/server.crt"
+key = "/etc/rift/certs/server.key"
+ca = "/etc/rift/certs/ca.crt"    # CA to validate client certificates
+
+[client]
+enabled = true                    # Allow outgoing connections
+cert = "/etc/rift/certs/client.crt"
+key = "/etc/rift/certs/client.key"
+ca = "/etc/rift/certs/ca.crt"    # CA to validate server certificates
+
+[storage]
+chunk_size = 262144              # 256 KB
+temp_dir = "/var/rift/tmp"
+
+[limits]
+# Rate limiting
+max_connections_per_ip = 10
+max_requests_per_partner = 1000
+max_bytes_per_partner = 1073741824  # 1 GB per window
+window_seconds = 60
+ban_seconds = 300
+
+# Timeouts
+connection_timeout_seconds = 30
+transfer_timeout_seconds = 3600     # 1 hour
+idle_timeout_seconds = 300          # 5 minutes
+
+# Performance
+parallel_chunks = 4                 # Concurrent chunk transfers
+
+# Prometheus metrics (GET http://localhost:9090/metrics)
+metrics_enabled = false
+metrics_port = 9090
+
+# Web Admin API (GET http://localhost:7742/)
+api_enabled = false
+api_listen = "127.0.0.1:7742"
+# api_key = "your-secret-api-key"    # Optional authentication
+
+[logging]
+format = "text"                     # "text" or "json" (for log aggregators)
+level = "info"                      # trace, debug, info, warn, error
+
+# Partner: Supplier Inc
+[[partners]]
+id = "supplier-inc"
+allowed_certs = ["/etc/rift/partners/supplier.crt"]
+endpoints = ["supplier.example.com:7741"]
+
+[[partners.virtual_files]]
+name = "orders-outbound"
+path = "/data/orders/*.xml"
+direction = "send"               # This partner can pull (we send)
+
+[[partners.virtual_files]]
+name = "invoices-inbound"
+path = "/data/invoices/"
+direction = "receive"            # This partner can push (we receive)
+
+# Partner: ACME Corporation
+[[partners]]
+id = "partner-acme-corp"
+allowed_certs = ["/etc/rift/partners/acme.crt"]
+endpoints = ["acme.example.com:7741", "acme-backup.example.com:7741"]
+
+[[partners.virtual_files]]
+name = "monthly-invoices"
+path = "/data/acme/invoices/"
+direction = "send"
+
+[[partners.virtual_files]]
+name = "product-catalog"
+path = "/data/catalog/current.json"
+direction = "send"
