@@ -1,5 +1,5 @@
 //! Session management.
-//! 
+//!
 //! Some methods reserved for session introspection.
 #![allow(dead_code)]
 

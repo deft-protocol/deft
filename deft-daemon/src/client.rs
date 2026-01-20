@@ -1,5 +1,5 @@
 //! DEFT client for outgoing file transfers.
-//! 
+//!
 //! Some methods reserved for alternative transfer modes.
 #![allow(dead_code)]
 
@@ -76,7 +76,9 @@ impl Client {
         chunk_size: u32,
     ) -> Result<TransferResult> {
         // Register endpoints with discovery for health tracking
-        self.discovery.register_partner(&partner.id, partner.endpoints.clone()).await;
+        self.discovery
+            .register_partner(&partner.id, partner.endpoints.clone())
+            .await;
 
         // Try each endpoint with failover and health tracking
         let mut last_error = None;
@@ -88,7 +90,9 @@ impl Client {
             match self.connect(endpoint).await {
                 Ok(c) => {
                     let latency_ms = start.elapsed().as_millis() as u64;
-                    self.discovery.record_success(&partner.id, endpoint, latency_ms).await;
+                    self.discovery
+                        .record_success(&partner.id, endpoint, latency_ms)
+                        .await;
                     conn = Some(c);
                     connected_endpoint = endpoint.clone();
                     break;
@@ -103,10 +107,15 @@ impl Client {
         }
 
         let mut conn = conn.ok_or_else(|| {
-            last_error.unwrap_or_else(|| anyhow::anyhow!("No endpoints configured for partner {}", partner.id))
+            last_error.unwrap_or_else(|| {
+                anyhow::anyhow!("No endpoints configured for partner {}", partner.id)
+            })
         })?;
 
-        info!("Connected to {} for partner {}", connected_endpoint, partner.id);
+        info!(
+            "Connected to {} for partner {}",
+            connected_endpoint, partner.id
+        );
 
         // Handshake
         let welcome = conn.hello().await?;
@@ -200,7 +209,7 @@ impl Client {
                 let start_time = std::time::Instant::now();
                 let ack = conn.read_response().await?;
                 let latency = start_time.elapsed().as_secs_f64();
-                
+
                 match &ack {
                     Response::ChunkAck { status, .. } => {
                         if *status == AckStatus::Ok {
@@ -208,7 +217,7 @@ impl Client {
                             metrics::record_chunk_sent(latency);
                             if compressed && bytes_saved > 0 {
                                 metrics::record_compression_saved(
-                                    (chunk_data.len() - send_data.len()) as u64
+                                    (chunk_data.len() - send_data.len()) as u64,
                                 );
                             }
                             debug!(

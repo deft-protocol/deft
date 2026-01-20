@@ -1,5 +1,5 @@
 //! Delta transfer module for incremental file synchronization.
-//! 
+//!
 //! This module is reserved for future use (v2 feature).
 #![allow(dead_code)]
 

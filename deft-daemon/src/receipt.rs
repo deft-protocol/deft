@@ -1,5 +1,5 @@
 //! Receipt storage and retrieval.
-//! 
+//!
 //! Some methods reserved for receipt querying.
 #![allow(dead_code)]
 

@@ -104,9 +104,9 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Use platform-specific default config path if not specified
-    let config_path = cli.config.unwrap_or_else(|| {
-        default_config_path().to_string_lossy().to_string()
-    });
+    let config_path = cli
+        .config
+        .unwrap_or_else(|| default_config_path().to_string_lossy().to_string());
 
     // Load config first to get logging settings
     let config = Config::load(&config_path)?;

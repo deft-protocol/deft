@@ -1,6 +1,6 @@
 use crate::{
-    AckErrorReason, AckStatus, Capabilities, ChunkRange, Command, Response, DeftError,
-    DeftErrorCode,
+    AckErrorReason, AckStatus, Capabilities, ChunkRange, Command, DeftError, DeftErrorCode,
+    Response,
 };
 
 pub struct Parser;

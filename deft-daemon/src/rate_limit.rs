@@ -1,5 +1,5 @@
 //! Rate limiting for connections and bandwidth.
-//! 
+//!
 //! Some methods reserved for monitoring/stats.
 #![allow(dead_code)]
 

@@ -1,5 +1,5 @@
 //! Chunk storage and file assembly.
-//! 
+//!
 //! Some methods reserved for advanced transfer scenarios.
 #![allow(dead_code)]
 

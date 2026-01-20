@@ -1,5 +1,5 @@
 //! Endpoint discovery and health tracking.
-//! 
+//!
 //! Some methods reserved for advanced failover scenarios.
 #![allow(dead_code)]
 

@@ -1,5 +1,5 @@
 //! Platform-specific utilities.
-//! 
+//!
 //! Some functions are reserved for future CLI/config tooling.
 #![allow(dead_code)]
 

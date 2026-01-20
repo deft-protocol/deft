@@ -1,5 +1,5 @@
 //! Receipt signing and verification.
-//! 
+//!
 //! Some methods reserved for signature verification scenarios.
 #![allow(dead_code)]
 

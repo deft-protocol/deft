@@ -3,7 +3,7 @@ use std::io::Cursor;
 
 use deft_common::{sha256_hex, Chunker};
 use deft_protocol::{
-    AckStatus, Capabilities, Command, Parser, Response, DeftErrorCode, DEFT_VERSION,
+    AckStatus, Capabilities, Command, DeftErrorCode, Parser, Response, DEFT_VERSION,
 };
 
 /// Simulates a DEFT session for testing

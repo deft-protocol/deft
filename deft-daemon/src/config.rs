@@ -1,5 +1,5 @@
 //! Configuration management.
-//! 
+//!
 //! Some methods reserved for config introspection.
 #![allow(dead_code)]
 

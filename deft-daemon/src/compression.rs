@@ -13,7 +13,6 @@ pub enum CompressionLevel {
     Best,
 }
 
-
 impl From<CompressionLevel> for Compression {
     fn from(level: CompressionLevel) -> Compression {
         match level {

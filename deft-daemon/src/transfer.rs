@@ -1,5 +1,5 @@
 //! Transfer management and chunk tracking.
-//! 
+//!
 //! Some methods reserved for advanced transfer scenarios.
 #![allow(dead_code)]
 

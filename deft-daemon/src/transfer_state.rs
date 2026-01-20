@@ -1,5 +1,5 @@
 //! Transfer state persistence for resumable transfers.
-//! 
+//!
 //! Reserved for transfer resume functionality.
 #![allow(dead_code)]
 
@@ -109,8 +109,7 @@ impl TransferStateStore {
         let path = self.state_path(&state.transfer_id);
         let file = File::create(&path)?;
         let writer = BufWriter::new(file);
-        serde_json::to_writer_pretty(writer, state)
-            .map_err(io::Error::other)?;
+        serde_json::to_writer_pretty(writer, state).map_err(io::Error::other)?;
         debug!(
             "Saved transfer state: {} ({} chunks received)",
             state.transfer_id,

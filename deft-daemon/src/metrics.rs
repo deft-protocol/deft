@@ -1,5 +1,5 @@
 //! Prometheus metrics for monitoring.
-//! 
+//!
 //! Some functions reserved for advanced monitoring.
 #![allow(dead_code)]
 

@@ -1,5 +1,5 @@
 //! Command handler for DEFT protocol.
-//! 
+//!
 //! Some methods reserved for sender-side completion.
 #![allow(dead_code)]
 
@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use deft_protocol::{
-    AckStatus, Capabilities, Command, Parser, Response, DeftErrorCode, DEFT_VERSION,
+    AckStatus, Capabilities, Command, DeftErrorCode, Parser, Response, DEFT_VERSION,
 };
 use tracing::{debug, info, warn};
 
@@ -48,12 +48,10 @@ impl CommandHandler {
         let hook_manager = Arc::new(HookManager::from_configs(config.hooks.clone()));
 
         // Initialize receipt signer (try Ed25519, fallback to SHA256)
-        let signer = Arc::new(
-            ReceiptSigner::with_new_ed25519_key().unwrap_or_else(|_| {
-                warn!("Failed to generate Ed25519 key, using SHA256 for receipts");
-                ReceiptSigner::new()
-            }),
-        );
+        let signer = Arc::new(ReceiptSigner::with_new_ed25519_key().unwrap_or_else(|_| {
+            warn!("Failed to generate Ed25519 key, using SHA256 for receipts");
+            ReceiptSigner::new()
+        }));
 
         // Register virtual files for all partners
         for partner in &config.partners {

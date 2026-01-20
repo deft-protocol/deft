@@ -1,5 +1,5 @@
 //! Parallel chunk transfer module.
-//! 
+//!
 //! This module is reserved for future use (v2 feature).
 #![allow(dead_code)]
 
