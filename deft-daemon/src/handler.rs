@@ -9,6 +9,7 @@ use std::sync::Arc;
 use deft_protocol::{
     AckStatus, Capabilities, Command, DeftErrorCode, Parser, Response, DEFT_VERSION,
 };
+use sha2::{Digest, Sha256};
 use tracing::{debug, info, warn};
 
 use crate::api::ApiState;
@@ -330,10 +331,18 @@ impl CommandHandler {
         if !partner.allowed_certs.is_empty() {
             if let Some(fingerprint) = session.get_cert_fingerprint() {
                 let fingerprint_lower = fingerprint.to_lowercase();
-                let allowed = partner
-                    .allowed_certs
-                    .iter()
-                    .any(|c| c.to_lowercase() == fingerprint_lower);
+                let allowed = partner.allowed_certs.iter().any(|c| {
+                    // Support both raw fingerprints and certificate file paths
+                    let allowed_fp =
+                        if c.contains('/') || c.ends_with(".crt") || c.ends_with(".pem") {
+                            // It's a file path - compute fingerprint from cert file
+                            compute_cert_fingerprint(c).unwrap_or_default()
+                        } else {
+                            // It's already a fingerprint (with or without colons)
+                            c.replace(':', "").to_lowercase()
+                        };
+                    allowed_fp == fingerprint_lower
+                });
 
                 if !allowed {
                     warn!(
@@ -1031,4 +1040,23 @@ impl CommandHandler {
         session.close();
         Response::Goodbye
     }
+}
+
+/// Compute SHA-256 fingerprint from a PEM certificate file
+fn compute_cert_fingerprint(cert_path: &str) -> Option<String> {
+    let pem_data = std::fs::read_to_string(cert_path).ok()?;
+    let pem = pem_data
+        .lines()
+        .filter(|l| !l.starts_with("-----"))
+        .collect::<String>();
+    let der = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &pem).ok()?;
+    let mut hasher = Sha256::new();
+    hasher.update(&der);
+    let fingerprint = hasher.finalize();
+    Some(
+        fingerprint
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>(),
+    )
 }
