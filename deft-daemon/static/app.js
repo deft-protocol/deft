@@ -118,7 +118,7 @@ async function updatePartners() {
     const tbody = document.getElementById('partners-table');
 
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty">No partners configured</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">No partners configured</td></tr>';
         return;
     }
 
@@ -128,6 +128,11 @@ async function updatePartners() {
             <td>${(p.endpoints || []).map(e => `<code>${escapeHtml(e)}</code>`).join('<br>') || '--'}</td>
             <td>
                 ${(p.virtual_files || []).map(vf => `<span class="badge badge-info">${escapeHtml(vf)}</span>`).join(' ') || '<span class="badge badge-warning">None</span>'}
+            </td>
+            <td>
+                ${(p.allowed_certs || []).length > 0
+            ? `<span class="badge badge-success" title="${(p.allowed_certs || []).map(c => escapeHtml(c.substring(0, 16) + '...')).join('\n')}">🔐 ${(p.allowed_certs || []).length} cert(s)</span>`
+            : '<span class="badge badge-warning">No mTLS</span>'}
             </td>
             <td>
                 <span class="badge ${p.connected ? 'badge-success' : 'badge-warning'}">

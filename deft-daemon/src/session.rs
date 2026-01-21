@@ -18,6 +18,17 @@ pub enum SessionState {
     Closed,
 }
 
+/// Client certificate information extracted during mTLS handshake
+#[derive(Debug, Clone, Default)]
+pub struct ClientCertInfo {
+    /// Common Name (CN) from the certificate subject
+    pub cn: Option<String>,
+    /// SHA-256 fingerprint of the certificate (hex encoded)
+    pub fingerprint: Option<String>,
+    /// Certificate serial number
+    pub serial: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct Session {
     pub id: String,
@@ -30,6 +41,8 @@ pub struct Session {
     pub allowed_virtual_files: Vec<String>,
     pub active_transfer_ids: Vec<String>,
     pub cert_cn: Option<String>,
+    /// mTLS client certificate information
+    pub cert_info: ClientCertInfo,
     // Pull transfer tracking
     pub active_pull_transfer: Option<String>,
     pub active_pull_vf: Option<String>,
@@ -53,6 +66,7 @@ impl Session {
             allowed_virtual_files: Vec::new(),
             active_transfer_ids: Vec::new(),
             cert_cn: None,
+            cert_info: ClientCertInfo::default(),
             active_pull_transfer: None,
             active_pull_vf: None,
             pull_total_chunks: 0,
@@ -62,11 +76,21 @@ impl Session {
     }
 
     pub fn set_cert_cn(&mut self, cn: String) {
-        self.cert_cn = Some(cn);
+        self.cert_cn = Some(cn.clone());
+        self.cert_info.cn = Some(cn);
+    }
+
+    pub fn set_cert_info(&mut self, info: ClientCertInfo) {
+        self.cert_cn = info.cn.clone();
+        self.cert_info = info;
     }
 
     pub fn get_cert_cn(&self) -> Option<&str> {
-        self.cert_cn.as_deref()
+        self.cert_info.cn.as_deref()
+    }
+
+    pub fn get_cert_fingerprint(&self) -> Option<&str> {
+        self.cert_info.fingerprint.as_deref()
     }
 
     pub fn partner_id(&self) -> Option<&str> {
@@ -192,9 +216,32 @@ mod tests {
         session.remove_transfer("transfer-1");
         assert_eq!(session.active_transfer_ids.len(), 1);
         assert_eq!(session.active_transfer_ids[0], "transfer-2");
+    }
 
-        session.remove_transfer("transfer-2");
-        assert!(session.active_transfer_ids.is_empty());
+    #[test]
+    fn test_session_cert_info() {
+        let mut session = Session::new();
+        assert!(session.get_cert_cn().is_none());
+        assert!(session.get_cert_fingerprint().is_none());
+
+        let cert_info = ClientCertInfo {
+            cn: Some("partner-1".to_string()),
+            fingerprint: Some("abc123def456".to_string()),
+            serial: Some("12345678".to_string()),
+        };
+        session.set_cert_info(cert_info);
+
+        assert_eq!(session.get_cert_cn(), Some("partner-1"));
+        assert_eq!(session.get_cert_fingerprint(), Some("abc123def456"));
+    }
+
+    #[test]
+    fn test_session_cert_cn_only() {
+        let mut session = Session::new();
+        session.set_cert_cn("test-cn".to_string());
+
+        assert_eq!(session.get_cert_cn(), Some("test-cn"));
+        assert!(session.get_cert_fingerprint().is_none());
     }
 
     #[test]

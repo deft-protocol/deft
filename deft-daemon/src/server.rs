@@ -12,12 +12,14 @@ use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tracing::{error, info, warn};
 
+use sha2::{Digest, Sha256};
+
 use crate::api::ApiState;
 use crate::config::Config;
 use crate::handler::CommandHandler;
 use crate::metrics;
 use crate::rate_limit::{RateLimitConfig, RateLimiter};
-use crate::session::Session;
+use crate::session::{ClientCertInfo, Session};
 
 pub struct Server {
     config: Config,
@@ -94,16 +96,19 @@ impl Server {
                     tokio::spawn(async move {
                         match acceptor.accept(stream).await {
                             Ok(tls_stream) => {
-                                // Extract client certificate CN for partner identification
-                                let cert_cn = extract_client_cn(&tls_stream);
-                                if let Some(ref cn) = cert_cn {
+                                // Extract client certificate info for mTLS validation
+                                let cert_info = extract_client_cert_info(&tls_stream);
+                                if let Some(ref cn) = cert_info.cn {
                                     info!("Client certificate CN: {}", cn);
+                                }
+                                if let Some(ref fp) = cert_info.fingerprint {
+                                    info!("Client certificate fingerprint: {}", fp);
                                 }
 
                                 if let Err(e) = handle_connection(
                                     tls_stream,
                                     handler,
-                                    cert_cn,
+                                    cert_info,
                                     rate_limiter,
                                     idle_timeout,
                                 )
@@ -128,17 +133,45 @@ impl Server {
     }
 }
 
-fn extract_client_cn<S>(tls_stream: &tokio_rustls::server::TlsStream<S>) -> Option<String> {
+fn extract_client_cert_info<S>(tls_stream: &tokio_rustls::server::TlsStream<S>) -> ClientCertInfo {
     let (_, server_conn) = tls_stream.get_ref();
 
-    // Get peer certificates
-    let certs = server_conn.peer_certificates()?;
-    let first_cert = certs.first()?;
+    let mut info = ClientCertInfo::default();
 
-    // Parse the certificate to extract CN
-    // Using x509-parser would be ideal, but for simplicity we'll parse the DER manually
-    // The CN is typically in the Subject field
-    extract_cn_from_der(first_cert.as_ref())
+    // Get peer certificates
+    if let Some(certs) = server_conn.peer_certificates() {
+        if let Some(first_cert) = certs.first() {
+            // Extract CN from certificate
+            info.cn = extract_cn_from_der(first_cert.as_ref());
+
+            // Compute SHA-256 fingerprint
+            let mut hasher = Sha256::new();
+            hasher.update(first_cert.as_ref());
+            let fingerprint = hasher.finalize();
+            info.fingerprint = Some(hex_encode(&fingerprint));
+
+            // Extract serial number (simplified)
+            info.serial = extract_serial_from_der(first_cert.as_ref());
+        }
+    }
+
+    info
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn extract_serial_from_der(der: &[u8]) -> Option<String> {
+    // Serial number is typically early in the certificate structure
+    // This is a simplified extraction - production should use x509-parser
+    if der.len() > 20 {
+        // Skip to approximate location of serial (after version)
+        let serial_bytes = &der[15..23.min(der.len())];
+        Some(hex_encode(serial_bytes))
+    } else {
+        None
+    }
 }
 
 fn extract_cn_from_der(der: &[u8]) -> Option<String> {
@@ -183,7 +216,7 @@ fn extract_cn_from_der(der: &[u8]) -> Option<String> {
 async fn handle_connection<S>(
     stream: S,
     handler: Arc<CommandHandler>,
-    cert_cn: Option<String>,
+    cert_info: ClientCertInfo,
     rate_limiter: Arc<RateLimiter>,
     idle_timeout: Duration,
 ) -> Result<()>
@@ -194,10 +227,8 @@ where
     let mut reader = TokioBufReader::new(reader);
     let mut session = Session::new();
 
-    // Store certificate CN in session for mTLS-based authentication
-    if let Some(cn) = cert_cn {
-        session.set_cert_cn(cn);
-    }
+    // Store certificate info in session for mTLS-based authentication
+    session.set_cert_info(cert_info);
     let mut line = String::new();
 
     info!("Session {} started", session.id);

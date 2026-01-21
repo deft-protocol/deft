@@ -301,13 +301,65 @@ impl CommandHandler {
             }
         };
 
+        // mTLS validation: verify certificate CN matches partner_id
+        if let Some(cert_cn) = session.get_cert_cn() {
+            if cert_cn != partner_id {
+                warn!(
+                    "mTLS CN mismatch: cert CN '{}' != partner_id '{}'",
+                    cert_cn, partner_id
+                );
+                return Response::error(
+                    DeftErrorCode::Unauthorized,
+                    Some(format!(
+                        "Certificate CN '{}' does not match partner ID '{}'",
+                        cert_cn, partner_id
+                    )),
+                );
+            }
+            info!("mTLS CN validation passed: {}", cert_cn);
+        } else {
+            warn!("No client certificate CN available for mTLS validation");
+        }
+
+        // mTLS validation: verify certificate fingerprint is in allowed_certs
+        if !partner.allowed_certs.is_empty() {
+            if let Some(fingerprint) = session.get_cert_fingerprint() {
+                let fingerprint_lower = fingerprint.to_lowercase();
+                let allowed = partner
+                    .allowed_certs
+                    .iter()
+                    .any(|c| c.to_lowercase() == fingerprint_lower);
+
+                if !allowed {
+                    warn!(
+                        "mTLS fingerprint not in allowed_certs for partner {}: {}",
+                        partner_id, fingerprint
+                    );
+                    return Response::error(
+                        DeftErrorCode::Unauthorized,
+                        Some("Certificate fingerprint not authorized for this partner".to_string()),
+                    );
+                }
+                info!(
+                    "mTLS fingerprint validation passed for partner {}: {}",
+                    partner_id, fingerprint
+                );
+            } else {
+                warn!("No client certificate fingerprint available for mTLS validation");
+                return Response::error(
+                    DeftErrorCode::Unauthorized,
+                    Some("Client certificate required for this partner".to_string()),
+                );
+            }
+        }
+
         let virtual_files: Vec<String> = partner
             .virtual_files
             .iter()
             .map(|vf| vf.name.clone())
             .collect();
 
-        let partner_name = partner_id.clone(); // Could be enhanced with display name
+        let partner_name = partner_id.clone();
 
         session.set_authenticated(partner_id, partner_name.clone(), virtual_files.clone());
 

@@ -168,11 +168,30 @@ Le répertoire `docs/` contient :
 3. **Hash par chunk** : Impossible de modifier un chunk sans détection
 4. **mTLS obligatoire** : Certificats mutuels vérifient les deux parties
 
-### 2.6 Recommandations Sécurité Restantes
+### 2.6 Validation mTLS B2B (v1.0)
+
+| Validation | Implémentation | Fichier |
+|------------|----------------|---------|
+| **Certificat client requis** | `WebPkiClientVerifier` | `server.rs` |
+| **CN ↔ Partner ID** | Vérifie que le CN du certificat correspond au `partner_id` de AUTH | `handler.rs` |
+| **Fingerprint whitelist** | Vérifie le SHA-256 du cert contre `allowed_certs` du partenaire | `handler.rs` |
+| **Extraction cert info** | CN, fingerprint, serial extraits à la connexion | `server.rs` |
+
+**Configuration partenaire avec mTLS strict** :
+```toml
+[[partners]]
+id = "partner-1"
+allowed_certs = [
+    "abc123def456...",  # SHA-256 fingerprint du certificat autorisé
+]
+```
+
+### 2.7 Recommandations Sécurité Restantes
 
 1. **Moyenne** : Rotation automatique des clés
 2. **Basse** : Audit des permissions fichiers
 3. ~~**Basse** : Signature RSA/ECDSA des reçus~~ → ✅ **Ed25519 implémenté**
+4. ~~**Haute** : Validation mTLS par partenaire~~ → ✅ **Fingerprint + CN implémenté**
 
 ---
 
