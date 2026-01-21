@@ -64,8 +64,13 @@ impl CommandHandler {
         }));
 
         // Initialize transfer state store for resumable transfers
+        // Use parent directory of temp_dir + "transfer_states" to avoid replacing /tmp in path
+        let transfer_states_dir = std::path::Path::new(&config.storage.temp_dir)
+            .parent()
+            .map(|p| p.join("transfer_states"))
+            .unwrap_or_else(|| std::path::PathBuf::from("./transfer_states"));
         let transfer_state_store = Arc::new(
-            TransferStateStore::new(config.storage.temp_dir.replace("tmp", "transfer_states"))
+            TransferStateStore::new(&transfer_states_dir)
                 .expect("Failed to initialize transfer state store"),
         );
 

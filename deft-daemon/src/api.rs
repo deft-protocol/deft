@@ -140,11 +140,16 @@ pub struct ApiState {
     pub transfers: RwLock<HashMap<String, TransferStatus>>,
     pub history: RwLock<Vec<TransferHistoryEntry>>,
     history_path: std::path::PathBuf,
+    config_path: Option<std::path::PathBuf>,
     pub client_connection: RwLock<Option<ClientConnection>>,
 }
 
 impl ApiState {
     pub fn new(config: Config) -> Self {
+        Self::with_config_path(config, None)
+    }
+
+    pub fn with_config_path(config: Config, config_path: Option<std::path::PathBuf>) -> Self {
         let history_path = std::path::PathBuf::from(&config.storage.temp_dir).join("history.json");
         let history = Self::load_history(&history_path).unwrap_or_default();
 
@@ -154,8 +159,13 @@ impl ApiState {
             transfers: RwLock::new(HashMap::new()),
             history: RwLock::new(history),
             history_path,
+            config_path,
             client_connection: RwLock::new(None),
         }
+    }
+
+    pub fn set_config_path(&mut self, path: std::path::PathBuf) {
+        self.config_path = Some(path);
     }
 
     fn load_history(path: &std::path::Path) -> Option<Vec<TransferHistoryEntry>> {
@@ -171,6 +181,20 @@ impl ApiState {
             }
             let _ = std::fs::write(&self.history_path, json);
         }
+    }
+
+    /// Save config to file if config_path is set
+    async fn save_config(&self) -> Result<(), String> {
+        let Some(ref path) = self.config_path else {
+            return Err("No config path set".to_string());
+        };
+        let config = self.config.read().await;
+        let toml_str = toml::to_string_pretty(&*config)
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
+        std::fs::write(path, toml_str)
+            .map_err(|e| format!("Failed to write config file: {}", e))?;
+        tracing::info!("Config saved to {:?}", path);
+        Ok(())
     }
 
     pub async fn register_transfer(
@@ -576,21 +600,28 @@ async fn handle_create_partner(state: &ApiState, body: &[u8]) -> (u16, String) {
     let req: Result<PartnerRequest, _> = serde_json::from_slice(body);
     match req {
         Ok(r) => {
-            let mut config = state.config.write().await;
-            if config.partners.iter().any(|p| p.id == r.id) {
-                return (409, r#"{"error":"Partner already exists"}"#.to_string());
+            let partner_id = r.id.clone();
+            {
+                let mut config = state.config.write().await;
+                if config.partners.iter().any(|p| p.id == r.id) {
+                    return (409, r#"{"error":"Partner already exists"}"#.to_string());
+                }
+                let partner = crate::config::PartnerConfig {
+                    id: r.id.clone(),
+                    endpoints: r.endpoints,
+                    allowed_certs: r.allowed_certs.unwrap_or_default(),
+                    allowed_server_certs: r.allowed_server_certs.unwrap_or_default(),
+                    virtual_files: Vec::new(),
+                };
+                config.partners.push(partner);
             }
-            let partner = crate::config::PartnerConfig {
-                id: r.id.clone(),
-                endpoints: r.endpoints,
-                allowed_certs: r.allowed_certs.unwrap_or_default(),
-                allowed_server_certs: r.allowed_server_certs.unwrap_or_default(),
-                virtual_files: Vec::new(),
-            };
-            config.partners.push(partner);
+            // Persist to file
+            if let Err(e) = state.save_config().await {
+                tracing::warn!("Failed to save config: {}", e);
+            }
             (
                 201,
-                serde_json::json!({"status":"created", "id": r.id}).to_string(),
+                serde_json::json!({"status":"created", "id": partner_id}).to_string(),
             )
         }
         Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
@@ -601,14 +632,25 @@ async fn handle_update_partner(state: &ApiState, partner_id: &str, body: &[u8]) 
     let req: Result<PartnerRequest, _> = serde_json::from_slice(body);
     match req {
         Ok(r) => {
-            let mut config = state.config.write().await;
-            if let Some(partner) = config.partners.iter_mut().find(|p| p.id == partner_id) {
-                partner.endpoints = r.endpoints;
-                if let Some(certs) = r.allowed_certs {
-                    partner.allowed_certs = certs;
+            let found = {
+                let mut config = state.config.write().await;
+                if let Some(partner) = config.partners.iter_mut().find(|p| p.id == partner_id) {
+                    partner.endpoints = r.endpoints;
+                    if let Some(certs) = r.allowed_certs {
+                        partner.allowed_certs = certs;
+                    }
+                    if let Some(server_certs) = r.allowed_server_certs {
+                        partner.allowed_server_certs = server_certs;
+                    }
+                    true
+                } else {
+                    false
                 }
-                if let Some(server_certs) = r.allowed_server_certs {
-                    partner.allowed_server_certs = server_certs;
+            };
+            if found {
+                // Persist to file
+                if let Err(e) = state.save_config().await {
+                    tracing::warn!("Failed to save config: {}", e);
                 }
                 (200, r#"{"status":"updated"}"#.to_string())
             } else {
@@ -620,10 +662,17 @@ async fn handle_update_partner(state: &ApiState, partner_id: &str, body: &[u8]) 
 }
 
 async fn handle_delete_partner(state: &ApiState, partner_id: &str) -> (u16, String) {
-    let mut config = state.config.write().await;
-    let before = config.partners.len();
-    config.partners.retain(|p| p.id != partner_id);
-    if config.partners.len() < before {
+    let deleted = {
+        let mut config = state.config.write().await;
+        let before = config.partners.len();
+        config.partners.retain(|p| p.id != partner_id);
+        config.partners.len() < before
+    };
+    if deleted {
+        // Persist to file
+        if let Err(e) = state.save_config().await {
+            tracing::warn!("Failed to save config: {}", e);
+        }
         (200, r#"{"status":"deleted"}"#.to_string())
     } else {
         (404, r#"{"error":"Partner not found"}"#.to_string())

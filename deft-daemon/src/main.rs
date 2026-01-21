@@ -198,7 +198,10 @@ async fn run_daemon(config: Config, config_path: String) -> Result<()> {
 
     // Create shared API state if enabled
     let api_state = if config.limits.api_enabled {
-        Some(std::sync::Arc::new(api::ApiState::new(config.clone())))
+        Some(std::sync::Arc::new(api::ApiState::with_config_path(
+            config.clone(),
+            Some(std::path::PathBuf::from(&config_path)),
+        )))
     } else {
         None
     };
