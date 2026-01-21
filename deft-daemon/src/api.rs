@@ -1375,19 +1375,17 @@ async fn connect_to_server(
         })
         .collect();
 
-    let tls_config = if expected_fingerprints.is_empty() {
-        // No fingerprint validation - just CA validation
-        rustls::ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_client_auth_cert(certs, key)?
-    } else {
-        // Use custom verifier with fingerprint validation
-        let verifier = FingerprintServerVerifier::new(Arc::new(root_store), expected_fingerprints)?;
-        rustls::ClientConfig::builder()
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(verifier))
-            .with_client_auth_cert(certs, key)?
-    };
+    // Server certificate fingerprint validation is mandatory
+    if expected_fingerprints.is_empty() {
+        return Err("No allowed_server_certs configured for this partner - server certificate validation is mandatory".into());
+    }
+
+    // Use custom verifier with fingerprint validation
+    let verifier = FingerprintServerVerifier::new(Arc::new(root_store), expected_fingerprints)?;
+    let tls_config = rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(verifier))
+        .with_client_auth_cert(certs, key)?;
 
     let connector = TlsConnector::from(Arc::new(tls_config));
 
