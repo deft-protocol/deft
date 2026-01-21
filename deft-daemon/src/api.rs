@@ -934,7 +934,7 @@ async fn handle_delete_transfer_state(state: &ApiState, id: &str) -> (u16, Strin
     }
 }
 
-async fn handle_delta_compute(state: &ApiState, body: &[u8]) -> (u16, String) {
+async fn handle_delta_compute(_state: &ApiState, body: &[u8]) -> (u16, String) {
     #[derive(Deserialize)]
     struct DeltaComputeRequest {
         base_file: String,
