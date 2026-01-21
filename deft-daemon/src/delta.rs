@@ -1,6 +1,7 @@
 //! Delta transfer module for incremental file synchronization.
 //!
-//! This module is reserved for future use (v2 feature).
+//! Used by API for computing file signatures and deltas (rsync-like sync).
+//! Delta::apply is ready for full integration in v2.0.
 #![allow(dead_code)]
 
 use sha2::{Digest, Sha256};

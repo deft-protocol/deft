@@ -98,18 +98,18 @@ Les fichiers avec `#![allow(dead_code)]` se répartissent en deux catégories :
 | `platform.rs` | 89 | ✅ **Intégré** | Fonctions OS-specific |
 | `client.rs` | 371 | ✅ **Intégré** | Modes de transfert alternatifs |
 
-#### Modules NON intégrés (code complet mais pas appelé)
+#### Modules intégrés partiellement (v2.0 pour intégration complète)
 
-| Fichier | Lignes | Fonctions | Statut | Action requise |
-|---------|--------|-----------|--------|----------------|
-| `parallel.rs` | 384 | 26 | ❌ **Non intégré** | Intégrer pour transferts multi-connexions |
-| `delta.rs` | 408 | 11 | ❌ **Non intégré** | Intégrer pour sync incrémentale rsync-like |
-| `transfer_state.rs` | 283 | 15 | ❌ **Non intégré** | Intégrer pour reprise persistante |
+| Fichier | Lignes | Statut | Intégration actuelle | Reste v2.0 |
+|---------|--------|--------|----------------------|------------|
+| `parallel.rs` | 384 | ⚡ **Partiel** | `ParallelConfig` utilisé par handler/API | ParallelSender, Receiver, Coordinator |
+| `delta.rs` | 408 | ⚡ **Partiel** | API `/api/delta/signature`, `/api/delta/compute` | `Delta::apply` pour reconstruction |
+| `transfer_state.rs` | 283 | ⚡ **Partiel** | API `/api/transfer-states`, handler persist | `find_by_virtual_file`, `cleanup_completed` |
 
 **Conclusion** :
-- **3 modules complets non intégrés** : `parallel.rs`, `delta.rs`, `transfer_state.rs`
-- Ces modules représentent ~1075 lignes de code fonctionnel prêt à intégrer
-- L'intégration nécessite de les appeler depuis le flux principal (handler, client)
+- **3 modules maintenant intégrés** avec API endpoints
+- Structures avancées (ParallelSender, Delta::apply) prêtes pour v2.0
+- ~1075 lignes de code fonctionnel partiellement utilisé
 
 ### 1.5 Documentation
 

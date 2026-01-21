@@ -8,7 +8,10 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use crate::config::{Config, Direction, VirtualFileConfig};
+use crate::delta::{Delta, FileSignature, DELTA_BLOCK_SIZE};
 use crate::metrics;
+use crate::parallel::ParallelConfig;
+use crate::transfer_state::TransferStateStore;
 
 /// API Server configuration
 #[derive(Debug, Clone)]
@@ -450,6 +453,16 @@ async fn handle_request(
         ("POST", "/api/client/pull") => handle_client_pull(&state, request_body).await,
         ("POST", "/api/client/push") => handle_client_push(&state, request_body).await,
 
+        // Delta sync endpoints
+        ("POST", "/api/delta/signature") => handle_delta_signature(&state, request_body).await,
+        ("POST", "/api/delta/compute") => handle_delta_compute(&state, request_body).await,
+        ("GET", "/api/parallel/config") => handle_parallel_config().await,
+        ("GET", "/api/transfer-states") => handle_list_transfer_states(&state).await,
+        ("DELETE", p) if p.starts_with("/api/transfer-states/") => {
+            let id = p.strip_prefix("/api/transfer-states/").unwrap_or("");
+            handle_delete_transfer_state(&state, id).await
+        }
+
         // Static files
         ("GET", "/") | ("GET", "/index.html") => {
             send_html(&mut stream).await;
@@ -789,6 +802,202 @@ async fn handle_history(state: &ApiState) -> (u16, String) {
 async fn handle_metrics() -> (u16, String) {
     let output = metrics::gather_metrics();
     (200, serde_json::json!({ "metrics": output }).to_string())
+}
+
+async fn handle_delta_signature(state: &ApiState, body: &[u8]) -> (u16, String) {
+    #[derive(Deserialize)]
+    struct DeltaSignatureRequest {
+        virtual_file: String,
+        block_size: Option<usize>,
+    }
+
+    let req: Result<DeltaSignatureRequest, _> = serde_json::from_slice(body);
+    match req {
+        Ok(r) => {
+            let config = state.config.read().await;
+            // Find the virtual file path
+            for partner in &config.partners {
+                for vf in &partner.virtual_files {
+                    if vf.name == r.virtual_file {
+                        let block_size = r.block_size.unwrap_or(DELTA_BLOCK_SIZE);
+                        match std::fs::File::open(&vf.path) {
+                            Ok(mut file) => match FileSignature::compute(&mut file, block_size) {
+                                Ok(sig) => {
+                                    return (
+                                        200,
+                                        serde_json::json!({
+                                            "virtual_file": r.virtual_file,
+                                            "block_size": sig.block_size,
+                                            "file_size": sig.file_size,
+                                            "blocks_count": sig.blocks.len()
+                                        })
+                                        .to_string(),
+                                    );
+                                }
+                                Err(e) => {
+                                    return (
+                                            500,
+                                            serde_json::json!({"error": format!("Failed to compute signature: {}", e)}).to_string(),
+                                        );
+                                }
+                            },
+                            Err(e) => {
+                                return (
+                                    404,
+                                    serde_json::json!({"error": format!("File not found: {}", e)})
+                                        .to_string(),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            (404, r#"{"error":"Virtual file not found"}"#.to_string())
+        }
+        Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
+    }
+}
+
+async fn handle_parallel_config() -> (u16, String) {
+    let config = ParallelConfig::default();
+    (
+        200,
+        serde_json::json!({
+            "max_concurrent": config.max_concurrent,
+            "buffer_size": config.buffer_size
+        })
+        .to_string(),
+    )
+}
+
+async fn handle_list_transfer_states(state: &ApiState) -> (u16, String) {
+    let config = state.config.read().await;
+    let store_path = config.storage.temp_dir.replace("tmp", "transfer_states");
+    match TransferStateStore::new(&store_path) {
+        Ok(store) => match store.list_incomplete() {
+            Ok(states) => {
+                let summary: Vec<_> = states
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "transfer_id": s.transfer_id,
+                            "virtual_file": s.virtual_file,
+                            "progress_percent": s.progress_percent(),
+                            "received_chunks": s.received_count(),
+                            "total_chunks": s.total_chunks,
+                            "pending_chunks": s.pending_chunks().len(),
+                            "is_complete": s.is_complete(),
+                            "started_at": s.started_at,
+                            "last_updated": s.last_updated
+                        })
+                    })
+                    .collect();
+                (200, serde_json::to_string(&summary).unwrap_or_default())
+            }
+            Err(e) => (
+                500,
+                serde_json::json!({"error": format!("Failed to list states: {}", e)}).to_string(),
+            ),
+        },
+        Err(e) => (
+            500,
+            serde_json::json!({"error": format!("Failed to open store: {}", e)}).to_string(),
+        ),
+    }
+}
+
+async fn handle_delete_transfer_state(state: &ApiState, id: &str) -> (u16, String) {
+    let config = state.config.read().await;
+    let store_path = config.storage.temp_dir.replace("tmp", "transfer_states");
+    match TransferStateStore::new(&store_path) {
+        Ok(store) => {
+            if store.exists(id) {
+                match store.delete(id) {
+                    Ok(_) => (
+                        200,
+                        serde_json::json!({"status": "deleted", "id": id}).to_string(),
+                    ),
+                    Err(e) => (
+                        500,
+                        serde_json::json!({"error": format!("Failed to delete: {}", e)})
+                            .to_string(),
+                    ),
+                }
+            } else {
+                (404, r#"{"error":"Transfer state not found"}"#.to_string())
+            }
+        }
+        Err(e) => (
+            500,
+            serde_json::json!({"error": format!("Failed to open store: {}", e)}).to_string(),
+        ),
+    }
+}
+
+async fn handle_delta_compute(state: &ApiState, body: &[u8]) -> (u16, String) {
+    #[derive(Deserialize)]
+    struct DeltaComputeRequest {
+        base_file: String,
+        new_file: String,
+        block_size: Option<usize>,
+    }
+
+    let req: Result<DeltaComputeRequest, _> = serde_json::from_slice(body);
+    match req {
+        Ok(r) => {
+            let block_size = r.block_size.unwrap_or(DELTA_BLOCK_SIZE);
+
+            // Open base file and compute signature
+            let base_sig = match std::fs::File::open(&r.base_file) {
+                Ok(mut file) => match FileSignature::compute(&mut file, block_size) {
+                    Ok(sig) => sig,
+                    Err(e) => {
+                        return (
+                            500,
+                            serde_json::json!({"error": format!("Failed to compute base signature: {}", e)}).to_string(),
+                        )
+                    }
+                },
+                Err(e) => {
+                    return (
+                        404,
+                        serde_json::json!({"error": format!("Base file not found: {}", e)}).to_string(),
+                    )
+                }
+            };
+
+            // Open new file and compute delta
+            match std::fs::File::open(&r.new_file) {
+                Ok(mut file) => match Delta::compute(&base_sig, &mut file) {
+                    Ok(delta) => {
+                        let stats = delta.stats();
+                        (
+                            200,
+                            serde_json::json!({
+                                "block_size": delta.block_size,
+                                "target_size": delta.target_size,
+                                "operations_count": stats.total_ops,
+                                "copy_blocks": stats.copy_blocks,
+                                "insert_bytes": stats.insert_bytes,
+                                "savings_percent": format!("{:.1}", delta.savings(base_sig.file_size) * 100.0)
+                            })
+                            .to_string(),
+                        )
+                    }
+                    Err(e) => (
+                        500,
+                        serde_json::json!({"error": format!("Failed to compute delta: {}", e)})
+                            .to_string(),
+                    ),
+                },
+                Err(e) => (
+                    404,
+                    serde_json::json!({"error": format!("New file not found: {}", e)}).to_string(),
+                ),
+            }
+        }
+        Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
+    }
 }
 
 async fn handle_config(state: &ApiState) -> (u16, String) {

@@ -17,10 +17,12 @@ use crate::compression::decompress;
 use crate::config::{Config, Direction};
 use crate::hooks::{HookContext, HookEvent, HookManager};
 use crate::metrics;
+use crate::parallel::ParallelConfig;
 use crate::receipt::ReceiptStore;
 use crate::session::{Session, SessionState};
 use crate::signer::ReceiptSigner;
 use crate::transfer::TransferManager;
+use crate::transfer_state::TransferStateStore;
 use crate::virtual_file::VirtualFileManager;
 
 pub struct CommandHandler {
@@ -32,6 +34,8 @@ pub struct CommandHandler {
     hook_manager: Arc<HookManager>,
     signer: Arc<ReceiptSigner>,
     api_state: Option<Arc<ApiState>>,
+    transfer_state_store: Arc<TransferStateStore>,
+    parallel_config: ParallelConfig,
 }
 
 impl CommandHandler {
@@ -59,6 +63,15 @@ impl CommandHandler {
             ReceiptSigner::new()
         }));
 
+        // Initialize transfer state store for resumable transfers
+        let transfer_state_store = Arc::new(
+            TransferStateStore::new(config.storage.temp_dir.replace("tmp", "transfer_states"))
+                .expect("Failed to initialize transfer state store"),
+        );
+
+        // Initialize parallel transfer config
+        let parallel_config = ParallelConfig::default();
+
         // Register virtual files for all partners
         for partner in &config.partners {
             for vf in &partner.virtual_files {
@@ -77,6 +90,8 @@ impl CommandHandler {
             hook_manager,
             signer,
             api_state,
+            transfer_state_store,
+            parallel_config,
         }
     }
 
@@ -135,6 +150,26 @@ impl CommandHandler {
                 api.remove_transfer(&id).await;
             });
         }
+    }
+
+    /// Persist chunk received for resumable transfers
+    fn persist_chunk_received(&self, transfer_id: &str, chunk_index: u64) {
+        if let Ok(mut state) = self.transfer_state_store.load(transfer_id) {
+            state.mark_chunk_received(chunk_index);
+            if let Err(e) = self.transfer_state_store.save(&state) {
+                warn!("Failed to persist transfer state: {}", e);
+            }
+        }
+    }
+
+    /// Get parallel config for transfer operations
+    pub fn parallel_config(&self) -> &ParallelConfig {
+        &self.parallel_config
+    }
+
+    /// Get transfer state store for resume operations
+    pub fn transfer_state_store(&self) -> &Arc<TransferStateStore> {
+        &self.transfer_state_store
     }
 
     /// Execute a hook asynchronously
@@ -705,6 +740,9 @@ impl CommandHandler {
                         };
                     }
                     metrics::record_chunk_received();
+
+                    // Persist transfer state for resumable transfers
+                    self.persist_chunk_received(&id, chunk_index);
 
                     // Update progress in API dashboard
                     if let Some(transfer) = self.transfer_manager.get_transfer(&id) {

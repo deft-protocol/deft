@@ -1,6 +1,8 @@
 //! Parallel chunk transfer module.
 //!
-//! This module is reserved for future use (v2 feature).
+//! Used by handler and API for parallel transfer configuration.
+//! ParallelSender, ParallelReceiver, BatchSender, TransferCoordinator are ready
+//! for full integration in v2.0 (requires client refactoring).
 #![allow(dead_code)]
 
 use std::collections::HashMap;

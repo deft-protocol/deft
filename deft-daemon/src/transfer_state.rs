@@ -1,6 +1,7 @@
 //! Transfer state persistence for resumable transfers.
 //!
-//! Reserved for transfer resume functionality.
+//! Used by handler for interrupt/resume functionality.
+//! Some utility methods (find_by_virtual_file, cleanup_completed) are ready for v2.0.
 #![allow(dead_code)]
 
 use std::collections::HashSet;
