@@ -1,14 +1,167 @@
 // DEFT Console
 const API_BASE = window.location.origin;
+const WS_URL = `ws://${window.location.host}/ws`;
 let refreshInterval = null;
 let cachedPartners = [];
 let cachedVirtualFiles = [];
 let clientConnected = false;
 let refreshPaused = false;
+let ws = null;
+let wsReconnectTimer = null;
+let activeChunkMatrices = {}; // transfer_id -> chunk statuses array
 
 // Pause refresh when any modal is open or form input is focused
 function pauseRefresh() { refreshPaused = true; }
 function resumeRefresh() { refreshPaused = false; }
+
+// ============ WebSocket ============
+function connectWebSocket() {
+    if (ws && ws.readyState === WebSocket.OPEN) return;
+
+    ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+        addLogEntry('WebSocket connected');
+        document.getElementById('connection-status').textContent = 'Connected (WS)';
+        document.getElementById('connection-status').classList.add('connected');
+        if (wsReconnectTimer) {
+            clearInterval(wsReconnectTimer);
+            wsReconnectTimer = null;
+        }
+    };
+
+    ws.onmessage = (event) => {
+        try {
+            const msg = JSON.parse(event.data);
+            handleWsMessage(msg);
+        } catch (e) {
+            console.error('WS parse error:', e);
+        }
+    };
+
+    ws.onclose = () => {
+        addLogEntry('WebSocket disconnected, reconnecting...');
+        document.getElementById('connection-status').textContent = 'Reconnecting...';
+        document.getElementById('connection-status').classList.remove('connected');
+        if (!wsReconnectTimer) {
+            wsReconnectTimer = setInterval(connectWebSocket, 3000);
+        }
+    };
+
+    ws.onerror = (e) => {
+        console.error('WebSocket error:', e);
+    };
+}
+
+function handleWsMessage(msg) {
+    switch (msg.type) {
+        case 'transfers':
+            renderTransfers(msg.data);
+            break;
+        case 'history':
+            renderHistory(msg.data);
+            break;
+        case 'chunk_update':
+            updateChunkMatrix(msg.data.transfer_id, msg.data.chunk_index, msg.data.status);
+            break;
+        case 'transfer_init':
+            initChunkMatrix(msg.data.transfer_id, msg.data.total_chunks, msg.data.virtual_file, msg.data.direction);
+            break;
+        case 'transfer_complete':
+            completeChunkMatrix(msg.data.transfer_id, msg.data.success);
+            break;
+        case 'status':
+            renderStatus(msg.data);
+            break;
+    }
+}
+
+// ============ Chunk Matrix Visualization ============
+function initChunkMatrix(transferId, totalChunks, virtualFile, direction) {
+    activeChunkMatrices[transferId] = {
+        total: totalChunks,
+        statuses: new Array(totalChunks).fill('pending'),
+        virtualFile,
+        direction
+    };
+    renderChunkMatrixContainer();
+}
+
+function updateChunkMatrix(transferId, chunkIndex, status) {
+    if (activeChunkMatrices[transferId]) {
+        activeChunkMatrices[transferId].statuses[chunkIndex] = status;
+        renderChunkMatrix(transferId);
+    }
+}
+
+function completeChunkMatrix(transferId, success) {
+    if (activeChunkMatrices[transferId]) {
+        // Mark all remaining as validated on success
+        if (success) {
+            activeChunkMatrices[transferId].statuses =
+                activeChunkMatrices[transferId].statuses.map(s => s === 'pending' ? 'validated' : s);
+        }
+        renderChunkMatrix(transferId);
+        // Remove after a delay
+        setTimeout(() => {
+            delete activeChunkMatrices[transferId];
+            renderChunkMatrixContainer();
+        }, 5000);
+    }
+}
+
+function renderChunkMatrixContainer() {
+    const container = document.getElementById('chunk-matrices');
+    if (!container) return;
+
+    const ids = Object.keys(activeChunkMatrices);
+    if (ids.length === 0) {
+        container.innerHTML = '<p class="text-muted">No active transfers</p>';
+        return;
+    }
+
+    container.innerHTML = ids.map(id => {
+        const m = activeChunkMatrices[id];
+        return `
+            <div class="chunk-matrix-card" id="matrix-${id}">
+                <div class="matrix-header">
+                    <strong>${escapeHtml(m.virtualFile)}</strong>
+                    <span class="badge ${m.direction === 'send' ? 'badge-primary' : 'badge-info'}">${m.direction}</span>
+                    <span class="matrix-progress">${getMatrixProgress(id)}</span>
+                </div>
+                <div class="chunk-grid" id="grid-${id}"></div>
+            </div>
+        `;
+    }).join('');
+
+    ids.forEach(id => renderChunkMatrix(id));
+}
+
+function renderChunkMatrix(transferId) {
+    const grid = document.getElementById(`grid-${transferId}`);
+    if (!grid || !activeChunkMatrices[transferId]) return;
+
+    const m = activeChunkMatrices[transferId];
+    const chunkSize = Math.max(4, Math.min(12, Math.floor(200 / Math.sqrt(m.total))));
+
+    grid.innerHTML = m.statuses.map((status, i) =>
+        `<div class="chunk chunk-${status}" title="Chunk ${i}: ${status}" style="width:${chunkSize}px;height:${chunkSize}px;"></div>`
+    ).join('');
+
+    // Update progress
+    const progressEl = document.querySelector(`#matrix-${transferId} .matrix-progress`);
+    if (progressEl) {
+        progressEl.textContent = getMatrixProgress(transferId);
+    }
+}
+
+function getMatrixProgress(transferId) {
+    const m = activeChunkMatrices[transferId];
+    if (!m) return '';
+    const validated = m.statuses.filter(s => s === 'validated').length;
+    const received = m.statuses.filter(s => s === 'received' || s === 'validated').length;
+    return `${validated}/${m.total} (${Math.round(validated / m.total * 100)}%)`;
+}
 
 // Tab navigation
 document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -92,10 +245,15 @@ document.querySelectorAll('.modal').forEach(modal => {
 // ============ Status Updates ============
 async function updateStatus() {
     const data = await apiFetch('/api/status');
-    const badge = document.getElementById('connection-status');
+    if (data) renderStatus(data);
+}
 
+function renderStatus(data) {
+    const badge = document.getElementById('connection-status');
     if (data) {
-        badge.textContent = 'Connected';
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            badge.textContent = 'Connected';
+        }
         badge.classList.add('connected');
         badge.classList.remove('error');
         document.getElementById('stat-uptime').textContent = formatUptime(data.uptime_seconds);
@@ -103,10 +261,6 @@ async function updateStatus() {
         document.getElementById('stat-transfers').textContent = data.active_transfers;
         document.getElementById('stat-version').textContent = `v${data.version}`;
         document.getElementById('footer-version').textContent = data.version;
-    } else {
-        badge.textContent = 'Disconnected';
-        badge.classList.remove('connected');
-        badge.classList.add('error');
     }
     document.getElementById('last-update').textContent = `Last update: ${new Date().toLocaleTimeString()}`;
 }
@@ -305,6 +459,10 @@ document.getElementById('vf-form').addEventListener('submit', async (e) => {
 // ============ Transfers ============
 async function updateTransfers() {
     const data = await apiFetch('/api/transfers');
+    if (data) renderTransfers(data);
+}
+
+function renderTransfers(data) {
     const tbody = document.getElementById('transfers-table');
 
     if (!data || data.length === 0) {
@@ -376,6 +534,10 @@ async function resumeTransfer(id) {
 // ============ History ============
 async function updateHistory() {
     const data = await apiFetch('/api/history');
+    if (data) renderHistory(data);
+}
+
+function renderHistory(data) {
     const tbody = document.getElementById('history-table');
 
     if (!data || data.length === 0) {
@@ -693,8 +855,19 @@ document.addEventListener('DOMContentLoaded', () => {
         el.addEventListener('blur', resumeRefresh);
     });
 
+    // Initial load via HTTP
     refreshAll();
-    updateSettings(); // Load settings once on init
-    refreshInterval = setInterval(refreshDynamic, 5000);
+    updateSettings();
+
+    // Connect WebSocket for real-time updates
+    connectWebSocket();
+
+    // Fallback polling only if WebSocket fails (reduced interval)
+    refreshInterval = setInterval(() => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            refreshDynamic();
+        }
+    }, 10000);
+
     addLogEntry('Console initialized');
 });

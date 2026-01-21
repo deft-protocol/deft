@@ -1,10 +1,12 @@
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
+use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, info, warn};
 
 use crate::config::{Config, Direction, VirtualFileConfig};
@@ -32,6 +34,17 @@ impl Default for ApiConfig {
     }
 }
 
+/// Chunk status for visualization
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChunkStatus {
+    Pending,   // Gray - not yet received
+    Receiving, // Blue - currently being received
+    Received,  // Yellow - received but not validated
+    Validated, // Green - received and validated
+    Error,     // Red - error during transfer
+}
+
 /// Transfer status for API
 #[derive(Debug, Clone, Serialize)]
 pub struct TransferStatus {
@@ -45,6 +58,35 @@ pub struct TransferStatus {
     pub total_bytes: u64,
     pub started_at: String,
     pub updated_at: String,
+    pub total_chunks: u32,
+    pub chunk_statuses: Vec<ChunkStatus>,
+}
+
+/// WebSocket event types
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", content = "data")]
+pub enum WsEvent {
+    #[serde(rename = "status")]
+    Status(serde_json::Value),
+    #[serde(rename = "transfers")]
+    Transfers(Vec<TransferStatus>),
+    #[serde(rename = "history")]
+    History(Vec<TransferHistoryEntry>),
+    #[serde(rename = "chunk_update")]
+    ChunkUpdate {
+        transfer_id: String,
+        chunk_index: u32,
+        status: ChunkStatus,
+    },
+    #[serde(rename = "transfer_init")]
+    TransferInit {
+        transfer_id: String,
+        total_chunks: u32,
+        virtual_file: String,
+        direction: String,
+    },
+    #[serde(rename = "transfer_complete")]
+    TransferComplete { transfer_id: String, success: bool },
 }
 
 /// Partner status for API
@@ -142,12 +184,14 @@ pub struct ApiState {
     history_path: std::path::PathBuf,
     config_path: Option<std::path::PathBuf>,
     pub client_connection: RwLock<Option<ClientConnection>>,
+    pub ws_broadcast: broadcast::Sender<WsEvent>,
 }
 
 impl ApiState {
     pub fn new(config: Config, config_path: Option<std::path::PathBuf>) -> Self {
         let history_path = std::path::PathBuf::from(&config.storage.temp_dir).join("history.json");
         let history = Self::load_history(&history_path).unwrap_or_default();
+        let (ws_broadcast, _) = broadcast::channel(256);
 
         Self {
             config: RwLock::new(config),
@@ -157,7 +201,18 @@ impl ApiState {
             history_path,
             config_path,
             client_connection: RwLock::new(None),
+            ws_broadcast,
         }
+    }
+
+    /// Broadcast a WebSocket event to all connected clients
+    pub fn broadcast(&self, event: WsEvent) {
+        let _ = self.ws_broadcast.send(event);
+    }
+
+    /// Subscribe to WebSocket events
+    pub fn subscribe(&self) -> broadcast::Receiver<WsEvent> {
+        self.ws_broadcast.subscribe()
     }
 
     fn load_history(path: &std::path::Path) -> Option<Vec<TransferHistoryEntry>> {
@@ -208,8 +263,46 @@ impl ApiState {
             total_bytes,
             started_at: chrono::Utc::now().to_rfc3339(),
             updated_at: chrono::Utc::now().to_rfc3339(),
+            total_chunks: 0,
+            chunk_statuses: Vec::new(),
         };
         self.transfers.write().await.insert(id, status);
+    }
+
+    /// Initialize transfer with chunk count for visualization
+    pub async fn init_transfer_chunks(
+        &self,
+        id: &str,
+        total_chunks: u32,
+        virtual_file: &str,
+        direction: &str,
+    ) {
+        if let Some(t) = self.transfers.write().await.get_mut(id) {
+            t.total_chunks = total_chunks;
+            t.chunk_statuses = vec![ChunkStatus::Pending; total_chunks as usize];
+        }
+        // Broadcast transfer init event
+        self.broadcast(WsEvent::TransferInit {
+            transfer_id: id.to_string(),
+            total_chunks,
+            virtual_file: virtual_file.to_string(),
+            direction: direction.to_string(),
+        });
+    }
+
+    /// Update a single chunk's status
+    pub async fn update_chunk_status(&self, id: &str, chunk_index: u32, status: ChunkStatus) {
+        if let Some(t) = self.transfers.write().await.get_mut(id) {
+            if (chunk_index as usize) < t.chunk_statuses.len() {
+                t.chunk_statuses[chunk_index as usize] = status;
+            }
+        }
+        // Broadcast chunk update
+        self.broadcast(WsEvent::ChunkUpdate {
+            transfer_id: id.to_string(),
+            chunk_index,
+            status,
+        });
     }
 
     pub async fn update_transfer_progress(&self, id: &str, bytes: u64, total: u64) {
@@ -238,8 +331,15 @@ impl ApiState {
                 completed_at: Some(chrono::Utc::now().to_rfc3339()),
             };
             drop(transfers); // Release lock before acquiring another
-            self.history.write().await.push(entry);
+            self.history.write().await.push(entry.clone());
             self.save_history().await;
+
+            // Broadcast completion
+            self.broadcast(WsEvent::TransferComplete {
+                transfer_id: id.to_string(),
+                success: true,
+            });
+            self.broadcast(WsEvent::History(self.history.read().await.clone()));
         }
     }
 
@@ -348,6 +448,17 @@ async fn handle_request(
     let path = parts[1];
 
     debug!("API {} {} from {}", method, path, peer);
+
+    // Check for WebSocket upgrade
+    if path == "/ws" {
+        let is_upgrade = lines.iter().any(|l| {
+            l.to_lowercase().contains("upgrade:") && l.to_lowercase().contains("websocket")
+        });
+        if is_upgrade {
+            handle_websocket(stream, peer, state, &request).await;
+            return;
+        }
+    }
 
     // Check API key if configured
     if let Some(ref key) = api_key {
@@ -552,6 +663,103 @@ async fn send_static(stream: &mut TcpStream, path: &str) {
         content
     );
     let _ = stream.write_all(response.as_bytes()).await;
+}
+
+async fn handle_websocket(
+    stream: TcpStream,
+    peer: SocketAddr,
+    state: Arc<ApiState>,
+    request: &str,
+) {
+    use sha1::{Digest, Sha1};
+
+    // Extract Sec-WebSocket-Key
+    let key = request
+        .lines()
+        .find(|l| l.to_lowercase().starts_with("sec-websocket-key:"))
+        .and_then(|l| l.split(':').nth(1))
+        .map(|k| k.trim())
+        .unwrap_or("");
+
+    // Compute accept key
+    let accept = {
+        let mut hasher = Sha1::new();
+        hasher.update(format!("{}258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key).as_bytes());
+        base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            hasher.finalize(),
+        )
+    };
+
+    // Send upgrade response
+    let response = format!(
+        "HTTP/1.1 101 Switching Protocols\r\n\
+         Upgrade: websocket\r\n\
+         Connection: Upgrade\r\n\
+         Sec-WebSocket-Accept: {}\r\n\
+         \r\n",
+        accept
+    );
+
+    let mut stream = stream;
+    if stream.write_all(response.as_bytes()).await.is_err() {
+        return;
+    }
+
+    info!("WebSocket connection from {}", peer);
+
+    // Convert to WebSocket stream
+    let ws_stream = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        stream,
+        tokio_tungstenite::tungstenite::protocol::Role::Server,
+        None,
+    )
+    .await;
+
+    let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+    let mut rx = state.subscribe();
+
+    // Send initial state
+    let transfers: Vec<TransferStatus> = state.transfers.read().await.values().cloned().collect();
+    if let Ok(json) = serde_json::to_string(&WsEvent::Transfers(transfers)) {
+        let _ = ws_sender.send(Message::Text(json)).await;
+    }
+
+    let history = state.history.read().await.clone();
+    if let Ok(json) = serde_json::to_string(&WsEvent::History(history)) {
+        let _ = ws_sender.send(Message::Text(json)).await;
+    }
+
+    loop {
+        tokio::select! {
+            // Receive from broadcast channel
+            event = rx.recv() => {
+                match event {
+                    Ok(evt) => {
+                        if let Ok(json) = serde_json::to_string(&evt) {
+                            if ws_sender.send(Message::Text(json)).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => break,
+                }
+            }
+            // Receive from WebSocket (for ping/pong and close)
+            msg = ws_receiver.next() => {
+                match msg {
+                    Some(Ok(Message::Ping(data))) => {
+                        let _ = ws_sender.send(Message::Pong(data)).await;
+                    }
+                    Some(Ok(Message::Close(_))) | None => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    info!("WebSocket connection closed from {}", peer);
 }
 
 async fn handle_status(state: &ApiState) -> (u16, String) {

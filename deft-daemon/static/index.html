@@ -112,6 +112,20 @@
             <!-- Transfers Tab -->
             <section id="transfers" class="tab-content">
                 <div class="card">
+                    <h2>Chunk Visualization</h2>
+                    <p class="text-muted">Real-time view of chunk transfer status</p>
+                    <div id="chunk-matrices">
+                        <p class="text-muted">No active transfers</p>
+                    </div>
+                    <div class="chunk-legend">
+                        <span><span class="chunk chunk-pending"></span> Pending</span>
+                        <span><span class="chunk chunk-receiving"></span> Receiving</span>
+                        <span><span class="chunk chunk-received"></span> Received</span>
+                        <span><span class="chunk chunk-validated"></span> Validated</span>
+                        <span><span class="chunk chunk-error"></span> Error</span>
+                    </div>
+                </div>
+                <div class="card">
                     <h2>Active Transfers</h2>
                     <table class="data-table">
                         <thead>
