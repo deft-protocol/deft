@@ -1452,8 +1452,8 @@ async fn handle_client_pull(state: &ApiState, body: &[u8]) -> (u16, String) {
                     transfer_id.clone(),
                     r.virtual_file.clone(),
                     partner_id,
-                    "pull".to_string(),
-                    0, // Size unknown until transfer starts
+                    "receive".to_string(), // Client pulls = receives data
+                    0,                     // Size unknown until transfer starts
                 )
                 .await;
 
@@ -1702,7 +1702,7 @@ async fn handle_client_push(state: &ApiState, body: &[u8]) -> (u16, String) {
                     transfer_id.clone(),
                     r.virtual_file.clone(),
                     partner_id,
-                    "push".to_string(),
+                    "send".to_string(), // Client pushes = sends data
                     file_size,
                 )
                 .await;
