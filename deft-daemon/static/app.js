@@ -670,7 +670,6 @@ function addLogEntry(message, type = 'info') {
 
 // ============ Refresh ============
 async function refreshAll() {
-    if (refreshPaused) return;
     await Promise.all([
         updateStatus(),
         updatePartners(),
@@ -678,6 +677,12 @@ async function refreshAll() {
         updateTransfers(),
         updateHistory()
     ]);
+}
+
+// Only refresh active transfers (called by interval)
+async function refreshTransfers() {
+    if (refreshPaused) return;
+    await updateTransfers();
 }
 
 // ============ Initialize ============
@@ -690,6 +695,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     refreshAll();
     updateSettings(); // Load settings once on init
-    refreshInterval = setInterval(refreshAll, 5000);
+    refreshInterval = setInterval(refreshTransfers, 5000);
     addLogEntry('Console initialized');
 });
