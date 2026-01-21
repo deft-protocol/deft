@@ -145,11 +145,7 @@ pub struct ApiState {
 }
 
 impl ApiState {
-    pub fn new(config: Config) -> Self {
-        Self::with_config_path(config, None)
-    }
-
-    pub fn with_config_path(config: Config, config_path: Option<std::path::PathBuf>) -> Self {
+    pub fn new(config: Config, config_path: Option<std::path::PathBuf>) -> Self {
         let history_path = std::path::PathBuf::from(&config.storage.temp_dir).join("history.json");
         let history = Self::load_history(&history_path).unwrap_or_default();
 
@@ -162,10 +158,6 @@ impl ApiState {
             config_path,
             client_connection: RwLock::new(None),
         }
-    }
-
-    pub fn set_config_path(&mut self, path: std::path::PathBuf) {
-        self.config_path = Some(path);
     }
 
     fn load_history(path: &std::path::Path) -> Option<Vec<TransferHistoryEntry>> {
@@ -1337,7 +1329,6 @@ async fn connect_to_server(
     partner_id: &str,
     allowed_server_certs: &[String],
 ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
-    use sha2::{Digest, Sha256};
     use std::sync::Arc;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio_rustls::TlsConnector;
