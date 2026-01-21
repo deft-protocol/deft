@@ -679,10 +679,10 @@ async function refreshAll() {
     ]);
 }
 
-// Only refresh active transfers (called by interval)
-async function refreshTransfers() {
+// Refresh active transfers and history (called by interval)
+async function refreshTransfersAndHistory() {
     if (refreshPaused) return;
-    await updateTransfers();
+    await Promise.all([updateTransfers(), updateHistory()]);
 }
 
 // ============ Initialize ============
@@ -695,6 +695,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     refreshAll();
     updateSettings(); // Load settings once on init
-    refreshInterval = setInterval(refreshTransfers, 5000);
+    refreshInterval = setInterval(refreshTransfersAndHistory, 5000);
     addLogEntry('Console initialized');
 });
