@@ -54,6 +54,7 @@ pub struct PartnerStatus {
     pub endpoints: Vec<String>,
     pub virtual_files: Vec<String>,
     pub allowed_certs: Vec<String>,
+    pub allowed_server_certs: Vec<String>,
     pub connected: bool,
     pub last_seen: Option<String>,
     pub transfers_today: u64,
@@ -67,6 +68,7 @@ pub struct PartnerRequest {
     pub id: String,
     pub endpoints: Vec<String>,
     pub allowed_certs: Option<Vec<String>>,
+    pub allowed_server_certs: Option<Vec<String>>,
     pub virtual_files: Option<Vec<String>>,
 }
 
@@ -560,6 +562,7 @@ async fn handle_partners(state: &ApiState) -> (u16, String) {
             endpoints: p.endpoints.clone(),
             virtual_files: p.virtual_files.iter().map(|vf| vf.name.clone()).collect(),
             allowed_certs: p.allowed_certs.clone(),
+            allowed_server_certs: p.allowed_server_certs.clone(),
             connected: false,
             last_seen: None,
             transfers_today: 0,
@@ -581,6 +584,7 @@ async fn handle_create_partner(state: &ApiState, body: &[u8]) -> (u16, String) {
                 id: r.id.clone(),
                 endpoints: r.endpoints,
                 allowed_certs: r.allowed_certs.unwrap_or_default(),
+                allowed_server_certs: r.allowed_server_certs.unwrap_or_default(),
                 virtual_files: Vec::new(),
             };
             config.partners.push(partner);
@@ -602,6 +606,9 @@ async fn handle_update_partner(state: &ApiState, partner_id: &str, body: &[u8]) 
                 partner.endpoints = r.endpoints;
                 if let Some(certs) = r.allowed_certs {
                     partner.allowed_certs = certs;
+                }
+                if let Some(server_certs) = r.allowed_server_certs {
+                    partner.allowed_server_certs = server_certs;
                 }
                 (200, r#"{"status":"updated"}"#.to_string())
             } else {
@@ -1006,12 +1013,19 @@ async fn handle_config(state: &ApiState) -> (u16, String) {
         "server": {
             "enabled": config.server.enabled,
             "listen": config.server.listen,
+            "cert": config.server.cert,
+            "key": config.server.key,
+            "ca": config.server.ca,
         },
         "client": {
             "enabled": config.client.enabled,
+            "cert": config.client.cert,
+            "key": config.client.key,
+            "ca": config.client.ca,
         },
         "storage": {
             "chunk_size": config.storage.chunk_size,
+            "temp_dir": config.storage.temp_dir,
         },
         "limits": {
             "max_connections_per_ip": config.limits.max_connections_per_ip,

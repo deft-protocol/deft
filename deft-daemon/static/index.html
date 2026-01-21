@@ -347,9 +347,14 @@
                     <textarea id="partner-endpoints" class="form-control" rows="3" placeholder="host:port"></textarea>
                 </div>
                 <div class="form-group">
-                    <label>Allowed Client Certificates (one per line)</label>
-                    <textarea id="partner-certs" class="form-control" rows="3"
-                        placeholder="/path/to/client.crt"></textarea>
+                    <label>Allowed Client Cert Fingerprints (SHA-256, one per line)</label>
+                    <textarea id="partner-certs" class="form-control" rows="2"
+                        placeholder="abc123... (for incoming connections)"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Allowed Server Cert Fingerprints (SHA-256, one per line)</label>
+                    <textarea id="partner-server-certs" class="form-control" rows="2"
+                        placeholder="def456... (for outgoing connections)"></textarea>
                 </div>
                 <div class="form-group">
                     <label>Virtual Files Access</label>

@@ -131,8 +131,12 @@ pub struct StorageConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PartnerConfig {
     pub id: String,
+    /// Allowed client certificate fingerprints (SHA-256) for incoming connections
     #[serde(default)]
     pub allowed_certs: Vec<String>,
+    /// Allowed server certificate fingerprints (SHA-256) for outgoing connections
+    #[serde(default)]
+    pub allowed_server_certs: Vec<String>,
     #[serde(default)]
     pub endpoints: Vec<String>,
     #[serde(default)]

@@ -168,22 +168,49 @@ Le répertoire `docs/` contient :
 3. **Hash par chunk** : Impossible de modifier un chunk sans détection
 4. **mTLS obligatoire** : Certificats mutuels vérifient les deux parties
 
-### 2.6 Validation mTLS B2B (v1.0)
+### 2.6 Validation mTLS B2B Symétrique (v1.0)
 
-| Validation | Implémentation | Fichier |
-|------------|----------------|---------|
-| **Certificat client requis** | `WebPkiClientVerifier` | `server.rs` |
-| **CN ↔ Partner ID** | Vérifie que le CN du certificat correspond au `partner_id` de AUTH | `handler.rs` |
-| **Fingerprint whitelist** | Vérifie le SHA-256 du cert contre `allowed_certs` du partenaire | `handler.rs` |
-| **Extraction cert info** | CN, fingerprint, serial extraits à la connexion | `server.rs` |
+| Direction | Validation | Implémentation | Fichier |
+|-----------|------------|----------------|---------|
+| **Serveur → Client** | Certificat client requis | `WebPkiClientVerifier` | `server.rs` |
+| **Serveur → Client** | CN ↔ Partner ID | Vérifie CN == `partner_id` de AUTH | `handler.rs` |
+| **Serveur → Client** | Fingerprint whitelist | SHA-256 contre `allowed_certs` | `handler.rs` |
+| **Client → Serveur** | Certificat serveur vérifié | `FingerprintServerVerifier` | `client.rs` |
+| **Client → Serveur** | Fingerprint whitelist | SHA-256 contre `allowed_server_certs` | `client.rs` |
 
-**Configuration partenaire avec mTLS strict** :
+**Configuration partenaire mTLS bidirectionnel** :
 ```toml
 [[partners]]
 id = "partner-1"
+# Certificats clients autorisés (connexions entrantes)
 allowed_certs = [
-    "abc123def456...",  # SHA-256 fingerprint du certificat autorisé
+    "abc123def456...",  # SHA-256 fingerprint
 ]
+# Certificats serveurs autorisés (connexions sortantes)
+allowed_server_certs = [
+    "789xyz012...",     # SHA-256 fingerprint du serveur partenaire
+]
+```
+
+**Flux mTLS complet** :
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     CONNEXION ENTRANTE                          │
+│  Client partenaire → Notre serveur                              │
+│  1. TLS handshake avec certificat client                        │
+│  2. Extraction fingerprint SHA-256 du cert client               │
+│  3. AUTH partner-1 → Vérifie CN == "partner-1"                  │
+│  4. Vérifie fingerprint ∈ allowed_certs[]                       │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                     CONNEXION SORTANTE                          │
+│  Notre client → Serveur partenaire                              │
+│  1. TLS handshake, présente notre certificat client             │
+│  2. Vérifie cert serveur signé par CA                           │
+│  3. Calcule fingerprint SHA-256 du cert serveur                 │
+│  4. Vérifie fingerprint ∈ allowed_server_certs[]                │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### 2.7 Recommandations Sécurité Restantes

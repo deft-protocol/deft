@@ -131,8 +131,11 @@ async function updatePartners() {
             </td>
             <td>
                 ${(p.allowed_certs || []).length > 0
-            ? `<span class="badge badge-success" title="${(p.allowed_certs || []).map(c => escapeHtml(c.substring(0, 16) + '...')).join('\n')}">🔐 ${(p.allowed_certs || []).length} cert(s)</span>`
-            : '<span class="badge badge-warning">No mTLS</span>'}
+            ? `<span class="badge badge-success" title="Client certs:\n${(p.allowed_certs || []).map(c => escapeHtml(c.substring(0, 16) + '...')).join('\n')}">🔐 ${(p.allowed_certs || []).length} client</span>`
+            : '<span class="badge badge-warning">No client mTLS</span>'}
+                ${(p.allowed_server_certs || []).length > 0
+            ? `<span class="badge badge-info" title="Server certs:\n${(p.allowed_server_certs || []).map(c => escapeHtml(c.substring(0, 16) + '...')).join('\n')}">🔒 ${(p.allowed_server_certs || []).length} server</span>`
+            : ''}
             </td>
             <td>
                 <span class="badge ${p.connected ? 'badge-success' : 'badge-warning'}">
@@ -154,6 +157,7 @@ function showPartnerModal(partner = null) {
     document.getElementById('partner-id').disabled = !!partner;
     document.getElementById('partner-endpoints').value = (partner?.endpoints || []).join('\n');
     document.getElementById('partner-certs').value = (partner?.allowed_certs || []).join('\n');
+    document.getElementById('partner-server-certs').value = (partner?.allowed_server_certs || []).join('\n');
 
     // Populate VF checkboxes
     const container = document.getElementById('partner-vf-checkboxes');
@@ -188,9 +192,10 @@ document.getElementById('partner-form').addEventListener('submit', async (e) => 
     const partnerId = document.getElementById('partner-id').value;
     const endpoints = document.getElementById('partner-endpoints').value.split('\n').filter(e => e.trim());
     const certs = document.getElementById('partner-certs').value.split('\n').filter(c => c.trim());
+    const serverCerts = document.getElementById('partner-server-certs').value.split('\n').filter(c => c.trim());
     const vfs = Array.from(document.querySelectorAll('#partner-vf-checkboxes input:checked')).map(cb => cb.value);
 
-    const data = { id: partnerId, endpoints, allowed_certs: certs, virtual_files: vfs };
+    const data = { id: partnerId, endpoints, allowed_certs: certs, allowed_server_certs: serverCerts, virtual_files: vfs };
 
     const result = editId
         ? await apiPut(`/api/partners/${editId}`, data)

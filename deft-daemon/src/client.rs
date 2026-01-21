@@ -9,8 +9,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use rustls::pki_types::{CertificateDer, ServerName};
-use rustls::RootCertStore;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{DigitallySignedStruct, RootCertStore, SignatureScheme};
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
@@ -464,7 +466,114 @@ pub struct TransferResult {
     pub bytes_saved: u64,
 }
 
+/// Custom server certificate verifier with fingerprint whitelist support
+#[derive(Debug)]
+struct FingerprintServerVerifier {
+    root_store: Arc<RootCertStore>,
+    allowed_fingerprints: Vec<String>,
+    webpki_verifier: Arc<rustls::client::WebPkiServerVerifier>,
+}
+
+impl FingerprintServerVerifier {
+    fn new(root_store: Arc<RootCertStore>, allowed_fingerprints: Vec<String>) -> Result<Self> {
+        let webpki_verifier = rustls::client::WebPkiServerVerifier::builder(root_store.clone())
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build WebPKI verifier: {}", e))?;
+
+        Ok(Self {
+            root_store,
+            allowed_fingerprints,
+            webpki_verifier,
+        })
+    }
+
+    fn compute_fingerprint(cert: &CertificateDer<'_>) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(cert.as_ref());
+        let result = hasher.finalize();
+        result.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+}
+
+impl ServerCertVerifier for FingerprintServerVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
+    ) -> std::result::Result<ServerCertVerified, rustls::Error> {
+        // First, do standard WebPKI verification
+        self.webpki_verifier.verify_server_cert(
+            end_entity,
+            intermediates,
+            server_name,
+            ocsp_response,
+            now,
+        )?;
+
+        // If no fingerprint whitelist, accept any CA-signed cert
+        if self.allowed_fingerprints.is_empty() {
+            return Ok(ServerCertVerified::assertion());
+        }
+
+        // Check fingerprint against whitelist
+        let fingerprint = Self::compute_fingerprint(end_entity);
+        let fingerprint_lower = fingerprint.to_lowercase();
+
+        if self
+            .allowed_fingerprints
+            .iter()
+            .any(|f| f.to_lowercase() == fingerprint_lower)
+        {
+            info!("Server certificate fingerprint validated: {}", fingerprint);
+            Ok(ServerCertVerified::assertion())
+        } else {
+            warn!(
+                "Server certificate fingerprint {} not in allowed list",
+                fingerprint
+            );
+            Err(rustls::Error::General(format!(
+                "Server certificate fingerprint not authorized: {}",
+                fingerprint
+            )))
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+        self.webpki_verifier
+            .verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+        self.webpki_verifier
+            .verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.webpki_verifier.supported_verify_schemes()
+    }
+}
+
 fn build_client_tls_config(config: &ClientConfig) -> Result<rustls::ClientConfig> {
+    build_client_tls_config_with_fingerprints(config, Vec::new())
+}
+
+fn build_client_tls_config_with_fingerprints(
+    config: &ClientConfig,
+    allowed_server_fingerprints: Vec<String>,
+) -> Result<rustls::ClientConfig> {
     // Load client certificate
     let cert_file = File::open(&config.cert)
         .with_context(|| format!("Failed to open client cert: {}", config.cert))?;
@@ -496,8 +605,13 @@ fn build_client_tls_config(config: &ClientConfig) -> Result<rustls::ClientConfig
         root_store.add(cert)?;
     }
 
+    // Build custom verifier with fingerprint support
+    let verifier =
+        FingerprintServerVerifier::new(Arc::new(root_store), allowed_server_fingerprints)?;
+
     let tls_config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(verifier))
         .with_client_auth_cert(certs, key)
         .context("Failed to build client TLS config")?;
 
