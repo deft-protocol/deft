@@ -175,42 +175,28 @@ fn extract_serial_from_der(der: &[u8]) -> Option<String> {
 }
 
 fn extract_cn_from_der(der: &[u8]) -> Option<String> {
-    // Simple DER parsing to find CN in subject
-    // This is a simplified implementation - a production system should use x509-parser
-    let der_str = String::from_utf8_lossy(der);
+    use x509_parser::prelude::*;
 
-    // Look for common patterns in DER-encoded certificates
-    // CN values are often readable in the raw bytes
-    for window in der.windows(4) {
-        // OID for CN is 2.5.4.3, encoded as 55 04 03
-        if window.len() >= 3 && window[0] == 0x55 && window[1] == 0x04 && window[2] == 0x03 {
-            // Found CN OID, next bytes should be the value
-            if let Some(start) = der.iter().position(|&b| b == window[0]) {
-                let after_oid = &der[start + 5..];
-                // Find printable string (length-prefixed)
-                if after_oid.len() > 2 {
-                    let len = after_oid[0] as usize;
-                    if len > 0 && len < after_oid.len() {
-                        if let Ok(cn) = std::str::from_utf8(&after_oid[1..1 + len]) {
+    // Parse DER-encoded X.509 certificate
+    match X509Certificate::from_der(der) {
+        Ok((_, cert)) => {
+            // Extract CN from subject
+            for rdn in cert.subject().iter_rdn() {
+                for attr in rdn.iter() {
+                    if attr.attr_type() == &oid_registry::OID_X509_COMMON_NAME {
+                        if let Ok(cn) = attr.as_str() {
                             return Some(cn.to_string());
                         }
                     }
                 }
             }
+            None
+        }
+        Err(e) => {
+            tracing::warn!("Failed to parse X.509 certificate: {:?}", e);
+            None
         }
     }
-
-    // Fallback: try to find CN= pattern in the raw data
-    if let Some(pos) = der_str.find("CN=") {
-        let start = pos + 3;
-        let end = der_str[start..]
-            .find(|c: char| c == ',' || c == '/' || !c.is_ascii_graphic())
-            .map(|e| start + e)
-            .unwrap_or(der_str.len().min(start + 64));
-        return Some(der_str[start..end].to_string());
-    }
-
-    None
 }
 
 async fn handle_connection<S>(
