@@ -66,8 +66,6 @@ pub struct TransferStatus {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "data")]
 pub enum WsEvent {
-    #[serde(rename = "status")]
-    Status(serde_json::Value),
     #[serde(rename = "transfers")]
     Transfers(Vec<TransferStatus>),
     #[serde(rename = "history")]
@@ -2103,7 +2101,6 @@ async fn pull_file(
     let total_size_estimate = total_chunks * chunk_size;
     let mut chunk_buffers: std::collections::HashMap<u64, Vec<u8>> =
         std::collections::HashMap::new();
-    let mut chunks_received = 0u64;
 
     while let Some(chunk_idx) = orderer.next_chunk() {
         line.clear();
@@ -2142,7 +2139,6 @@ async fn pull_file(
         reader.read_exact(&mut chunk_data).await?;
         chunk_buffers.insert(chunk_idx, chunk_data);
         total_bytes += size;
-        chunks_received += 1;
 
         // Update chunk status to "validated"
         state
@@ -2539,5 +2535,218 @@ impl rustls::client::danger::ServerCertVerifier for FingerprintServerVerifier {
 
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
         self.webpki_verifier.supported_verify_schemes()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{ClientConfig, LimitsConfig, LoggingConfig, ServerConfig, StorageConfig};
+
+    fn test_config() -> Config {
+        Config {
+            server: ServerConfig {
+                enabled: true,
+                listen: "127.0.0.1:0".to_string(),
+                cert: "test.crt".to_string(),
+                key: "test.key".to_string(),
+                ca: "ca.crt".to_string(),
+            },
+            client: ClientConfig {
+                enabled: true,
+                cert: "client.crt".to_string(),
+                key: "client.key".to_string(),
+                ca: "ca.crt".to_string(),
+            },
+            storage: StorageConfig {
+                temp_dir: "/tmp/deft-test".to_string(),
+                chunk_size: 262144,
+            },
+            limits: LimitsConfig::default(),
+            logging: LoggingConfig::default(),
+            partners: vec![],
+            trusted_servers: vec![],
+            hooks: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_api_state_creation() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+        assert!(state.start_time.elapsed().as_secs() < 1);
+    }
+
+    #[tokio::test]
+    async fn test_register_transfer() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "txn_001".to_string(),
+                "invoices".to_string(),
+                "partner-a".to_string(),
+                "receive".to_string(),
+                1024,
+            )
+            .await;
+
+        let transfers = state.transfers.read().await;
+        assert!(transfers.contains_key("txn_001"));
+        let t = transfers.get("txn_001").unwrap();
+        assert_eq!(t.virtual_file, "invoices");
+        assert_eq!(t.partner_id, "partner-a");
+    }
+
+    #[tokio::test]
+    async fn test_update_transfer_progress() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "txn_002".to_string(),
+                "data".to_string(),
+                "partner-b".to_string(),
+                "send".to_string(),
+                10000,
+            )
+            .await;
+
+        state.update_transfer_progress("txn_002", 5000, 10000).await;
+
+        let transfers = state.transfers.read().await;
+        let t = transfers.get("txn_002").unwrap();
+        assert_eq!(t.bytes_transferred, 5000);
+        assert_eq!(t.progress_percent, 50);
+    }
+
+    #[tokio::test]
+    async fn test_complete_transfer_moves_to_history() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "txn_003".to_string(),
+                "files".to_string(),
+                "partner-c".to_string(),
+                "receive".to_string(),
+                2048,
+            )
+            .await;
+
+        state.complete_transfer("txn_003").await;
+
+        let transfers = state.transfers.read().await;
+        assert!(!transfers.contains_key("txn_003"));
+
+        let history = state.history.read().await;
+        assert!(history.iter().any(|h| h.id == "txn_003"));
+    }
+
+    #[tokio::test]
+    async fn test_init_transfer_chunks() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "txn_004".to_string(),
+                "chunks".to_string(),
+                "partner-d".to_string(),
+                "receive".to_string(),
+                4096,
+            )
+            .await;
+
+        state
+            .init_transfer_chunks("txn_004", 10, "chunks", "receive")
+            .await;
+
+        let transfers = state.transfers.read().await;
+        let t = transfers.get("txn_004").unwrap();
+        assert_eq!(t.total_chunks, 10);
+        assert_eq!(t.chunk_statuses.len(), 10);
+        assert!(t.chunk_statuses.iter().all(|s| *s == ChunkStatus::Pending));
+    }
+
+    #[tokio::test]
+    async fn test_update_chunk_status() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "txn_005".to_string(),
+                "data".to_string(),
+                "partner-e".to_string(),
+                "receive".to_string(),
+                1024,
+            )
+            .await;
+
+        state
+            .init_transfer_chunks("txn_005", 5, "data", "receive")
+            .await;
+        state
+            .update_chunk_status("txn_005", 2, ChunkStatus::Validated)
+            .await;
+
+        let transfers = state.transfers.read().await;
+        let t = transfers.get("txn_005").unwrap();
+        assert_eq!(t.chunk_statuses[2], ChunkStatus::Validated);
+        assert_eq!(t.chunk_statuses[0], ChunkStatus::Pending);
+    }
+
+    #[tokio::test]
+    async fn test_fail_transfer() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "txn_006".to_string(),
+                "failed".to_string(),
+                "partner-f".to_string(),
+                "receive".to_string(),
+                512,
+            )
+            .await;
+
+        state.fail_transfer("txn_006", "Connection timeout").await;
+
+        let transfers = state.transfers.read().await;
+        assert!(!transfers.contains_key("txn_006"));
+
+        let history = state.history.read().await;
+        let entry = history.iter().find(|h| h.id == "txn_006").unwrap();
+        assert!(entry.status.starts_with("failed"));
+    }
+
+    #[test]
+    fn test_chunk_status_serialization() {
+        let status = ChunkStatus::Validated;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"validated\"");
+
+        let status: ChunkStatus = serde_json::from_str("\"receiving\"").unwrap();
+        assert_eq!(status, ChunkStatus::Receiving);
+    }
+
+    #[test]
+    fn test_ws_event_serialization() {
+        let event = WsEvent::TransferProgress {
+            transfer_id: "txn_007".to_string(),
+            virtual_file: "test".to_string(),
+            bytes_transferred: 500,
+            total_bytes: 1000,
+            progress_percent: 50,
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("transfer_progress"));
+        assert!(json.contains("txn_007"));
     }
 }

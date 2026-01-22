@@ -276,3 +276,152 @@ impl Config {
             .unwrap_or_default()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn minimal_config() -> Config {
+        Config {
+            server: ServerConfig {
+                enabled: true,
+                listen: "127.0.0.1:7741".to_string(),
+                cert: "server.crt".to_string(),
+                key: "server.key".to_string(),
+                ca: "ca.crt".to_string(),
+            },
+            client: ClientConfig {
+                enabled: true,
+                cert: "client.crt".to_string(),
+                key: "client.key".to_string(),
+                ca: "ca.crt".to_string(),
+            },
+            storage: StorageConfig::default(),
+            limits: LimitsConfig::default(),
+            logging: LoggingConfig::default(),
+            partners: vec![],
+            trusted_servers: vec![],
+            hooks: vec![],
+        }
+    }
+
+    #[test]
+    fn test_defaults() {
+        let limits = LimitsConfig::default();
+        assert_eq!(limits.max_connections_per_ip, 10);
+        assert_eq!(limits.max_requests_per_partner, 1000);
+        assert_eq!(limits.window_seconds, 60);
+        assert_eq!(limits.ban_seconds, 300);
+
+        let storage = StorageConfig::default();
+        assert_eq!(storage.chunk_size, 262144);
+    }
+
+    #[test]
+    fn test_find_partner() {
+        let mut config = minimal_config();
+        config.partners.push(PartnerConfig {
+            id: "partner-a".to_string(),
+            allowed_certs: vec!["abc123".to_string()],
+            virtual_files: vec![],
+        });
+
+        assert!(config.find_partner("partner-a").is_some());
+        assert!(config.find_partner("unknown").is_none());
+    }
+
+    #[test]
+    fn test_find_trusted_server() {
+        let mut config = minimal_config();
+        config.trusted_servers.push(TrustedServerConfig {
+            name: "server-b".to_string(),
+            address: "192.168.1.100:7741".to_string(),
+            cert_fingerprint: Some("def456".to_string()),
+        });
+
+        let server = config.find_trusted_server("server-b");
+        assert!(server.is_some());
+        assert_eq!(server.unwrap().address, "192.168.1.100:7741");
+        assert!(config.find_trusted_server("unknown").is_none());
+    }
+
+    #[test]
+    fn test_get_virtual_files_for_partner() {
+        let mut config = minimal_config();
+        config.partners.push(PartnerConfig {
+            id: "partner-a".to_string(),
+            allowed_certs: vec![],
+            virtual_files: vec![
+                VirtualFileConfig {
+                    name: "invoices".to_string(),
+                    path: "/data/invoices".to_string(),
+                    direction: Direction::Send,
+                },
+                VirtualFileConfig {
+                    name: "reports".to_string(),
+                    path: "/data/reports".to_string(),
+                    direction: Direction::Receive,
+                },
+            ],
+        });
+
+        let vfs = config.get_virtual_files_for_partner("partner-a");
+        assert_eq!(vfs.len(), 2);
+        assert_eq!(vfs[0].name, "invoices");
+
+        let empty = config.get_virtual_files_for_partner("unknown");
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn test_direction_enum() {
+        assert_eq!(Direction::Send, Direction::Send);
+        assert_ne!(Direction::Send, Direction::Receive);
+    }
+
+    #[test]
+    fn test_config_toml_parsing() {
+        let toml_content = r#"
+[server]
+enabled = true
+listen = "0.0.0.0:7741"
+cert = "server.crt"
+key = "server.key"
+ca = "ca.crt"
+
+[client]
+enabled = false
+cert = "client.crt"
+key = "client.key"
+ca = "ca.crt"
+
+[storage]
+chunk_size = 524288
+temp_dir = "/tmp/deft"
+
+[[partners]]
+id = "test-partner"
+allowed_certs = ["fingerprint123"]
+
+[[partners.virtual_files]]
+name = "data"
+path = "/data/files"
+direction = "send"
+
+[[trusted_servers]]
+name = "remote-server"
+address = "10.0.0.1:7741"
+cert_fingerprint = "abc123"
+"#;
+
+        let config: Config = toml::from_str(toml_content).expect("Failed to parse TOML");
+        assert!(config.server.enabled);
+        assert!(!config.client.enabled);
+        assert_eq!(config.storage.chunk_size, 524288);
+        assert_eq!(config.partners.len(), 1);
+        assert_eq!(config.partners[0].id, "test-partner");
+        assert_eq!(config.partners[0].virtual_files.len(), 1);
+        assert_eq!(config.trusted_servers.len(), 1);
+        assert_eq!(config.trusted_servers[0].name, "remote-server");
+    }
+}

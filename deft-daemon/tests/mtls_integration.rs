@@ -4,7 +4,7 @@
 //! TDD approach: tests define expected behavior, then implementation is fixed.
 
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufReader, Write};
 use std::net::TcpStream;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -182,13 +182,10 @@ impl MtlsTestFixture {
     fn run_openssl(&self, args: &[&str]) -> std::io::Result<()> {
         let output = Command::new("openssl").args(args).output()?;
         if !output.status.success() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!(
-                    "openssl failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                ),
-            ));
+            return Err(std::io::Error::other(format!(
+                "openssl failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
         }
         Ok(())
     }

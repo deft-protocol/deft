@@ -1117,3 +1117,121 @@ fn compute_cert_fingerprint(cert_path: &str) -> Option<String> {
             .collect::<String>(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{ClientConfig, LimitsConfig, LoggingConfig, ServerConfig, StorageConfig};
+
+    fn test_config() -> Config {
+        Config {
+            server: ServerConfig {
+                enabled: true,
+                listen: "127.0.0.1:0".to_string(),
+                cert: "test.crt".to_string(),
+                key: "test.key".to_string(),
+                ca: "ca.crt".to_string(),
+            },
+            client: ClientConfig {
+                enabled: true,
+                cert: "client.crt".to_string(),
+                key: "client.key".to_string(),
+                ca: "ca.crt".to_string(),
+            },
+            storage: StorageConfig {
+                temp_dir: "/tmp/deft-test/tmp".to_string(),
+                chunk_size: 262144,
+            },
+            limits: LimitsConfig::default(),
+            logging: LoggingConfig::default(),
+            partners: vec![],
+            trusted_servers: vec![],
+            hooks: vec![],
+        }
+    }
+
+    #[test]
+    fn test_command_handler_creation() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        assert!(handler.config.server.enabled);
+    }
+
+    #[test]
+    fn test_session_state_transitions() {
+        let mut session = Session::new();
+        assert_eq!(session.state, SessionState::Connected);
+
+        session.state = SessionState::Welcomed;
+        assert_eq!(session.state, SessionState::Welcomed);
+
+        session.state = SessionState::Authenticated;
+        assert_eq!(session.state, SessionState::Authenticated);
+
+        session.state = SessionState::Closed;
+        assert_eq!(session.state, SessionState::Closed);
+    }
+
+    #[test]
+    fn test_compute_cert_fingerprint_invalid_path() {
+        let result = compute_cert_fingerprint("/nonexistent/path.crt");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_hello_response_format() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::Hello {
+                version: "1.0".to_string(),
+                capabilities: Capabilities::new(),
+            },
+        );
+
+        match response {
+            Response::Welcome { version, .. } => {
+                assert_eq!(version, DEFT_VERSION);
+            }
+            _ => panic!("Expected Welcome response"),
+        }
+    }
+
+    #[test]
+    fn test_auth_without_partner_fails() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Welcomed;
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::Auth {
+                partner_id: "unknown-partner".to_string(),
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::Unauthorized);
+            }
+            _ => panic!("Expected Error response for unknown partner"),
+        }
+    }
+
+    #[test]
+    fn test_bye_closes_session() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+
+        let response = handler.handle_command(&mut session, Command::Bye);
+
+        assert!(matches!(response, Response::Goodbye));
+        assert_eq!(session.state, SessionState::Closed);
+    }
+}

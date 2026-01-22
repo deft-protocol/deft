@@ -76,9 +76,6 @@ function handleWsMessage(msg) {
         case 'transfer_progress':
             updateTransferProgress(msg.data.transfer_id, msg.data.bytes_transferred, msg.data.total_bytes, msg.data.progress_percent);
             break;
-        case 'status':
-            renderStatus(msg.data);
-            break;
     }
 }
 

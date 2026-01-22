@@ -458,6 +458,7 @@ async fn run_list(config: &Config, server_name: &str, our_identity: &str) -> Res
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_watch(
     config: &Config,
     directory: &PathBuf,
