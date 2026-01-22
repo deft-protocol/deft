@@ -53,10 +53,14 @@ struct Cli {
 enum Commands {
     /// Run as daemon (default if no command specified)
     Daemon,
-    /// Send a file to a partner
+    /// Send a file to a trusted server
     Send {
-        /// Partner ID to send to
-        partner: String,
+        /// Trusted server name to send to
+        #[arg(short, long)]
+        server: String,
+        /// Our identity (must match client cert CN)
+        #[arg(short, long)]
+        identity: String,
         /// Virtual file name (destination)
         virtual_file: String,
         /// Local file path to send
@@ -65,26 +69,38 @@ enum Commands {
         #[arg(long, default_value = "262144")]
         chunk_size: u32,
     },
-    /// Get a file from a partner
+    /// Get a file from a trusted server
     Get {
-        /// Partner ID to get from
-        partner: String,
+        /// Trusted server name to get from
+        #[arg(short, long)]
+        server: String,
+        /// Our identity (must match client cert CN)
+        #[arg(short, long)]
+        identity: String,
         /// Virtual file name (source)
         virtual_file: String,
         /// Local file path to save
         output: PathBuf,
     },
-    /// List virtual files available from a partner
+    /// List virtual files available from a trusted server
     List {
-        /// Partner ID
-        partner: String,
+        /// Trusted server name
+        #[arg(short, long)]
+        server: String,
+        /// Our identity (must match client cert CN)
+        #[arg(short, long)]
+        identity: String,
     },
     /// Watch a directory and auto-send new files
     Watch {
         /// Directory to watch
         directory: PathBuf,
-        /// Partner ID to send to
-        partner: String,
+        /// Trusted server name to send to
+        #[arg(short, long)]
+        server: String,
+        /// Our identity (must match client cert CN)
+        #[arg(short, long)]
+        identity: String,
         /// Virtual file name prefix
         virtual_file: String,
         /// File pattern (glob)
@@ -136,26 +152,37 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Some(Commands::Send {
-            partner,
+            server,
+            identity,
             virtual_file,
             file,
             chunk_size,
         }) => {
-            run_send(&config, &partner, &virtual_file, &file, chunk_size).await?;
+            run_send(
+                &config,
+                &server,
+                &identity,
+                &virtual_file,
+                &file,
+                chunk_size,
+            )
+            .await?;
         }
         Some(Commands::Get {
-            partner,
+            server,
+            identity,
             virtual_file,
             output,
         }) => {
-            run_get(&config, &partner, &virtual_file, &output).await?;
+            run_get(&config, &server, &identity, &virtual_file, &output).await?;
         }
-        Some(Commands::List { partner }) => {
-            run_list(&config, &partner).await?;
+        Some(Commands::List { server, identity }) => {
+            run_list(&config, &server, &identity).await?;
         }
         Some(Commands::Watch {
             directory,
-            partner,
+            server,
+            identity,
             virtual_file,
             pattern,
             interval,
@@ -164,7 +191,8 @@ async fn main() -> Result<()> {
             run_watch(
                 &config,
                 &directory,
-                &partner,
+                &server,
+                &identity,
                 &virtual_file,
                 &pattern,
                 interval,
@@ -312,7 +340,8 @@ async fn run_metrics_server(port: u16) {
 
 async fn run_send(
     config: &Config,
-    partner_id: &str,
+    server_name: &str,
+    our_identity: &str,
     virtual_file: &str,
     file_path: &PathBuf,
     chunk_size: u32,
@@ -321,23 +350,22 @@ async fn run_send(
         anyhow::bail!("Client mode is disabled in configuration");
     }
 
-    let partner = config
-        .find_partner(partner_id)
-        .ok_or_else(|| anyhow::anyhow!("Partner '{}' not found in configuration", partner_id))?;
-
-    if partner.endpoints.is_empty() {
-        anyhow::bail!("No endpoints configured for partner '{}'", partner_id);
-    }
+    let server = config.find_trusted_server(server_name).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Trusted server '{}' not found in configuration",
+            server_name
+        )
+    })?;
 
     let client = Client::new(config.client.clone())?;
 
     println!(
-        "Sending file {:?} to {}:{}",
-        file_path, partner_id, virtual_file
+        "Sending file {:?} to {} ({}) as {}",
+        file_path, server.name, server.address, our_identity
     );
 
     let result = client
-        .send_file(partner, virtual_file, file_path, chunk_size)
+        .send_file(server, our_identity, virtual_file, file_path, chunk_size)
         .await?;
 
     println!("\n✓ Transfer complete!");
@@ -354,7 +382,8 @@ async fn run_send(
 
 async fn run_get(
     config: &Config,
-    partner_id: &str,
+    server_name: &str,
+    our_identity: &str,
     virtual_file: &str,
     output_path: &PathBuf,
 ) -> Result<()> {
@@ -362,22 +391,23 @@ async fn run_get(
         anyhow::bail!("Client mode is disabled in configuration");
     }
 
-    let partner = config
-        .find_partner(partner_id)
-        .ok_or_else(|| anyhow::anyhow!("Partner '{}' not found in configuration", partner_id))?;
-
-    if partner.endpoints.is_empty() {
-        anyhow::bail!("No endpoints configured for partner '{}'", partner_id);
-    }
+    let server = config.find_trusted_server(server_name).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Trusted server '{}' not found in configuration",
+            server_name
+        )
+    })?;
 
     let client = Client::new(config.client.clone())?;
 
     println!(
-        "Getting file {}:{} -> {:?}",
-        partner_id, virtual_file, output_path
+        "Getting file {} from {} ({}) as {}",
+        virtual_file, server.name, server.address, our_identity
     );
 
-    let result = client.get_file(partner, virtual_file, output_path).await?;
+    let result = client
+        .get_file(server, our_identity, virtual_file, output_path)
+        .await?;
 
     println!("\n✓ Download complete!");
     println!("  Total chunks: {}", result.total_chunks);
@@ -388,29 +418,30 @@ async fn run_get(
     Ok(())
 }
 
-async fn run_list(config: &Config, partner_id: &str) -> Result<()> {
+async fn run_list(config: &Config, server_name: &str, our_identity: &str) -> Result<()> {
     if !config.client.enabled {
         anyhow::bail!("Client mode is disabled in configuration");
     }
 
-    let partner = config
-        .find_partner(partner_id)
-        .ok_or_else(|| anyhow::anyhow!("Partner '{}' not found in configuration", partner_id))?;
-
-    if partner.endpoints.is_empty() {
-        anyhow::bail!("No endpoints configured for partner '{}'", partner_id);
-    }
+    let server = config.find_trusted_server(server_name).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Trusted server '{}' not found in configuration",
+            server_name
+        )
+    })?;
 
     let client = Client::new(config.client.clone())?;
-    let endpoint = partner.endpoints.first().unwrap();
 
-    let mut conn = client.connect(endpoint).await?;
+    let mut conn = client.connect(&server.address).await?;
     conn.hello().await?;
-    conn.auth(partner_id).await?;
+    conn.auth(our_identity).await?;
 
     let response = conn.discover().await?;
 
-    println!("Virtual files available from {}:", partner_id);
+    println!(
+        "Virtual files available from {} ({}):",
+        server.name, server.address
+    );
     if let deft_protocol::Response::Files { files } = response {
         for file in files {
             println!(
@@ -430,7 +461,8 @@ async fn run_list(config: &Config, partner_id: &str) -> Result<()> {
 async fn run_watch(
     config: &Config,
     directory: &PathBuf,
-    partner_id: &str,
+    server_name: &str,
+    our_identity: &str,
     virtual_file_prefix: &str,
     pattern: &str,
     interval_secs: u64,
@@ -444,19 +476,21 @@ async fn run_watch(
         anyhow::bail!("Client mode is disabled in configuration");
     }
 
-    let partner = config
-        .find_partner(partner_id)
-        .ok_or_else(|| anyhow::anyhow!("Partner '{}' not found in configuration", partner_id))?
+    let server = config
+        .find_trusted_server(server_name)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Trusted server '{}' not found in configuration",
+                server_name
+            )
+        })?
         .clone();
-
-    if partner.endpoints.is_empty() {
-        anyhow::bail!("No endpoints configured for partner '{}'", partner_id);
-    }
 
     let watch_config = WatchConfig {
         path: directory.clone(),
         pattern: Some(pattern.to_string()),
-        partner_id: partner_id.to_string(),
+        server_name: server_name.to_string(),
+        our_identity: our_identity.to_string(),
         virtual_file: virtual_file_prefix.to_string(),
         poll_interval_secs: interval_secs,
         delete_after_send: delete_after,
@@ -468,7 +502,8 @@ async fn run_watch(
 
     println!("Watching directory: {:?}", directory);
     println!("  Pattern: {}", pattern);
-    println!("  Partner: {}", partner_id);
+    println!("  Server: {} ({})", server.name, server.address);
+    println!("  Identity: {}", our_identity);
     println!("  Interval: {}s", interval_secs);
     println!("  Delete after send: {}", delete_after);
     println!("\nPress Ctrl+C to stop\n");
@@ -495,7 +530,7 @@ async fn run_watch(
                 println!("📤 Sending: {:?} -> {}", path, vf_name);
 
                 match client
-                    .send_file(&partner, &vf_name, &path, chunk_size)
+                    .send_file(&server, our_identity, &vf_name, &path, chunk_size)
                     .await
                 {
                     Ok(result) => {

@@ -18,8 +18,12 @@ pub struct Config {
     pub limits: LimitsConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
+    /// Partners that can connect TO us (incoming connections)
     #[serde(default)]
     pub partners: Vec<PartnerConfig>,
+    /// Servers we can connect TO (outgoing connections - truststore)
+    #[serde(default)]
+    pub trusted_servers: Vec<TrustedServerConfig>,
     #[serde(default)]
     pub hooks: Vec<HookConfig>,
 }
@@ -128,19 +132,29 @@ pub struct StorageConfig {
     pub temp_dir: String,
 }
 
+/// Partners that can connect TO us (incoming connections)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PartnerConfig {
+    /// Partner ID - must match the CN of their client certificate
     pub id: String,
-    /// Allowed client certificate fingerprints (SHA-256) for incoming connections
+    /// Allowed client certificate fingerprints (SHA-256) for this partner
     #[serde(default)]
     pub allowed_certs: Vec<String>,
-    /// Allowed server certificate fingerprints (SHA-256) for outgoing connections
-    #[serde(default)]
-    pub allowed_server_certs: Vec<String>,
-    #[serde(default)]
-    pub endpoints: Vec<String>,
+    /// Virtual files this partner can access
     #[serde(default)]
     pub virtual_files: Vec<VirtualFileConfig>,
+}
+
+/// Servers we can connect TO (outgoing connections - truststore)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrustedServerConfig {
+    /// Friendly name for this server
+    pub name: String,
+    /// Server address (host:port)
+    pub address: String,
+    /// Expected server certificate fingerprint (SHA-256) - optional extra validation
+    #[serde(default)]
+    pub cert_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -248,6 +262,10 @@ impl Config {
 
     pub fn find_partner(&self, partner_id: &str) -> Option<&PartnerConfig> {
         self.partners.iter().find(|p| p.id == partner_id)
+    }
+
+    pub fn find_trusted_server(&self, name: &str) -> Option<&TrustedServerConfig> {
+        self.trusted_servers.iter().find(|s| s.name == name)
     }
 
     pub fn get_virtual_files_for_partner(&self, partner_id: &str) -> Vec<&VirtualFileConfig> {

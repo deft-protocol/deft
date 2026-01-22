@@ -122,6 +122,40 @@ impl CommandHandler {
         }
     }
 
+    pub fn init_transfer_chunks_to_api(
+        &self,
+        id: &str,
+        total_chunks: u32,
+        vf: &str,
+        direction: &str,
+    ) {
+        if let Some(ref api) = self.api_state {
+            let api = api.clone();
+            let id = id.to_string();
+            let vf = vf.to_string();
+            let direction = direction.to_string();
+            tokio::spawn(async move {
+                api.init_transfer_chunks(&id, total_chunks, &vf, &direction)
+                    .await;
+            });
+        }
+    }
+
+    pub fn update_chunk_status_to_api(
+        &self,
+        id: &str,
+        chunk_index: u32,
+        status: crate::api::ChunkStatus,
+    ) {
+        if let Some(ref api) = self.api_state {
+            let api = api.clone();
+            let id = id.to_string();
+            tokio::spawn(async move {
+                api.update_chunk_status(&id, chunk_index, status).await;
+            });
+        }
+    }
+
     pub fn update_transfer_progress_to_api(&self, id: &str, bytes: u64, total: u64) {
         if let Some(ref api) = self.api_state {
             let api = api.clone();
@@ -553,6 +587,14 @@ impl CommandHandler {
             total_bytes,
         );
 
+        // Initialize chunk tracking for UI
+        self.init_transfer_chunks_to_api(
+            &transfer_id,
+            total_chunks as u32,
+            &virtual_file,
+            "receive",
+        );
+
         info!(
             "Transfer started: {} for {} ({} chunks, {} bytes)",
             transfer_id, virtual_file, total_chunks, total_bytes
@@ -814,22 +856,33 @@ impl CommandHandler {
                     // Persist transfer state for resumable transfers
                     self.persist_chunk_received(&id, chunk_index);
 
+                    // Update chunk status in UI (Validated = chunk received and hash verified)
+                    self.update_chunk_status_to_api(
+                        &id,
+                        chunk_index as u32,
+                        crate::api::ChunkStatus::Validated,
+                    );
+
                     // Update progress in API dashboard
                     if let Some(transfer) = self.transfer_manager.get_transfer(&id) {
-                        let received = transfer
+                        let validated = transfer
                             .chunks
                             .values()
-                            .filter(|c| {
-                                matches!(
-                                    c.state,
-                                    crate::transfer::ChunkState::Received
-                                        | crate::transfer::ChunkState::Validated
-                                )
-                            })
+                            .filter(|c| c.state == crate::transfer::ChunkState::Validated)
                             .count() as u64;
                         let total_bytes = transfer.total_bytes;
-                        let bytes_received = received * transfer.chunk_size as u64;
+                        let total_chunks = transfer.chunks.len() as u64;
+                        let bytes_received = validated * transfer.chunk_size as u64;
+                        tracing::debug!(
+                            "Transfer {} progress: {}/{} chunks validated, {} bytes",
+                            id,
+                            validated,
+                            total_chunks,
+                            bytes_received
+                        );
                         self.update_transfer_progress_to_api(&id, bytes_received, total_bytes);
+                    } else {
+                        tracing::warn!("Transfer {} not found in transfer_manager", id);
                     }
                 } else {
                     metrics::record_chunk_failed("validation");

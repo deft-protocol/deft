@@ -87,31 +87,52 @@ pub enum WsEvent {
     },
     #[serde(rename = "transfer_complete")]
     TransferComplete { transfer_id: String, success: bool },
+    #[serde(rename = "transfer_progress")]
+    TransferProgress {
+        transfer_id: String,
+        virtual_file: String,
+        bytes_transferred: u64,
+        total_bytes: u64,
+        progress_percent: u8,
+    },
 }
 
-/// Partner status for API
+/// Partner status for API (incoming connections)
 #[derive(Debug, Clone, Serialize)]
 pub struct PartnerStatus {
     pub id: String,
-    pub endpoints: Vec<String>,
     pub virtual_files: Vec<String>,
     pub allowed_certs: Vec<String>,
-    pub allowed_server_certs: Vec<String>,
     pub connected: bool,
     pub last_seen: Option<String>,
     pub transfers_today: u64,
     pub bytes_today: u64,
 }
 
-/// Request to create/update a partner
+/// Request to create/update a partner (incoming connections)
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
 pub struct PartnerRequest {
     pub id: String,
-    pub endpoints: Vec<String>,
     pub allowed_certs: Option<Vec<String>>,
-    pub allowed_server_certs: Option<Vec<String>>,
     pub virtual_files: Option<Vec<String>>,
+}
+
+/// Trusted server status for API (outgoing connections - truststore)
+#[derive(Debug, Clone, Serialize)]
+pub struct TrustedServerStatus {
+    pub name: String,
+    pub address: String,
+    pub cert_fingerprint: Option<String>,
+}
+
+/// Request to create/update a trusted server
+#[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
+pub struct TrustedServerRequest {
+    pub name: String,
+    pub address: String,
+    pub cert_fingerprint: Option<String>,
 }
 
 /// System status for API
@@ -158,11 +179,17 @@ pub struct CreateTransferRequest {
 
 /// Request to create a virtual file
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct CreateVirtualFileRequest {
     pub name: String,
     pub path: String,
     pub direction: String,
-    pub partner_id: String,
+    #[serde(default)]
+    pub pattern: Option<String>,
+    #[serde(default)]
+    pub partners: Option<Vec<String>>,
+    #[serde(default)]
+    pub partner_id: Option<String>,
 }
 
 /// Client connection parameters (stored after connect)
@@ -266,7 +293,19 @@ impl ApiState {
             total_chunks: 0,
             chunk_statuses: Vec::new(),
         };
-        self.transfers.write().await.insert(id, status);
+        self.transfers
+            .write()
+            .await
+            .insert(id.clone(), status.clone());
+        // Broadcast updated transfers list
+        let transfers: Vec<TransferStatus> =
+            self.transfers.read().await.values().cloned().collect();
+        tracing::info!(
+            "Registered transfer {} - broadcasting {} transfers",
+            id,
+            transfers.len()
+        );
+        self.broadcast(WsEvent::Transfers(transfers));
     }
 
     /// Initialize transfer with chunk count for visualization
@@ -306,13 +345,29 @@ impl ApiState {
     }
 
     pub async fn update_transfer_progress(&self, id: &str, bytes: u64, total: u64) {
-        if let Some(t) = self.transfers.write().await.get_mut(id) {
-            t.bytes_transferred = bytes;
-            if total > 0 {
-                t.total_bytes = total;
-                t.progress_percent = ((bytes * 100) / total).min(100) as u8;
+        let progress = {
+            let mut transfers = self.transfers.write().await;
+            if let Some(t) = transfers.get_mut(id) {
+                t.bytes_transferred = bytes;
+                if total > 0 {
+                    t.total_bytes = total;
+                    t.progress_percent = ((bytes * 100) / total).min(100) as u8;
+                }
+                t.updated_at = chrono::Utc::now().to_rfc3339();
+                Some((t.progress_percent, t.virtual_file.clone()))
+            } else {
+                None
             }
-            t.updated_at = chrono::Utc::now().to_rfc3339();
+        };
+        // Broadcast progress update
+        if let Some((percent, vf)) = progress {
+            self.broadcast(WsEvent::TransferProgress {
+                transfer_id: id.to_string(),
+                virtual_file: vf,
+                bytes_transferred: bytes,
+                total_bytes: total,
+                progress_percent: percent,
+            });
         }
     }
 
@@ -497,6 +552,7 @@ async fn handle_request(
         ("GET", "/api/status") => handle_status(&state).await,
         ("GET", "/api/config") => handle_config(&state).await,
         ("GET", "/api/metrics") => handle_metrics().await,
+        ("GET", "/api/server-fingerprint") => handle_server_fingerprint(&state).await,
 
         // Partner endpoints
         ("GET", "/api/partners") => handle_partners(&state).await,
@@ -522,6 +578,20 @@ async fn handle_request(
                 .and_then(|s| s.strip_suffix("/virtual-files"))
                 .unwrap_or("");
             handle_add_partner_virtual_file(&state, partner_id, request_body).await
+        }
+
+        // Trusted servers endpoints (outgoing connections)
+        ("GET", "/api/trusted-servers") => handle_trusted_servers(&state).await,
+        ("POST", "/api/trusted-servers") => {
+            handle_create_trusted_server(&state, request_body).await
+        }
+        ("PUT", p) if p.starts_with("/api/trusted-servers/") => {
+            let name = p.strip_prefix("/api/trusted-servers/").unwrap_or("");
+            handle_update_trusted_server(&state, name, request_body).await
+        }
+        ("DELETE", p) if p.starts_with("/api/trusted-servers/") => {
+            let name = p.strip_prefix("/api/trusted-servers/").unwrap_or("");
+            handle_delete_trusted_server(&state, name).await
         }
 
         // Config endpoints
@@ -776,6 +846,41 @@ async fn handle_status(state: &ApiState) -> (u16, String) {
     (200, serde_json::to_string(&status).unwrap_or_default())
 }
 
+async fn handle_server_fingerprint(state: &ApiState) -> (u16, String) {
+    let config = state.config.read().await;
+    let cert_path = &config.server.cert;
+
+    match std::fs::read(cert_path) {
+        Ok(pem_data) => {
+            // Parse PEM and compute SHA-256 fingerprint
+            match rustls_pemfile::certs(&mut pem_data.as_slice()).next() {
+                Some(Ok(cert)) => {
+                    use sha2::{Digest, Sha256};
+                    let mut hasher = Sha256::new();
+                    hasher.update(cert.as_ref());
+                    let fingerprint = hasher.finalize();
+                    let hex = fingerprint
+                        .iter()
+                        .map(|b| format!("{:02X}", b))
+                        .collect::<String>();
+                    (
+                        200,
+                        serde_json::json!({"fingerprint": hex, "path": cert_path}).to_string(),
+                    )
+                }
+                _ => (
+                    500,
+                    r#"{"error":"Failed to parse certificate"}"#.to_string(),
+                ),
+            }
+        }
+        Err(e) => (
+            500,
+            format!(r#"{{"error":"Failed to read certificate: {}"}}"#, e),
+        ),
+    }
+}
+
 async fn handle_partners(state: &ApiState) -> (u16, String) {
     let config = state.config.read().await;
     let partners: Vec<PartnerStatus> = config
@@ -783,10 +888,8 @@ async fn handle_partners(state: &ApiState) -> (u16, String) {
         .iter()
         .map(|p| PartnerStatus {
             id: p.id.clone(),
-            endpoints: p.endpoints.clone(),
             virtual_files: p.virtual_files.iter().map(|vf| vf.name.clone()).collect(),
             allowed_certs: p.allowed_certs.clone(),
-            allowed_server_certs: p.allowed_server_certs.clone(),
             connected: false,
             last_seen: None,
             transfers_today: 0,
@@ -808,9 +911,7 @@ async fn handle_create_partner(state: &ApiState, body: &[u8]) -> (u16, String) {
                 }
                 let partner = crate::config::PartnerConfig {
                     id: r.id.clone(),
-                    endpoints: r.endpoints,
                     allowed_certs: r.allowed_certs.unwrap_or_default(),
-                    allowed_server_certs: r.allowed_server_certs.unwrap_or_default(),
                     virtual_files: Vec::new(),
                 };
                 config.partners.push(partner);
@@ -835,12 +936,8 @@ async fn handle_update_partner(state: &ApiState, partner_id: &str, body: &[u8]) 
             let found = {
                 let mut config = state.config.write().await;
                 if let Some(partner) = config.partners.iter_mut().find(|p| p.id == partner_id) {
-                    partner.endpoints = r.endpoints;
                     if let Some(certs) = r.allowed_certs {
                         partner.allowed_certs = certs;
-                    }
-                    if let Some(server_certs) = r.allowed_server_certs {
-                        partner.allowed_server_certs = server_certs;
                     }
                     true
                 } else {
@@ -876,6 +973,98 @@ async fn handle_delete_partner(state: &ApiState, partner_id: &str) -> (u16, Stri
         (200, r#"{"status":"deleted"}"#.to_string())
     } else {
         (404, r#"{"error":"Partner not found"}"#.to_string())
+    }
+}
+
+// ============ Trusted Servers (outgoing connections) ============
+
+async fn handle_trusted_servers(state: &ApiState) -> (u16, String) {
+    let config = state.config.read().await;
+    let servers: Vec<TrustedServerStatus> = config
+        .trusted_servers
+        .iter()
+        .map(|s| TrustedServerStatus {
+            name: s.name.clone(),
+            address: s.address.clone(),
+            cert_fingerprint: s.cert_fingerprint.clone(),
+        })
+        .collect();
+    (200, serde_json::to_string(&servers).unwrap_or_default())
+}
+
+async fn handle_create_trusted_server(state: &ApiState, body: &[u8]) -> (u16, String) {
+    let req: Result<TrustedServerRequest, _> = serde_json::from_slice(body);
+    match req {
+        Ok(r) => {
+            let server_name = r.name.clone();
+            {
+                let mut config = state.config.write().await;
+                if config.trusted_servers.iter().any(|s| s.name == r.name) {
+                    return (
+                        409,
+                        r#"{"error":"Trusted server already exists"}"#.to_string(),
+                    );
+                }
+                let server = crate::config::TrustedServerConfig {
+                    name: r.name,
+                    address: r.address,
+                    cert_fingerprint: r.cert_fingerprint,
+                };
+                config.trusted_servers.push(server);
+            }
+            if let Err(e) = state.save_config().await {
+                tracing::warn!("Failed to save config: {}", e);
+            }
+            (
+                201,
+                serde_json::json!({"status":"created", "name": server_name}).to_string(),
+            )
+        }
+        Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
+    }
+}
+
+async fn handle_update_trusted_server(state: &ApiState, name: &str, body: &[u8]) -> (u16, String) {
+    let req: Result<TrustedServerRequest, _> = serde_json::from_slice(body);
+    match req {
+        Ok(r) => {
+            let found = {
+                let mut config = state.config.write().await;
+                if let Some(server) = config.trusted_servers.iter_mut().find(|s| s.name == name) {
+                    server.address = r.address;
+                    server.cert_fingerprint = r.cert_fingerprint;
+                    true
+                } else {
+                    false
+                }
+            };
+            if found {
+                if let Err(e) = state.save_config().await {
+                    tracing::warn!("Failed to save config: {}", e);
+                }
+                (200, r#"{"status":"updated"}"#.to_string())
+            } else {
+                (404, r#"{"error":"Trusted server not found"}"#.to_string())
+            }
+        }
+        Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
+    }
+}
+
+async fn handle_delete_trusted_server(state: &ApiState, name: &str) -> (u16, String) {
+    let deleted = {
+        let mut config = state.config.write().await;
+        let before = config.trusted_servers.len();
+        config.trusted_servers.retain(|s| s.name != name);
+        config.trusted_servers.len() < before
+    };
+    if deleted {
+        if let Err(e) = state.save_config().await {
+            tracing::warn!("Failed to save config: {}", e);
+        }
+        (200, r#"{"status":"deleted"}"#.to_string())
+    } else {
+        (404, r#"{"error":"Trusted server not found"}"#.to_string())
     }
 }
 
@@ -1342,14 +1531,25 @@ async fn handle_create_virtual_file(state: &ApiState, body: &[u8]) -> (u16, Stri
                 direction,
             };
             let mut config = state.config.write().await;
-            if let Some(partner) = config.partners.iter_mut().find(|p| p.id == r.partner_id) {
-                partner.virtual_files.push(vf);
-                (
-                    201,
-                    serde_json::json!({"status":"created", "name": r.name}).to_string(),
-                )
+            // Find the partner to add this VF to - use first partner from list if provided, or partner_id
+            let target_partner_id = r
+                .partners
+                .as_ref()
+                .and_then(|p| p.first().cloned())
+                .or(r.partner_id.clone());
+
+            if let Some(pid) = target_partner_id {
+                if let Some(partner) = config.partners.iter_mut().find(|p| p.id == pid) {
+                    partner.virtual_files.push(vf);
+                    (
+                        201,
+                        serde_json::json!({"status":"created", "name": r.name}).to_string(),
+                    )
+                } else {
+                    (404, r#"{"error":"Partner not found"}"#.to_string())
+                }
             } else {
-                (404, r#"{"error":"Partner not found"}"#.to_string())
+                (400, r#"{"error":"No partner specified"}"#.to_string())
             }
         }
         Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
@@ -1365,17 +1565,32 @@ async fn handle_update_virtual_file(state: &ApiState, name: &str, body: &[u8]) -
                 "receive" => Direction::Receive,
                 _ => return (400, r#"{"error":"Invalid direction"}"#.to_string()),
             };
-            let mut config = state.config.write().await;
-            for partner in &mut config.partners {
-                for vf in &mut partner.virtual_files {
-                    if vf.name == name {
-                        vf.path = r.path.clone();
-                        vf.direction = direction;
-                        return (200, r#"{"status":"updated"}"#.to_string());
+            let found = {
+                let mut config = state.config.write().await;
+                let mut found = false;
+                for partner in &mut config.partners {
+                    for vf in &mut partner.virtual_files {
+                        if vf.name == name {
+                            vf.path = r.path.clone();
+                            vf.direction = direction;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if found {
+                        break;
                     }
                 }
+                found
+            };
+            if found {
+                if let Err(e) = state.save_config().await {
+                    tracing::warn!("Failed to save config: {}", e);
+                }
+                (200, r#"{"status":"updated"}"#.to_string())
+            } else {
+                (404, r#"{"error":"Virtual file not found"}"#.to_string())
             }
-            (404, r#"{"error":"Virtual file not found"}"#.to_string())
         }
         Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
     }
@@ -1453,11 +1668,16 @@ async fn handle_add_partner_virtual_file(
 
 // ============ Client handlers (outgoing connections) ============
 
+/// Request to connect to a trusted server
 #[derive(Debug, Deserialize)]
 struct ClientConnectRequest {
-    server: String,
-    partner_id: String,
+    /// Trusted server name from config
+    server_name: String,
+    /// Our identity (must match client cert CN)
+    our_identity: String,
+    /// Optional client certificate path (uses config default if empty)
     cert: Option<String>,
+    /// Optional client key path (uses config default if empty)
     key: Option<String>,
 }
 
@@ -1465,31 +1685,48 @@ async fn handle_client_connect(state: &ApiState, body: &[u8]) -> (u16, String) {
     let req: Result<ClientConnectRequest, _> = serde_json::from_slice(body);
     match req {
         Ok(r) => {
-            // Get client config from state
+            // Get config from state
             let config = state.config.read().await;
             let client_config = &config.client;
+
+            // Find the trusted server
+            let server = match config
+                .trusted_servers
+                .iter()
+                .find(|s| s.name == r.server_name)
+            {
+                Some(s) => s.clone(),
+                None => {
+                    return (
+                        404,
+                        serde_json::json!({
+                            "success": false,
+                            "error": format!("Trusted server '{}' not found", r.server_name)
+                        })
+                        .to_string(),
+                    );
+                }
+            };
 
             // Use provided certs or fall back to config
             let cert_path = r.cert.as_deref().unwrap_or(&client_config.cert).to_string();
             let key_path = r.key.as_deref().unwrap_or(&client_config.key).to_string();
             let ca_path = client_config.ca.clone();
 
-            // Get allowed server certs for this partner
-            let allowed_server_certs = config
-                .partners
-                .iter()
-                .find(|p| p.id == r.partner_id)
-                .map(|p| p.allowed_server_certs.clone())
+            // Get allowed server cert fingerprint from trusted server config
+            let allowed_server_certs: Vec<String> = server
+                .cert_fingerprint
+                .map(|fp| vec![fp])
                 .unwrap_or_default();
             drop(config); // Release read lock
 
             // Try to establish TLS connection
             match connect_to_server(
-                &r.server,
+                &server.address,
                 &cert_path,
                 &key_path,
                 &ca_path,
-                &r.partner_id,
+                &r.our_identity,
                 &allowed_server_certs,
             )
             .await
@@ -1497,8 +1734,8 @@ async fn handle_client_connect(state: &ApiState, body: &[u8]) -> (u16, String) {
                 Ok(virtual_files) => {
                     // Store connection parameters for subsequent pull/push
                     *state.client_connection.write().await = Some(ClientConnection {
-                        server: r.server.clone(),
-                        partner_id: r.partner_id.clone(),
+                        server: server.address.clone(),
+                        partner_id: r.our_identity.clone(),
                         cert: cert_path,
                         key: key_path,
                         ca: ca_path,
@@ -1508,8 +1745,9 @@ async fn handle_client_connect(state: &ApiState, body: &[u8]) -> (u16, String) {
                         200,
                         serde_json::json!({
                             "success": true,
-                            "server": r.server,
-                            "partner_id": r.partner_id,
+                            "server_name": r.server_name,
+                            "server_address": server.address,
+                            "our_identity": r.our_identity,
                             "virtual_files": virtual_files
                         })
                         .to_string(),
@@ -1824,6 +2062,11 @@ async fn pull_file(
         reader.read_line(&mut line).await?;
     }
 
+    // Initialize chunk tracking for UI
+    state
+        .init_transfer_chunks(transfer_id, total_chunks as u32, virtual_file, "receive")
+        .await;
+
     // Create output file
     let mut file = tokio::fs::File::create(output_path).await?;
     let mut total_bytes = 0u64;
@@ -1853,7 +2096,16 @@ async fn pull_file(
         .await?;
     reader.read_line(&mut line).await?;
 
-    for chunk_idx in 0..total_chunks {
+    // Use random chunk ordering for anti-MITM protection
+    let mut orderer = crate::chunk_ordering::ChunkOrderer::new_random(total_chunks);
+
+    // Pre-allocate buffer for all chunks (we'll write them in order later)
+    let total_size_estimate = total_chunks * chunk_size;
+    let mut chunk_buffers: std::collections::HashMap<u64, Vec<u8>> =
+        std::collections::HashMap::new();
+    let mut chunks_received = 0u64;
+
+    while let Some(chunk_idx) = orderer.next_chunk() {
         line.clear();
         write_half
             .write_all(
@@ -1880,17 +2132,34 @@ async fn pull_file(
             }
         }
 
-        // Read binary chunk data directly from the inner reader
+        // Update chunk status to "receiving"
+        state
+            .update_chunk_status(transfer_id, chunk_idx as u32, ChunkStatus::Receiving)
+            .await;
+
+        // Read binary chunk data
         let mut chunk_data = vec![0u8; size as usize];
         reader.read_exact(&mut chunk_data).await?;
-        file.write_all(&chunk_data).await?;
+        chunk_buffers.insert(chunk_idx, chunk_data);
         total_bytes += size;
+        chunks_received += 1;
+
+        // Update chunk status to "validated"
+        state
+            .update_chunk_status(transfer_id, chunk_idx as u32, ChunkStatus::Validated)
+            .await;
 
         // Update progress
-        let total_size = total_chunks * chunk_size;
         state
-            .update_transfer_progress(transfer_id, total_bytes, total_size)
+            .update_transfer_progress(transfer_id, total_bytes, total_size_estimate)
             .await;
+    }
+
+    // Write chunks to file in order
+    for chunk_idx in 0..total_chunks {
+        if let Some(data) = chunk_buffers.get(&chunk_idx) {
+            file.write_all(data).await?;
+        }
     }
 
     // Final progress update with actual total
@@ -2074,8 +2343,17 @@ async fn push_file(
         return Err(format!("BEGIN_TRANSFER failed: {}", line).into());
     }
 
-    // Send each chunk
-    for chunk_idx in 0..total_chunks {
+    // Initialize chunk tracking for UI
+    state
+        .init_transfer_chunks(transfer_id, total_chunks as u32, virtual_file, "send")
+        .await;
+
+    // Use random chunk ordering for anti-MITM protection
+    let mut orderer = crate::chunk_ordering::ChunkOrderer::new_random(total_chunks);
+    let mut chunks_sent = 0u64;
+
+    // Send chunks in random order
+    while let Some(chunk_idx) = orderer.next_chunk() {
         let start = (chunk_idx as usize) * chunk_size;
         let end = std::cmp::min(start + chunk_size, file_data.len());
         let chunk_data = &file_data[start..end];
@@ -2105,6 +2383,11 @@ async fn push_file(
             return Err(format!("PUT failed: {}", line).into());
         }
 
+        // Update chunk status to sending
+        state
+            .update_chunk_status(transfer_id, chunk_idx as u32, ChunkStatus::Receiving)
+            .await;
+
         // Send binary data
         write_half.write_all(chunk_data).await?;
 
@@ -2115,8 +2398,14 @@ async fn push_file(
             return Err(format!("CHUNK_ACK failed: {}", line).into());
         }
 
-        // Update progress
-        let bytes_sent = (chunk_idx + 1) * chunk_size as u64;
+        // Update chunk status to validated (ACK received)
+        state
+            .update_chunk_status(transfer_id, chunk_idx as u32, ChunkStatus::Validated)
+            .await;
+
+        // Update progress based on chunks sent
+        chunks_sent += 1;
+        let bytes_sent = chunks_sent * chunk_size as u64;
         state
             .update_transfer_progress(transfer_id, bytes_sent.min(file_size), file_size)
             .await;

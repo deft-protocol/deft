@@ -55,18 +55,19 @@
                 </div>
             </section>
 
-            <!-- Partners Tab -->
+            <!-- Partners Tab (Incoming Connections) -->
             <section id="partners" class="tab-content">
                 <div class="card">
                     <div class="card-header">
-                        <h2>Partners</h2>
+                        <h2>Partners (Incoming Connections)</h2>
                         <button class="btn btn-primary" onclick="showPartnerModal()">+ Add Partner</button>
                     </div>
+                    <p class="text-muted">Partners that can connect TO this server. Their client certificate CN must
+                        match the Partner ID.</p>
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>Partner ID</th>
-                                <th>Endpoints</th>
+                                <th>Partner ID (= Client Cert CN)</th>
                                 <th>Virtual Files</th>
                                 <th>Allowed Certs</th>
                                 <th>Status</th>
@@ -76,6 +77,29 @@
                         <tbody id="partners-table">
                             <tr>
                                 <td colspan="5" class="empty">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Trusted Servers (Outgoing Connections)</h2>
+                        <button class="btn btn-primary" onclick="showTrustedServerModal()">+ Add Server</button>
+                    </div>
+                    <p class="text-muted">Servers this instance can connect TO as a client.</p>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Server Name</th>
+                                <th>Address</th>
+                                <th>Cert Fingerprint</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trusted-servers-table">
+                            <tr>
+                                <td colspan="4" class="empty">Loading...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -177,20 +201,20 @@
             <section id="client" class="tab-content">
                 <div class="grid-2">
                     <div class="card">
-                        <h2>Connect to Remote Server</h2>
-                        <p class="text-muted">Select a configured partner to connect. Your identity is determined by your client certificate CN.</p>
+                        <h2>Connect to Trusted Server</h2>
+                        <p class="text-muted">Select a trusted server and provide your identity (must match your client
+                            certificate CN).</p>
                         <form id="connect-form" class="form">
                             <div class="form-group">
-                                <label>Target Partner *</label>
-                                <select id="client-partner-select" class="form-control" required>
-                                    <option value="">Select a partner...</option>
+                                <label>Trusted Server *</label>
+                                <select id="client-server-select" class="form-control" required>
+                                    <option value="">Select a server...</option>
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label>Server Endpoint *</label>
-                                <select id="client-server-select" class="form-control" required disabled>
-                                    <option value="">Select partner first...</option>
-                                </select>
+                                <label>Our Identity (must match client cert CN) *</label>
+                                <input type="text" id="client-identity" class="form-control" required
+                                    placeholder="e.g., instance-a">
                             </div>
                             <div class="form-group">
                                 <label>Client Certificate (uses config default if empty)</label>
@@ -305,6 +329,17 @@
                             </div>
                             <button type="submit" class="btn btn-primary">Save Certificates</button>
                         </form>
+                        <hr>
+                        <div class="form-group">
+                            <label>Server Certificate Fingerprint (SHA-256)</label>
+                            <p class="text-muted">Share this with partners so they can verify your server identity.</p>
+                            <div class="input-group">
+                                <input type="text" id="server-fingerprint" class="form-control" readonly
+                                    placeholder="Loading..." style="font-family: monospace; font-size: 0.85em;">
+                                <button type="button" class="btn btn-secondary"
+                                    onclick="copyFingerprint()">Copy</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -346,7 +381,7 @@
         </footer>
     </div>
 
-    <!-- Partner Modal -->
+    <!-- Partner Modal (Incoming Connections) -->
     <div id="partner-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -356,22 +391,14 @@
             <form id="partner-form" class="form">
                 <input type="hidden" id="partner-edit-id">
                 <div class="form-group">
-                    <label>Partner ID *</label>
-                    <input type="text" id="partner-id" class="form-control" required placeholder="e.g., acme-corp">
-                </div>
-                <div class="form-group">
-                    <label>Endpoints (one per line)</label>
-                    <textarea id="partner-endpoints" class="form-control" rows="3" placeholder="host:port"></textarea>
+                    <label>Partner ID * (must match their client certificate CN)</label>
+                    <input type="text" id="partner-id" class="form-control" required
+                        placeholder="e.g., partner-instance">
                 </div>
                 <div class="form-group">
                     <label>Allowed Client Cert Fingerprints (SHA-256, one per line)</label>
                     <textarea id="partner-certs" class="form-control" rows="2"
-                        placeholder="abc123... (for incoming connections)"></textarea>
-                </div>
-                <div class="form-group">
-                    <label>Allowed Server Cert Fingerprints (SHA-256, one per line)</label>
-                    <textarea id="partner-server-certs" class="form-control" rows="2"
-                        placeholder="def456... (for outgoing connections)"></textarea>
+                        placeholder="abc123... (optional extra validation)"></textarea>
                 </div>
                 <div class="form-group">
                     <label>Virtual Files Access</label>
@@ -381,6 +408,39 @@
                     <button type="button" class="btn btn-secondary"
                         onclick="closeModal('partner-modal')">Cancel</button>
                     <button type="submit" class="btn btn-primary">Save Partner</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Trusted Server Modal (Outgoing Connections) -->
+    <div id="trusted-server-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="trusted-server-modal-title">Add Trusted Server</h3>
+                <button class="modal-close" onclick="closeModal('trusted-server-modal')">&times;</button>
+            </div>
+            <form id="trusted-server-form" class="form">
+                <input type="hidden" id="trusted-server-edit-name">
+                <div class="form-group">
+                    <label>Server Name *</label>
+                    <input type="text" id="trusted-server-name" class="form-control" required
+                        placeholder="e.g., production-server">
+                </div>
+                <div class="form-group">
+                    <label>Server Address * (host:port)</label>
+                    <input type="text" id="trusted-server-address" class="form-control" required
+                        placeholder="192.168.1.100:7741">
+                </div>
+                <div class="form-group">
+                    <label>Server Certificate Fingerprint (SHA-256, optional)</label>
+                    <input type="text" id="trusted-server-fingerprint" class="form-control"
+                        placeholder="abc123... (for extra validation)">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                        onclick="closeModal('trusted-server-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Server</button>
                 </div>
             </form>
         </div>
@@ -400,8 +460,8 @@
                     <input type="text" id="vf-name" class="form-control" required placeholder="e.g., invoices">
                 </div>
                 <div class="form-group">
-                    <label>Path *</label>
-                    <input type="text" id="vf-path" class="form-control" required placeholder="/data/files/">
+                    <label>Local File Path *</label>
+                    <input type="text" id="vf-path" class="form-control" required placeholder="/data/invoices.csv">
                 </div>
                 <div class="form-group">
                     <label>Direction *</label>

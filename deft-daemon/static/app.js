@@ -3,6 +3,7 @@ const API_BASE = window.location.origin;
 const WS_URL = `ws://${window.location.host}/ws`;
 let refreshInterval = null;
 let cachedPartners = [];
+let cachedTrustedServers = [];
 let cachedVirtualFiles = [];
 let clientConnected = false;
 let refreshPaused = false;
@@ -54,8 +55,10 @@ function connectWebSocket() {
 }
 
 function handleWsMessage(msg) {
+    console.log('WS message:', msg.type, msg);
     switch (msg.type) {
         case 'transfers':
+            console.log('Rendering transfers:', msg.data);
             renderTransfers(msg.data);
             break;
         case 'history':
@@ -70,9 +73,31 @@ function handleWsMessage(msg) {
         case 'transfer_complete':
             completeChunkMatrix(msg.data.transfer_id, msg.data.success);
             break;
+        case 'transfer_progress':
+            updateTransferProgress(msg.data.transfer_id, msg.data.bytes_transferred, msg.data.total_bytes, msg.data.progress_percent);
+            break;
         case 'status':
             renderStatus(msg.data);
             break;
+    }
+}
+
+function updateTransferProgress(transferId, bytesTransferred, totalBytes, progressPercent) {
+    // Update the progress bar for this transfer in the table
+    const rows = document.querySelectorAll('#transfers-table tr');
+    for (const row of rows) {
+        const idCell = row.querySelector('td:first-child code');
+        if (idCell && transferId.startsWith(idCell.textContent)) {
+            const progressFill = row.querySelector('.progress-fill');
+            const progressText = row.querySelector('small');
+            if (progressFill) {
+                progressFill.style.width = `${progressPercent}%`;
+            }
+            if (progressText) {
+                progressText.textContent = `${progressPercent}% (${formatBytes(bytesTransferred)} / ${formatBytes(totalBytes)})`;
+            }
+            break;
+        }
     }
 }
 
@@ -265,31 +290,27 @@ function renderStatus(data) {
     document.getElementById('last-update').textContent = `Last update: ${new Date().toLocaleTimeString()}`;
 }
 
-// ============ Partners ============
+// ============ Partners (Incoming Connections) ============
 async function updatePartners() {
     const data = await apiFetch('/api/partners');
     cachedPartners = data || [];
     const tbody = document.getElementById('partners-table');
 
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">No partners configured</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">No partners configured</td></tr>';
         return;
     }
 
     tbody.innerHTML = data.map(p => `
         <tr>
             <td><strong>${escapeHtml(p.id)}</strong></td>
-            <td>${(p.endpoints || []).map(e => `<code>${escapeHtml(e)}</code>`).join('<br>') || '--'}</td>
             <td>
                 ${(p.virtual_files || []).map(vf => `<span class="badge badge-info">${escapeHtml(vf)}</span>`).join(' ') || '<span class="badge badge-warning">None</span>'}
             </td>
             <td>
                 ${(p.allowed_certs || []).length > 0
-            ? `<span class="badge badge-success" title="Client certs:\n${(p.allowed_certs || []).map(c => escapeHtml(c.substring(0, 16) + '...')).join('\n')}">🔐 ${(p.allowed_certs || []).length} client</span>`
-            : '<span class="badge badge-warning">No client mTLS</span>'}
-                ${(p.allowed_server_certs || []).length > 0
-            ? `<span class="badge badge-info" title="Server certs:\n${(p.allowed_server_certs || []).map(c => escapeHtml(c.substring(0, 16) + '...')).join('\n')}">🔒 ${(p.allowed_server_certs || []).length} server</span>`
-            : ''}
+            ? `<span class="badge badge-success" title="${(p.allowed_certs || []).map(c => escapeHtml(c.substring(0, 16) + '...')).join('\n')}">🔐 ${(p.allowed_certs || []).length} cert(s)</span>`
+            : '<span class="badge badge-secondary">CA only</span>'}
             </td>
             <td>
                 <span class="badge ${p.connected ? 'badge-success' : 'badge-warning'}">
@@ -304,14 +325,43 @@ async function updatePartners() {
     `).join('');
 }
 
+// ============ Trusted Servers (Outgoing Connections) ============
+async function updateTrustedServers() {
+    const data = await apiFetch('/api/trusted-servers');
+    cachedTrustedServers = data || [];
+    const tbody = document.getElementById('trusted-servers-table');
+
+    if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty">No trusted servers configured</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = data.map(s => `
+        <tr>
+            <td><strong>${escapeHtml(s.name)}</strong></td>
+            <td><code>${escapeHtml(s.address)}</code></td>
+            <td>
+                ${s.cert_fingerprint
+            ? `<span class="badge badge-success" title="${escapeHtml(s.cert_fingerprint)}">🔒 ${escapeHtml(s.cert_fingerprint.substring(0, 16))}...</span>`
+            : '<span class="badge badge-secondary">CA only</span>'}
+            </td>
+            <td class="action-btns">
+                <button class="btn btn-sm btn-secondary" onclick="editTrustedServer('${escapeHtml(s.name)}')">Edit</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteTrustedServer('${escapeHtml(s.name)}')">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+
+    // Update client dropdown
+    updateClientServerDropdown();
+}
+
 function showPartnerModal(partner = null) {
     document.getElementById('partner-modal-title').textContent = partner ? 'Edit Partner' : 'Add Partner';
     document.getElementById('partner-edit-id').value = partner?.id || '';
     document.getElementById('partner-id').value = partner?.id || '';
     document.getElementById('partner-id').disabled = !!partner;
-    document.getElementById('partner-endpoints').value = (partner?.endpoints || []).join('\n');
     document.getElementById('partner-certs').value = (partner?.allowed_certs || []).join('\n');
-    document.getElementById('partner-server-certs').value = (partner?.allowed_server_certs || []).join('\n');
 
     // Populate VF checkboxes
     const container = document.getElementById('partner-vf-checkboxes');
@@ -325,6 +375,51 @@ function showPartnerModal(partner = null) {
 
     showModal('partner-modal');
 }
+
+function showTrustedServerModal(server = null) {
+    document.getElementById('trusted-server-modal-title').textContent = server ? 'Edit Trusted Server' : 'Add Trusted Server';
+    document.getElementById('trusted-server-edit-name').value = server?.name || '';
+    document.getElementById('trusted-server-name').value = server?.name || '';
+    document.getElementById('trusted-server-name').disabled = !!server;
+    document.getElementById('trusted-server-address').value = server?.address || '';
+    document.getElementById('trusted-server-fingerprint').value = server?.cert_fingerprint || '';
+
+    showModal('trusted-server-modal');
+}
+
+async function editTrustedServer(name) {
+    const server = cachedTrustedServers.find(s => s.name === name);
+    if (server) showTrustedServerModal(server);
+}
+
+async function deleteTrustedServer(name) {
+    if (!confirm(`Delete trusted server "${name}"?`)) return;
+    const result = await apiDelete(`/api/trusted-servers/${name}`);
+    if (result) {
+        addLogEntry(`Deleted trusted server: ${name}`);
+        await updateTrustedServers();
+    }
+}
+
+document.getElementById('trusted-server-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const editName = document.getElementById('trusted-server-edit-name').value;
+    const name = document.getElementById('trusted-server-name').value;
+    const address = document.getElementById('trusted-server-address').value;
+    const fingerprint = document.getElementById('trusted-server-fingerprint').value.trim() || null;
+
+    const data = { name, address, cert_fingerprint: fingerprint };
+
+    const result = editName
+        ? await apiPut(`/api/trusted-servers/${editName}`, data)
+        : await apiPost('/api/trusted-servers', data);
+
+    if (result) {
+        closeModal('trusted-server-modal');
+        addLogEntry(`${editName ? 'Updated' : 'Created'} trusted server: ${name}`);
+        await updateTrustedServers();
+    }
+});
 
 async function editPartner(id) {
     const partner = cachedPartners.find(p => p.id === id);
@@ -344,12 +439,10 @@ document.getElementById('partner-form').addEventListener('submit', async (e) => 
     e.preventDefault();
     const editId = document.getElementById('partner-edit-id').value;
     const partnerId = document.getElementById('partner-id').value;
-    const endpoints = document.getElementById('partner-endpoints').value.split('\n').filter(e => e.trim());
     const certs = document.getElementById('partner-certs').value.split('\n').filter(c => c.trim());
-    const serverCerts = document.getElementById('partner-server-certs').value.split('\n').filter(c => c.trim());
     const vfs = Array.from(document.querySelectorAll('#partner-vf-checkboxes input:checked')).map(cb => cb.value);
 
-    const data = { id: partnerId, endpoints, allowed_certs: certs, allowed_server_certs: serverCerts, virtual_files: vfs };
+    const data = { id: partnerId, allowed_certs: certs, virtual_files: vfs };
 
     const result = editId
         ? await apiPut(`/api/partners/${editId}`, data)
@@ -567,68 +660,43 @@ function renderHistory(data) {
 
 // ============ Client ============
 
-// Populate partner dropdown for client connections
-function updateClientPartnerDropdown() {
-    const select = document.getElementById('client-partner-select');
-    const partnersWithEndpoints = cachedPartners.filter(p => p.endpoints && p.endpoints.length > 0);
+// Populate trusted server dropdown for client connections
+function updateClientServerDropdown() {
+    const select = document.getElementById('client-server-select');
 
-    select.innerHTML = '<option value="">Select a partner...</option>' +
-        partnersWithEndpoints.map(p => {
-            const certInfo = (p.allowed_server_certs || []).length > 0 ? ' 🔒' : '';
-            return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.id)}${certInfo}</option>`;
+    if (!cachedTrustedServers || cachedTrustedServers.length === 0) {
+        select.innerHTML = '<option value="">No trusted servers configured</option>';
+        return;
+    }
+
+    select.innerHTML = '<option value="">Select a server...</option>' +
+        cachedTrustedServers.map(s => {
+            const certInfo = s.cert_fingerprint ? ' 🔒' : '';
+            return `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)} (${escapeHtml(s.address)})${certInfo}</option>`;
         }).join('');
-
-    if (partnersWithEndpoints.length === 0) {
-        select.innerHTML = '<option value="">No partners with endpoints configured</option>';
-    }
 }
-
-// When partner is selected, populate endpoints dropdown
-document.getElementById('client-partner-select').addEventListener('change', (e) => {
-    const partnerId = e.target.value;
-    const serverSelect = document.getElementById('client-server-select');
-
-    if (!partnerId) {
-        serverSelect.disabled = true;
-        serverSelect.innerHTML = '<option value="">Select partner first...</option>';
-        return;
-    }
-
-    const partner = cachedPartners.find(p => p.id === partnerId);
-    if (!partner || !partner.endpoints || partner.endpoints.length === 0) {
-        serverSelect.disabled = true;
-        serverSelect.innerHTML = '<option value="">No endpoints configured</option>';
-        return;
-    }
-
-    serverSelect.disabled = false;
-    serverSelect.innerHTML = partner.endpoints.map((ep, i) =>
-        `<option value="${escapeHtml(ep)}">${escapeHtml(ep)}</option>`
-    ).join('');
-});
 
 document.getElementById('connect-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const partnerId = document.getElementById('client-partner-select').value;
-    const server = document.getElementById('client-server-select').value;
+    const serverName = document.getElementById('client-server-select').value;
+    const ourIdentity = document.getElementById('client-identity').value.trim();
     const cert = document.getElementById('client-cert').value.trim();
     const key = document.getElementById('client-key').value.trim();
     const statusDiv = document.getElementById('client-status');
 
-    if (!partnerId || !server) {
+    if (!serverName || !ourIdentity) {
         statusDiv.className = 'client-status error';
-        statusDiv.textContent = 'Please select a partner and endpoint';
+        statusDiv.textContent = 'Please select a server and provide your identity';
         return;
     }
 
     statusDiv.className = 'client-status';
     statusDiv.textContent = 'Connecting...';
 
-    // Try to connect - partner_id is used to look up allowed_server_certs
-    // Our identity is determined by our client certificate CN
+    // Connect to trusted server with our identity
     const result = await apiPost('/api/client/connect', {
-        server,
-        partner_id: partnerId,
+        server_name: serverName,
+        our_identity: ourIdentity,
         cert: cert || undefined,
         key: key || undefined
     });
@@ -636,9 +704,9 @@ document.getElementById('connect-form').addEventListener('submit', async (e) => 
     if (result && result.success) {
         clientConnected = true;
         statusDiv.className = 'client-status connected';
-        statusDiv.textContent = `Connected to ${server} (partner: ${partnerId})`;
+        statusDiv.textContent = `Connected to ${result.server_address} as ${ourIdentity}`;
         updateRemoteFiles(result.virtual_files || []);
-        addLogEntry(`Connected to ${server} via partner ${partnerId}`);
+        addLogEntry(`Connected to ${serverName} (${result.server_address}) as ${ourIdentity}`);
     } else {
         statusDiv.className = 'client-status error';
         statusDiv.textContent = result?.error || 'Connection failed';
@@ -778,6 +846,35 @@ async function updateSettings() {
     document.getElementById('cfg-max-conn').value = config.limits?.max_connections_per_partner || 10;
     document.getElementById('cfg-max-bandwidth').value = config.limits?.max_bandwidth_mbps || 100;
     document.getElementById('cfg-idle-timeout').value = config.limits?.idle_timeout_seconds || 300;
+
+    // Load server fingerprint
+    await loadServerFingerprint();
+}
+
+async function loadServerFingerprint() {
+    const input = document.getElementById('server-fingerprint');
+    if (!input) return;
+
+    const data = await apiFetch('/api/server-fingerprint');
+    if (data && data.fingerprint) {
+        input.value = data.fingerprint;
+    } else {
+        input.value = data?.error || 'Unable to load fingerprint';
+    }
+}
+
+function copyFingerprint() {
+    const input = document.getElementById('server-fingerprint');
+    if (!input || !input.value || input.value.startsWith('Unable')) return;
+
+    navigator.clipboard.writeText(input.value).then(() => {
+        showNotification('Fingerprint copied to clipboard!', 'success');
+    }).catch(() => {
+        // Fallback for older browsers
+        input.select();
+        document.execCommand('copy');
+        showNotification('Fingerprint copied!', 'success');
+    });
 }
 
 document.getElementById('server-config-form')?.addEventListener('submit', async (e) => {
@@ -877,12 +974,11 @@ async function refreshAll() {
     await Promise.all([
         updateStatus(),
         updatePartners(),
+        updateTrustedServers(),
         updateVirtualFiles(),
         updateTransfers(),
         updateHistory()
     ]);
-    // Update client dropdown after partners are loaded
-    updateClientPartnerDropdown();
 }
 
 // Refresh status, transfers and history (called by interval)

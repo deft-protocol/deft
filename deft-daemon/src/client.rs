@@ -23,7 +23,7 @@ use deft_protocol::{AckStatus, Capabilities, ChunkRange, Command, Parser, Respon
 
 use crate::chunk_ordering::ChunkOrderer;
 use crate::compression::{compress, is_compression_beneficial, CompressionLevel};
-use crate::config::{ClientConfig, PartnerConfig};
+use crate::config::{ClientConfig, TrustedServerConfig};
 use crate::discovery::{DiscoveryConfig, EndpointDiscovery};
 use crate::metrics;
 
@@ -69,63 +69,29 @@ impl Client {
         Ok(ClientConnection::new(tls_stream))
     }
 
-    /// Send a file to a partner with endpoint failover
+    /// Send a file to a trusted server
+    /// - server: the trusted server to connect to
+    /// - our_identity: our partner ID (must match our client cert CN)
     pub async fn send_file(
         &self,
-        partner: &PartnerConfig,
+        server: &TrustedServerConfig,
+        our_identity: &str,
         virtual_file: &str,
         file_path: &Path,
         chunk_size: u32,
     ) -> Result<TransferResult> {
-        // Register endpoints with discovery for health tracking
-        self.discovery
-            .register_partner(&partner.id, partner.endpoints.clone())
-            .await;
+        // Connect to the server
+        let mut conn = self.connect(&server.address).await?;
 
-        // Try each endpoint with failover and health tracking
-        let mut last_error = None;
-        let mut conn = None;
-        let mut connected_endpoint = String::new();
-
-        for endpoint in &partner.endpoints {
-            let start = std::time::Instant::now();
-            match self.connect(endpoint).await {
-                Ok(c) => {
-                    let latency_ms = start.elapsed().as_millis() as u64;
-                    self.discovery
-                        .record_success(&partner.id, endpoint, latency_ms)
-                        .await;
-                    conn = Some(c);
-                    connected_endpoint = endpoint.clone();
-                    break;
-                }
-                Err(e) => {
-                    self.discovery.record_failure(&partner.id, endpoint).await;
-                    warn!("Failed to connect to {}: {}", endpoint, e);
-                    metrics::record_error("connection_failed");
-                    last_error = Some(e);
-                }
-            }
-        }
-
-        let mut conn = conn.ok_or_else(|| {
-            last_error.unwrap_or_else(|| {
-                anyhow::anyhow!("No endpoints configured for partner {}", partner.id)
-            })
-        })?;
-
-        info!(
-            "Connected to {} for partner {}",
-            connected_endpoint, partner.id
-        );
+        info!("Connected to {} ({})", server.name, server.address);
 
         // Handshake
         let welcome = conn.hello().await?;
         info!("Handshake complete: {:?}", welcome);
 
-        // Authenticate
-        let auth_ok = conn.auth(&partner.id).await?;
-        info!("Authenticated: {:?}", auth_ok);
+        // Authenticate with our identity
+        let auth_ok = conn.auth(our_identity).await?;
+        info!("Authenticated as {}: {:?}", our_identity, auth_ok);
 
         // Prepare file for transfer
         let mut file = File::open(file_path)
@@ -263,23 +229,21 @@ impl Client {
         })
     }
 
-    /// Get a file from a partner
+    /// Get a file from a trusted server
+    /// - server: the trusted server to connect to
+    /// - our_identity: our partner ID (must match our client cert CN)
     pub async fn get_file(
         &self,
-        partner: &PartnerConfig,
+        server: &TrustedServerConfig,
+        our_identity: &str,
         virtual_file: &str,
         output_path: &Path,
     ) -> Result<TransferResult> {
-        let endpoint = partner
-            .endpoints
-            .first()
-            .ok_or_else(|| anyhow::anyhow!("No endpoints configured for partner {}", partner.id))?;
-
-        let mut conn = self.connect(endpoint).await?;
+        let mut conn = self.connect(&server.address).await?;
 
         // Handshake and auth
         conn.hello().await?;
-        conn.auth(&partner.id).await?;
+        conn.auth(our_identity).await?;
 
         // Describe file to get chunk info
         let describe = conn.describe(virtual_file).await?;

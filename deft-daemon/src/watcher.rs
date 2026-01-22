@@ -25,8 +25,10 @@ pub struct WatchConfig {
     pub path: PathBuf,
     /// File pattern (glob)
     pub pattern: Option<String>,
-    /// Partner to send to
-    pub partner_id: String,
+    /// Trusted server name to send to
+    pub server_name: String,
+    /// Our identity (must match client cert CN)
+    pub our_identity: String,
     /// Virtual file name
     pub virtual_file: String,
     /// Poll interval in seconds
@@ -42,7 +44,8 @@ impl Default for WatchConfig {
         Self {
             path: PathBuf::from("."),
             pattern: None,
-            partner_id: String::new(),
+            server_name: String::new(),
+            our_identity: String::new(),
             virtual_file: String::new(),
             poll_interval_secs: 30,
             delete_after_send: false,
