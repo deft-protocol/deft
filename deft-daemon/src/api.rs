@@ -210,6 +210,7 @@ pub struct ApiState {
     config_path: Option<std::path::PathBuf>,
     pub client_connection: RwLock<Option<ClientConnection>>,
     pub ws_broadcast: broadcast::Sender<WsEvent>,
+    pub rate_limiter: crate::rate_limit::RateLimiter,
 }
 
 impl ApiState {
@@ -217,6 +218,16 @@ impl ApiState {
         let history_path = std::path::PathBuf::from(&config.storage.temp_dir).join("history.json");
         let history = Self::load_history(&history_path).unwrap_or_default();
         let (ws_broadcast, _) = broadcast::channel(256);
+
+        // Initialize rate limiter from config
+        let rate_limit_config = crate::rate_limit::RateLimitConfig {
+            max_connections_per_ip: config.limits.max_connections_per_ip,
+            max_requests_per_partner: config.limits.max_requests_per_partner,
+            max_bytes_per_partner: config.limits.max_bytes_per_partner,
+            window_duration: std::time::Duration::from_secs(config.limits.window_seconds),
+            ban_duration: std::time::Duration::from_secs(config.limits.ban_seconds),
+        };
+        let rate_limiter = crate::rate_limit::RateLimiter::new(rate_limit_config);
 
         Self {
             config: RwLock::new(config),
@@ -227,6 +238,7 @@ impl ApiState {
             config_path,
             client_connection: RwLock::new(None),
             ws_broadcast,
+            rate_limiter,
         }
     }
 
@@ -238,6 +250,23 @@ impl ApiState {
     /// Subscribe to WebSocket events
     pub fn subscribe(&self) -> broadcast::Receiver<WsEvent> {
         self.ws_broadcast.subscribe()
+    }
+
+    /// Check rate limit for API requests. Returns Some((status, body)) if rate limited.
+    pub async fn check_api_rate_limit(&self, ip: std::net::IpAddr) -> Option<(u16, String)> {
+        use crate::rate_limit::RateLimitResult;
+
+        match self.rate_limiter.check_ip(ip).await {
+            RateLimitResult::Allowed => None,
+            RateLimitResult::Exceeded => Some((
+                429,
+                r#"{"error":"Rate limit exceeded. Please slow down."}"#.to_string(),
+            )),
+            RateLimitResult::Banned => Some((
+                429,
+                r#"{"error":"Too many requests. You have been temporarily banned."}"#.to_string(),
+            )),
+        }
     }
 
     fn load_history(path: &std::path::Path) -> Option<Vec<TransferHistoryEntry>> {
@@ -645,10 +674,28 @@ async fn handle_request(
             handle_delete_virtual_file(&state, name).await
         }
 
-        // Client endpoints (outgoing connections)
-        ("POST", "/api/client/connect") => handle_client_connect(&state, request_body).await,
-        ("POST", "/api/client/pull") => handle_client_pull(&state, request_body).await,
-        ("POST", "/api/client/push") => handle_client_push(&state, request_body).await,
+        // Client endpoints (outgoing connections) - rate limited
+        ("POST", "/api/client/connect") => {
+            if let Some(rate_limited) = state.check_api_rate_limit(peer.ip()).await {
+                rate_limited
+            } else {
+                handle_client_connect(&state, request_body).await
+            }
+        }
+        ("POST", "/api/client/pull") => {
+            if let Some(rate_limited) = state.check_api_rate_limit(peer.ip()).await {
+                rate_limited
+            } else {
+                handle_client_pull(&state, request_body).await
+            }
+        }
+        ("POST", "/api/client/push") => {
+            if let Some(rate_limited) = state.check_api_rate_limit(peer.ip()).await {
+                rate_limited
+            } else {
+                handle_client_push(&state, request_body).await
+            }
+        }
 
         // Delta sync endpoints
         ("POST", "/api/delta/signature") => handle_delta_signature(&state, request_body).await,
@@ -2748,5 +2795,51 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("transfer_progress"));
         assert!(json.contains("txn_007"));
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_integration() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        // Rate limiter should be initialized from config
+        let ip: std::net::IpAddr = "192.168.1.1".parse().unwrap();
+
+        // First requests should be allowed
+        let result = state.rate_limiter.check_ip(ip).await;
+        assert!(result.is_allowed());
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_blocks_after_limit() {
+        use crate::rate_limit::{RateLimitConfig, RateLimiter};
+
+        let config = RateLimitConfig {
+            max_connections_per_ip: 2,
+            max_requests_per_partner: 100,
+            max_bytes_per_partner: 1024 * 1024,
+            window_duration: std::time::Duration::from_secs(60),
+            ban_duration: std::time::Duration::from_millis(100),
+        };
+        let limiter = RateLimiter::new(config);
+        let ip: std::net::IpAddr = "10.0.0.1".parse().unwrap();
+
+        // First 2 should pass
+        assert!(limiter.check_ip(ip).await.is_allowed());
+        assert!(limiter.check_ip(ip).await.is_allowed());
+
+        // 3rd should be blocked
+        assert!(!limiter.check_ip(ip).await.is_allowed());
+    }
+
+    #[tokio::test]
+    async fn test_check_api_rate_limit_helper() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+        let ip: std::net::IpAddr = "172.16.0.1".parse().unwrap();
+
+        // Should return None (allowed) for first request
+        let result = state.check_api_rate_limit(ip).await;
+        assert!(result.is_none());
     }
 }
