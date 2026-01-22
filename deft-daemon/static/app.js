@@ -714,16 +714,11 @@ function updateRemoteFiles(files) {
     const container = document.getElementById('remote-files-list');
     const pullSelect = document.getElementById('pull-vf');
     const pushSelect = document.getElementById('push-vf');
-    // v2.0 selectors
-    const pushParallelSelect = document.getElementById('push-parallel-vf');
-    const syncDeltaSelect = document.getElementById('sync-delta-vf');
 
     if (!files || files.length === 0) {
         container.innerHTML = '<div class="empty">No virtual files available</div>';
         pullSelect.innerHTML = '<option value="">No files available</option>';
         pushSelect.innerHTML = '<option value="">No files available</option>';
-        if (pushParallelSelect) pushParallelSelect.innerHTML = '<option value="">No files available</option>';
-        if (syncDeltaSelect) syncDeltaSelect.innerHTML = '<option value="">No files available</option>';
         return;
     }
 
@@ -746,16 +741,8 @@ function updateRemoteFiles(files) {
 
     // Files we can push to (direction=receive/recv on remote = they receive from us)
     const pushableFiles = files.filter(f => f.direction === 'receive' || f.direction === 'recv');
-    const pushOptions = '<option value="">Select file...</option>' +
+    pushSelect.innerHTML = '<option value="">Select file...</option>' +
         pushableFiles.map(f => `<option value="${escapeHtml(f.name)}">${escapeHtml(f.name)}</option>`).join('');
-
-    pushSelect.innerHTML = pushOptions;
-    if (pushParallelSelect) pushParallelSelect.innerHTML = pushOptions;
-
-    // Delta sync can work with any file
-    const allOptions = '<option value="">Select file...</option>' +
-        files.map(f => `<option value="${escapeHtml(f.name)}">${escapeHtml(f.name)}</option>`).join('');
-    if (syncDeltaSelect) syncDeltaSelect.innerHTML = allOptions;
 }
 
 document.getElementById('pull-form').addEventListener('submit', async (e) => {
@@ -835,91 +822,6 @@ function showNotification(message, type) {
     setTimeout(() => notif.remove(), 4000);
 }
 
-// ============ v2.0 Advanced Transfers ============
-document.getElementById('push-parallel-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const file = document.getElementById('push-parallel-file').value;
-    const vf = document.getElementById('push-parallel-vf').value;
-    const concurrent = parseInt(document.getElementById('push-parallel-concurrent').value) || 4;
-    const btn = e.target.querySelector('button[type="submit"]');
-    const resultDiv = document.getElementById('v2-result');
-
-    if (!file || !vf) {
-        alert('Please specify a file and select destination');
-        return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = 'Pushing...';
-    resultDiv.innerHTML = '<div class="text-muted">Starting parallel push...</div>';
-
-    try {
-        const result = await apiPost('/api/client/push-parallel', {
-            file_path: file,
-            virtual_file: vf,
-            max_concurrent: concurrent
-        });
-        if (result && result.success) {
-            resultDiv.innerHTML = `<div class="success">✓ Parallel push complete: ${formatBytes(result.bytes)} (${result.mode}, ${result.max_concurrent} concurrent)</div>`;
-            addLogEntry(`✓ Parallel push: ${file} -> ${vf} (${formatBytes(result.bytes)})`);
-            showNotification(`Parallel push successful`, 'success');
-            await updateTransfers();
-        } else {
-            resultDiv.innerHTML = `<div class="error">✗ ${result?.error || 'Unknown error'}</div>`;
-            showNotification(result?.error || 'Parallel push failed', 'error');
-        }
-    } catch (err) {
-        resultDiv.innerHTML = `<div class="error">✗ ${err.message}</div>`;
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Start Parallel Push';
-    }
-});
-
-document.getElementById('sync-delta-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const localPath = document.getElementById('sync-delta-local').value;
-    const remotePath = document.getElementById('sync-delta-remote').value;
-    const blockSize = parseInt(document.getElementById('sync-delta-blocksize').value) || 4096;
-    const btn = e.target.querySelector('button[type="submit"]');
-    const resultDiv = document.getElementById('v2-result');
-
-    if (!localPath || !remotePath) {
-        alert('Please specify source and target files');
-        return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = 'Syncing...';
-    resultDiv.innerHTML = '<div class="text-muted">Computing and applying delta...</div>';
-
-    try {
-        const result = await apiPost('/api/client/sync-delta', {
-            local_path: localPath,
-            remote_path: remotePath,
-            block_size: blockSize
-        });
-        if (result && result.success) {
-            const delta = result.delta;
-            resultDiv.innerHTML = `
-                <div class="success">
-                    ✓ Delta sync complete<br>
-                    <small>Copy blocks: ${delta.copy_blocks} | Insert bytes: ${formatBytes(delta.insert_bytes)} | Savings: ${delta.savings_percent}</small><br>
-                    <small>Written: ${formatBytes(result.bytes_written)}</small>
-                </div>`;
-            addLogEntry(`✓ Delta sync: ${localPath} → ${remotePath} (${delta.savings_percent} saved)`);
-            showNotification(`Delta sync complete`, 'success');
-        } else {
-            resultDiv.innerHTML = `<div class="error">✗ ${result?.error || 'Unknown error'}</div>`;
-            showNotification(result?.error || 'Delta sync failed', 'error');
-        }
-    } catch (err) {
-        resultDiv.innerHTML = `<div class="error">✗ ${err.message}</div>`;
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Apply Delta Sync';
-    }
-});
 
 // ============ Settings ============
 async function updateSettings() {

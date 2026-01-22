@@ -261,6 +261,7 @@
                         </div>
                         <div class="operation-panel">
                             <h3>↑ Push (Upload)</h3>
+                            <p class="text-muted">Delta sync enabled automatically when updating existing files.</p>
                             <form id="push-form" class="form">
                                 <div class="form-group">
                                     <label>Local File Path</label>
@@ -273,63 +274,23 @@
                                         <option value="">Connect first...</option>
                                     </select>
                                 </div>
+                                <details class="transfer-options">
+                                    <summary>Advanced Options</summary>
+                                    <div class="form-group">
+                                        <label>Parallel Streams</label>
+                                        <select id="push-parallel" class="form-control">
+                                            <option value="auto">Auto-detect</option>
+                                            <option value="1">1 (Sequential)</option>
+                                            <option value="2">2</option>
+                                            <option value="4">4</option>
+                                            <option value="8">8</option>
+                                        </select>
+                                    </div>
+                                </details>
                                 <button type="submit" class="btn btn-info btn-block">Start Push</button>
                             </form>
                         </div>
                     </div>
-                </div>
-
-                <!-- v2.0 Advanced Transfer Options -->
-                <div class="card">
-                    <h2>⚡ v2.0 Advanced Transfers</h2>
-                    <div class="grid-2">
-                        <div class="operation-panel">
-                            <h3>↑ Parallel Push</h3>
-                            <p class="text-muted">Send with multiple concurrent chunks for faster transfers.</p>
-                            <form id="push-parallel-form" class="form">
-                                <div class="form-group">
-                                    <label>Local File Path</label>
-                                    <input type="text" id="push-parallel-file" class="form-control"
-                                        placeholder="/path/to/local/file">
-                                </div>
-                                <div class="form-group">
-                                    <label>Remote Virtual File</label>
-                                    <select id="push-parallel-vf" class="form-control">
-                                        <option value="">Connect first...</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label>Max Concurrent Chunks</label>
-                                    <input type="number" id="push-parallel-concurrent" class="form-control" value="4"
-                                        min="1" max="16">
-                                </div>
-                                <button type="submit" class="btn btn-info btn-block">Start Parallel Push</button>
-                            </form>
-                        </div>
-                        <div class="operation-panel">
-                            <h3>🔄 Delta Sync</h3>
-                            <p class="text-muted">Sync files by transferring only the differences (rsync-like).</p>
-                            <form id="sync-delta-form" class="form">
-                                <div class="form-group">
-                                    <label>Source File (new version)</label>
-                                    <input type="text" id="sync-delta-local" class="form-control"
-                                        placeholder="/path/to/source/file">
-                                </div>
-                                <div class="form-group">
-                                    <label>Target File (to update)</label>
-                                    <input type="text" id="sync-delta-remote" class="form-control"
-                                        placeholder="/path/to/target/file">
-                                </div>
-                                <div class="form-group">
-                                    <label>Block Size (bytes)</label>
-                                    <input type="number" id="sync-delta-blocksize" class="form-control" value="4096"
-                                        min="512" max="65536">
-                                </div>
-                                <button type="submit" class="btn btn-warning btn-block">Apply Delta Sync</button>
-                            </form>
-                        </div>
-                    </div>
-                    <div id="v2-result" class="client-status" style="margin-top: 1rem;"></div>
                 </div>
             </section>
 

@@ -1,0 +1,108 @@
+name: Version Bump
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'CHANGELOG.md'
+      - '**/Cargo.toml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Bump Version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get current version
+        id: current
+        run: |
+          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $VERSION"
+
+      - name: Determine version bump
+        id: bump
+        run: |
+          # Get commits since last version change
+          LAST_COMMIT=$(git log -1 --format=%H -- Cargo.toml 2>/dev/null || echo "")
+          if [ -z "$LAST_COMMIT" ]; then
+            COMMITS=$(git log --oneline)
+          else
+            COMMITS=$(git log --oneline $LAST_COMMIT..HEAD)
+          fi
+          
+          echo "Recent commits:"
+          echo "$COMMITS"
+          
+          # Determine bump type based on conventional commits
+          if echo "$COMMITS" | grep -qE "^[a-f0-9]+ (feat|fix|chore|docs|style|refactor|perf|test)(\(.+\))?!:"; then
+            BUMP="major"
+          elif echo "$COMMITS" | grep -qiE "BREAKING CHANGE"; then
+            BUMP="major"
+          elif echo "$COMMITS" | grep -qE "^[a-f0-9]+ feat(\(.+\))?:"; then
+            BUMP="minor"
+          elif echo "$COMMITS" | grep -qE "^[a-f0-9]+ (fix|perf)(\(.+\))?:"; then
+            BUMP="patch"
+          else
+            BUMP="none"
+          fi
+          
+          echo "bump=$BUMP" >> $GITHUB_OUTPUT
+          echo "Bump type: $BUMP"
+
+      - name: Calculate new version
+        id: new
+        if: steps.bump.outputs.bump != 'none'
+        run: |
+          VERSION="${{ steps.current.outputs.version }}"
+          BUMP="${{ steps.bump.outputs.bump }}"
+          
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          
+          case $BUMP in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+          
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION"
+
+      - name: Update version in Cargo.toml
+        if: steps.bump.outputs.bump != 'none'
+        run: |
+          NEW_VERSION="${{ steps.new.outputs.version }}"
+          sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" Cargo.toml
+          echo "Updated Cargo.toml to version $NEW_VERSION"
+
+      - name: Commit version bump
+        if: steps.bump.outputs.bump != 'none'
+        run: |
+          NEW_VERSION="${{ steps.new.outputs.version }}"
+          git add Cargo.toml
+          git commit -m "chore(release): bump version to $NEW_VERSION [skip ci]"
+          git push
