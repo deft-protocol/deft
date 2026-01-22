@@ -26,6 +26,7 @@ use crate::compression::{compress, is_compression_beneficial, CompressionLevel};
 use crate::config::{ClientConfig, TrustedServerConfig};
 use crate::discovery::{DiscoveryConfig, EndpointDiscovery};
 use crate::metrics;
+use crate::parallel::{ChunkResult, ParallelConfig, ParallelSender};
 
 /// DEFT client for outgoing connections
 pub struct Client {
@@ -226,6 +227,162 @@ impl Client {
             total_bytes: file_chunks.total_size,
             file_hash: file_hash.clone(),
             bytes_saved: bytes_saved as u64,
+        })
+    }
+
+    /// Send a file with parallel chunk transfers (v2.0)
+    pub async fn send_file_parallel(
+        &self,
+        server: &TrustedServerConfig,
+        our_identity: &str,
+        virtual_file: &str,
+        file_path: &Path,
+        chunk_size: u32,
+        parallel_config: ParallelConfig,
+    ) -> Result<TransferResult> {
+        let mut conn = self.connect(&server.address).await?;
+
+        info!(
+            "Connected to {} ({}) - parallel mode ({} concurrent)",
+            server.name, server.address, parallel_config.max_concurrent
+        );
+
+        // Handshake
+        conn.hello().await?;
+        conn.auth(our_identity).await?;
+
+        // Prepare file
+        let mut file = File::open(file_path)
+            .with_context(|| format!("Failed to open file: {:?}", file_path))?;
+
+        let chunker = Chunker::new(chunk_size);
+        let file_chunks = chunker.compute_chunks(&mut file)?;
+        let file_hash = &file_chunks.file_hash;
+
+        info!(
+            "Sending file parallel: {:?} ({} bytes, {} chunks)",
+            file_path,
+            file_chunks.total_size,
+            file_chunks.chunks.len()
+        );
+
+        // Begin transfer
+        let transfer_accepted = conn
+            .begin_transfer(
+                virtual_file,
+                file_chunks.chunks.len() as u64,
+                file_chunks.total_size,
+                file_hash,
+            )
+            .await?;
+
+        let transfer_id = match &transfer_accepted {
+            Response::TransferAccepted { transfer_id, .. } => transfer_id.clone(),
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unexpected response: {:?}",
+                    transfer_accepted
+                ))
+            }
+        };
+
+        // Create parallel sender and random orderer
+        let parallel_sender = ParallelSender::new(parallel_config);
+        let mut orderer = ChunkOrderer::new_random(file_chunks.chunks.len() as u64);
+        let mut bytes_saved = 0i64;
+
+        // Send chunks with concurrency control
+        while let Some(chunk_index) = orderer.next_chunk() {
+            // Acquire permit for concurrency control
+            let _permit = parallel_sender.acquire().await;
+
+            let i = chunk_index as usize;
+            let chunk_meta = &file_chunks.chunks[i];
+            let chunk_data = chunker.read_chunk(&mut file, chunk_index)?;
+            let nonce = orderer.get_nonce(chunk_index);
+
+            // Compress if beneficial
+            let (send_data, compressed) = match compress(&chunk_data, CompressionLevel::Fast) {
+                Ok(compressed_data)
+                    if is_compression_beneficial(chunk_data.len(), compressed_data.len()) =>
+                {
+                    bytes_saved += (chunk_data.len() as i64) - (compressed_data.len() as i64);
+                    (compressed_data, true)
+                }
+                _ => (chunk_data.clone(), false),
+            };
+
+            // Send PUT command
+            let ready = conn
+                .put_compressed_with_nonce(
+                    virtual_file,
+                    chunk_index,
+                    send_data.len() as u64,
+                    &chunk_meta.hash,
+                    nonce,
+                    compressed,
+                )
+                .await?;
+
+            if let Response::ChunkReady { .. } = ready {
+                conn.send_raw_data(&send_data).await?;
+
+                let start_time = std::time::Instant::now();
+                let ack = conn.read_response().await?;
+                let latency = start_time.elapsed().as_secs_f64();
+
+                let (success, error) = match &ack {
+                    Response::ChunkAck { status, .. } => {
+                        if *status == AckStatus::Ok {
+                            metrics::record_chunk_sent(latency);
+                            (true, None)
+                        } else {
+                            metrics::record_error("chunk_rejected");
+                            (false, Some(format!("{:?}", status)))
+                        }
+                    }
+                    Response::TransferComplete { .. } => {
+                        metrics::record_chunk_sent(latency);
+                        (true, None)
+                    }
+                    _ => (false, Some("unexpected response".to_string())),
+                };
+
+                parallel_sender
+                    .record_result(ChunkResult {
+                        chunk_index,
+                        success,
+                        bytes_sent: if success { send_data.len() as u64 } else { 0 },
+                        error,
+                    })
+                    .await;
+            }
+        }
+
+        conn.bye().await?;
+
+        let chunks_sent = parallel_sender.success_count().await as u64;
+        let failed = parallel_sender.failed_chunks().await;
+
+        if !failed.is_empty() {
+            warn!("Failed chunks: {:?}", failed);
+        }
+
+        if bytes_saved > 0 {
+            info!(
+                "Parallel transfer complete. Compression saved {} bytes ({:.1}%)",
+                bytes_saved,
+                (bytes_saved as f64 / file_chunks.total_size as f64) * 100.0
+            );
+        }
+
+        Ok(TransferResult {
+            transfer_id,
+            chunks_sent,
+            total_chunks: file_chunks.chunks.len() as u64,
+            total_bytes: file_chunks.total_size,
+            file_hash: file_hash.clone(),
+            bytes_saved: bytes_saved.max(0) as u64,
         })
     }
 
@@ -585,6 +742,7 @@ fn build_client_tls_config_with_fingerprints(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parallel::{ChunkResult, ParallelConfig, ParallelSender};
 
     #[test]
     fn test_transfer_result() {
@@ -600,5 +758,93 @@ mod tests {
         assert_eq!(result.chunks_sent, result.total_chunks);
         assert_eq!(result.total_bytes, 1024000);
         assert_eq!(result.bytes_saved, 512000);
+    }
+
+    #[test]
+    fn test_parallel_config_default() {
+        let config = ParallelConfig::default();
+        assert_eq!(config.max_concurrent, 4);
+        assert_eq!(config.buffer_size, 16);
+    }
+
+    #[tokio::test]
+    async fn test_parallel_sender_permits() {
+        let config = ParallelConfig {
+            max_concurrent: 2,
+            buffer_size: 8,
+        };
+        let sender = ParallelSender::new(config);
+
+        // Should be able to acquire 2 permits
+        let permit1 = sender.acquire().await;
+        let permit2 = sender.acquire().await;
+        assert!(permit1.is_some());
+        assert!(permit2.is_some());
+
+        // Record results
+        sender
+            .record_result(ChunkResult {
+                chunk_index: 0,
+                success: true,
+                bytes_sent: 1024,
+                error: None,
+            })
+            .await;
+
+        assert_eq!(sender.success_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_parallel_sender_failed_chunks() {
+        let sender = ParallelSender::new(ParallelConfig::default());
+
+        sender
+            .record_result(ChunkResult {
+                chunk_index: 0,
+                success: true,
+                bytes_sent: 1024,
+                error: None,
+            })
+            .await;
+
+        sender
+            .record_result(ChunkResult {
+                chunk_index: 1,
+                success: false,
+                bytes_sent: 0,
+                error: Some("timeout".to_string()),
+            })
+            .await;
+
+        sender
+            .record_result(ChunkResult {
+                chunk_index: 2,
+                success: false,
+                bytes_sent: 0,
+                error: Some("network error".to_string()),
+            })
+            .await;
+
+        assert_eq!(sender.success_count().await, 1);
+        let failed = sender.failed_chunks().await;
+        assert_eq!(failed.len(), 2);
+        assert!(failed.contains(&1));
+        assert!(failed.contains(&2));
+    }
+
+    #[test]
+    fn test_transfer_result_with_parallel_stats() {
+        let result = TransferResult {
+            transfer_id: "parallel-001".to_string(),
+            chunks_sent: 100,
+            total_chunks: 100,
+            total_bytes: 10_485_760, // 10 MB
+            file_hash: "sha256hash".to_string(),
+            bytes_saved: 2_097_152, // 2 MB saved
+        };
+
+        // Verify compression ratio
+        let compression_ratio = result.bytes_saved as f64 / result.total_bytes as f64;
+        assert!(compression_ratio > 0.19 && compression_ratio < 0.21); // ~20%
     }
 }
