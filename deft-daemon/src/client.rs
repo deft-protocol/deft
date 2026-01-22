@@ -1,6 +1,9 @@
 //! DEFT client for outgoing file transfers.
 //!
-//! Some methods reserved for alternative transfer modes.
+//! Supports sequential, parallel, and delta-based transfers with
+//! compression and randomized chunk ordering for security.
+
+// v2.0 methods ready for API integration
 #![allow(dead_code)]
 
 use std::fs::File;
