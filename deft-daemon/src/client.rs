@@ -24,6 +24,7 @@ use deft_protocol::{AckStatus, Capabilities, ChunkRange, Command, Parser, Respon
 use crate::chunk_ordering::ChunkOrderer;
 use crate::compression::{compress, is_compression_beneficial, CompressionLevel};
 use crate::config::{ClientConfig, TrustedServerConfig};
+use crate::delta::{Delta, FileSignature};
 use crate::discovery::{DiscoveryConfig, EndpointDiscovery};
 use crate::metrics;
 use crate::parallel::{ChunkResult, ParallelConfig, ParallelSender};
@@ -384,6 +385,45 @@ impl Client {
             file_hash: file_hash.clone(),
             bytes_saved: bytes_saved.max(0) as u64,
         })
+    }
+
+    /// Sync a file using delta transfer (v2.0)
+    /// Only sends the differences between local and remote versions
+    pub fn compute_delta_for_sync(
+        local_path: &Path,
+        remote_signature: &FileSignature,
+    ) -> Result<Delta> {
+        let mut local_file = File::open(local_path)
+            .with_context(|| format!("Failed to open local file: {:?}", local_path))?;
+
+        let delta = Delta::compute(remote_signature, &mut local_file)
+            .with_context(|| "Failed to compute delta")?;
+
+        let stats = delta.stats();
+        info!(
+            "Delta computed: {} copy ops, {} insert bytes, {} total ops",
+            stats.copy_blocks, stats.insert_bytes, stats.total_ops
+        );
+
+        Ok(delta)
+    }
+
+    /// Compute file signature for delta sync
+    pub fn compute_file_signature(file_path: &Path, block_size: usize) -> Result<FileSignature> {
+        let mut file = File::open(file_path)
+            .with_context(|| format!("Failed to open file: {:?}", file_path))?;
+
+        let sig = FileSignature::compute(&mut file, block_size)
+            .with_context(|| "Failed to compute file signature")?;
+
+        info!(
+            "Signature computed: {} blocks, {} bytes, block_size={}",
+            sig.blocks.len(),
+            sig.file_size,
+            sig.block_size
+        );
+
+        Ok(sig)
     }
 
     /// Get a file from a trusted server
@@ -846,5 +886,78 @@ mod tests {
         // Verify compression ratio
         let compression_ratio = result.bytes_saved as f64 / result.total_bytes as f64;
         assert!(compression_ratio > 0.19 && compression_ratio < 0.21); // ~20%
+    }
+
+    #[test]
+    fn test_delta_file_signature() {
+        use std::io::Cursor;
+
+        let data = b"hello world this is test data for delta sync";
+        let mut cursor = Cursor::new(data);
+
+        let sig = FileSignature::compute(&mut cursor, 8).unwrap();
+        assert_eq!(sig.file_size, data.len() as u64);
+        assert!(!sig.blocks.is_empty());
+    }
+
+    #[test]
+    fn test_delta_identical_files() {
+        use std::io::{Cursor, Seek, SeekFrom};
+
+        let data = b"identical content for both files";
+        let mut source = Cursor::new(data);
+        let mut target = Cursor::new(data);
+
+        let sig = FileSignature::compute(&mut source, 8).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let delta = Delta::compute(&sig, &mut target).unwrap();
+        let stats = delta.stats();
+
+        // Most operations should be Copy for identical files
+        assert!(stats.copy_blocks > 0);
+    }
+
+    #[test]
+    fn test_delta_apply_reconstruction() {
+        use std::io::{Cursor, Seek, SeekFrom};
+
+        let original = b"AAAAAAAAAAAAAAAA"; // 16 bytes
+        let modified = b"AAAABBBBAAAAAAAA"; // Modified middle
+
+        let mut source = Cursor::new(original);
+        let mut new_file = Cursor::new(modified);
+
+        let sig = FileSignature::compute(&mut source, 4).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let delta = Delta::compute(&sig, &mut new_file).unwrap();
+
+        // Apply delta to reconstruct
+        source.seek(SeekFrom::Start(0)).unwrap();
+        let mut output = Vec::new();
+        delta.apply(&mut source, &mut output).unwrap();
+
+        assert_eq!(output, modified);
+    }
+
+    #[test]
+    fn test_delta_stats() {
+        use std::io::{Cursor, Seek, SeekFrom};
+
+        let original = b"AAAAAAAAAAAAAAAA"; // 16 bytes, 4 blocks of 4
+        let modified = b"AAAABBBBAAAAAAAA"; // Modified second block
+
+        let mut source = Cursor::new(original);
+        let mut new_file = Cursor::new(modified);
+
+        let sig = FileSignature::compute(&mut source, 4).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let delta = Delta::compute(&sig, &mut new_file).unwrap();
+        let stats = delta.stats();
+
+        // Should have operations (copy and/or insert)
+        assert!(stats.total_ops > 0);
     }
 }
