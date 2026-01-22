@@ -1158,29 +1158,26 @@ async fn handle_create_transfer(state: &ApiState, body: &[u8]) -> (u16, String) 
         Ok(r) => {
             // Validate partner exists
             let config = state.config.read().await;
-            let partner = config.partners.iter().find(|p| p.id == r.partner_id);
-            if partner.is_none() {
+            let Some(partner) = config.partners.iter().find(|p| p.id == r.partner_id) else {
                 return (404, r#"{"error":"Partner not found"}"#.to_string());
-            }
+            };
 
             // Validate virtual file exists for this partner
-            let partner = partner.unwrap();
-            let vf = partner
+            let Some(vf) = partner
                 .virtual_files
                 .iter()
-                .find(|v| v.name == r.virtual_file);
-            if vf.is_none() {
+                .find(|v| v.name == r.virtual_file)
+            else {
                 return (
                     404,
                     r#"{"error":"Virtual file not found for this partner"}"#.to_string(),
                 );
-            }
+            };
 
             // Generate transfer ID
             let transfer_id = format!("api-{}", chrono::Utc::now().timestamp_millis());
 
             // Register transfer in state
-            let vf = vf.unwrap();
             let source = r.source_path.unwrap_or_else(|| vf.path.clone());
             let direction = format!("{:?}", vf.direction).to_lowercase();
             drop(config); // Release lock before async call
