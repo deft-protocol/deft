@@ -717,6 +717,7 @@ async fn handle_request(
         ("POST", "/api/delta/signature") => handle_delta_signature(&state, request_body).await,
         ("POST", "/api/delta/compute") => handle_delta_compute(&state, request_body).await,
         ("GET", "/api/parallel/config") => handle_parallel_config().await,
+        ("GET", "/api/network/interfaces") => handle_network_interfaces().await,
         ("GET", "/api/transfer-states") => handle_list_transfer_states(&state).await,
         ("DELETE", p) if p.starts_with("/api/transfer-states/") => {
             let id = p.strip_prefix("/api/transfer-states/").unwrap_or("");
@@ -1362,12 +1363,51 @@ async fn handle_delta_signature(state: &ApiState, body: &[u8]) -> (u16, String) 
 }
 
 async fn handle_parallel_config() -> (u16, String) {
+    use crate::network;
+
     let config = ParallelConfig::default();
+    let suggested = network::suggest_parallel_streams();
+    let interfaces = network::get_transfer_interfaces();
+
     (
         200,
         serde_json::json!({
             "max_concurrent": config.max_concurrent,
-            "buffer_size": config.buffer_size
+            "buffer_size": config.buffer_size,
+            "suggested_streams": suggested,
+            "available_interfaces": interfaces.len()
+        })
+        .to_string(),
+    )
+}
+
+async fn handle_network_interfaces() -> (u16, String) {
+    use crate::network;
+
+    let interfaces = network::detect_interfaces();
+    let transfer_interfaces = network::get_transfer_interfaces();
+    let suggested = network::suggest_parallel_streams();
+
+    let iface_list: Vec<_> = interfaces
+        .iter()
+        .map(|iface| {
+            serde_json::json!({
+                "name": iface.name,
+                "addresses": iface.addresses.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+                "is_up": iface.is_up,
+                "is_loopback": iface.is_loopback,
+                "ipv4": iface.ipv4().map(|a| a.to_string()),
+                "ipv6": iface.ipv6().map(|a| a.to_string())
+            })
+        })
+        .collect();
+
+    (
+        200,
+        serde_json::json!({
+            "interfaces": iface_list,
+            "transfer_capable": transfer_interfaces.len(),
+            "suggested_parallel_streams": suggested
         })
         .to_string(),
     )

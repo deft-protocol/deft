@@ -18,6 +18,7 @@ mod discovery;
 mod handler;
 mod hooks;
 mod metrics;
+mod network;
 mod parallel;
 mod platform;
 mod rate_limit;
