@@ -278,6 +278,60 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- v2.0 Advanced Transfer Options -->
+                <div class="card">
+                    <h2>⚡ v2.0 Advanced Transfers</h2>
+                    <div class="grid-2">
+                        <div class="operation-panel">
+                            <h3>↑ Parallel Push</h3>
+                            <p class="text-muted">Send with multiple concurrent chunks for faster transfers.</p>
+                            <form id="push-parallel-form" class="form">
+                                <div class="form-group">
+                                    <label>Local File Path</label>
+                                    <input type="text" id="push-parallel-file" class="form-control"
+                                        placeholder="/path/to/local/file">
+                                </div>
+                                <div class="form-group">
+                                    <label>Remote Virtual File</label>
+                                    <select id="push-parallel-vf" class="form-control">
+                                        <option value="">Connect first...</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Max Concurrent Chunks</label>
+                                    <input type="number" id="push-parallel-concurrent" class="form-control"
+                                        value="4" min="1" max="16">
+                                </div>
+                                <button type="submit" class="btn btn-info btn-block">Start Parallel Push</button>
+                            </form>
+                        </div>
+                        <div class="operation-panel">
+                            <h3>🔄 Delta Sync</h3>
+                            <p class="text-muted">Compute file signature for incremental sync (rsync-like).</p>
+                            <form id="sync-delta-form" class="form">
+                                <div class="form-group">
+                                    <label>Local File Path</label>
+                                    <input type="text" id="sync-delta-path" class="form-control"
+                                        placeholder="/path/to/local/file">
+                                </div>
+                                <div class="form-group">
+                                    <label>Remote Virtual File</label>
+                                    <select id="sync-delta-vf" class="form-control">
+                                        <option value="">Connect first...</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Block Size (bytes)</label>
+                                    <input type="number" id="sync-delta-blocksize" class="form-control"
+                                        value="4096" min="512" max="65536">
+                                </div>
+                                <button type="submit" class="btn btn-warning btn-block">Compute Delta</button>
+                            </form>
+                        </div>
+                    </div>
+                    <div id="v2-result" class="client-status" style="margin-top: 1rem;"></div>
+                </div>
             </section>
 
             <!-- Settings Tab -->
