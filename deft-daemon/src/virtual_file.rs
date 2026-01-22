@@ -134,3 +134,81 @@ impl VirtualFileManager {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    fn create_test_file(dir: &TempDir, name: &str, content: &[u8]) -> PathBuf {
+        let path = dir.path().join(name);
+        let mut file = File::create(&path).unwrap();
+        file.write_all(content).unwrap();
+        path
+    }
+
+    #[test]
+    fn test_virtual_file_manager_new() {
+        let manager = VirtualFileManager::new(4096);
+        assert_eq!(manager.chunk_size, 4096);
+    }
+
+    #[test]
+    fn test_register_and_get_info() {
+        let temp = TempDir::new().unwrap();
+        let path = create_test_file(&temp, "test.txt", b"hello world");
+
+        let manager = VirtualFileManager::new(1024);
+        let config = VirtualFileConfig {
+            name: "test-file".to_string(),
+            path: path.to_string_lossy().to_string(),
+            direction: Direction::Send,
+        };
+
+        manager.register(&config).unwrap();
+
+        let info = manager.get_info("test-file").unwrap();
+        assert_eq!(info.name, "test-file");
+        assert_eq!(info.size, 11);
+        assert_eq!(info.chunk_size, 1024);
+    }
+
+    #[test]
+    fn test_get_info_not_found() {
+        let manager = VirtualFileManager::new(1024);
+        assert!(manager.get_info("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_list_for_partner() {
+        let temp = TempDir::new().unwrap();
+        let path1 = create_test_file(&temp, "file1.txt", b"content1");
+        let path2 = create_test_file(&temp, "file2.txt", b"content2");
+
+        let manager = VirtualFileManager::new(1024);
+
+        manager
+            .register(&VirtualFileConfig {
+                name: "vf1".to_string(),
+                path: path1.to_string_lossy().to_string(),
+                direction: Direction::Send,
+            })
+            .unwrap();
+
+        manager
+            .register(&VirtualFileConfig {
+                name: "vf2".to_string(),
+                path: path2.to_string_lossy().to_string(),
+                direction: Direction::Receive,
+            })
+            .unwrap();
+
+        let list = manager.list_for_partner(&["vf1".to_string(), "vf2".to_string()]);
+        assert_eq!(list.len(), 2);
+
+        let partial = manager.list_for_partner(&["vf1".to_string()]);
+        assert_eq!(partial.len(), 1);
+        assert_eq!(partial[0].name, "vf1");
+    }
+}
