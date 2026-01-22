@@ -325,6 +325,10 @@ impl CommandHandler {
             info!("mTLS CN validation passed: {}", cert_cn);
         } else {
             warn!("No client certificate CN available for mTLS validation");
+            return Response::error(
+                DeftErrorCode::Unauthorized,
+                Some("Client certificate must have a CN that matches partner ID".to_string()),
+            );
         }
 
         // mTLS validation: verify certificate fingerprint is in allowed_certs
