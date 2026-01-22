@@ -2,7 +2,14 @@
 name = "deft-daemon"
 version.workspace = true
 edition.workspace = true
-description = "DEFT daemon - unified server and client"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "DEFT daemon - Delta-Enabled File Transfer server and client with mTLS"
+readme = "../README.md"
 
 [[bin]]
 name = "deftd"

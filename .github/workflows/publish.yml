@@ -1,0 +1,49 @@
+name: Publish to crates.io
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (do not actually publish)'
+        required: false
+        default: 'true'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify package
+        run: |
+          cargo package -p deft-protocol --list
+          cargo package -p deft-daemon --list
+
+      - name: Publish deft-protocol (dry run)
+        if: github.event.inputs.dry_run == 'true'
+        run: cargo publish -p deft-protocol --dry-run
+
+      - name: Publish deft-daemon (dry run)
+        if: github.event.inputs.dry_run == 'true'
+        run: cargo publish -p deft-daemon --dry-run
+
+      - name: Publish deft-protocol
+        if: github.event_name == 'release' || github.event.inputs.dry_run == 'false'
+        run: cargo publish -p deft-protocol --token ${{ secrets.CRATES_IO_TOKEN }}
+
+      - name: Wait for crates.io index
+        if: github.event_name == 'release' || github.event.inputs.dry_run == 'false'
+        run: sleep 30
+
+      - name: Publish deft-daemon
+        if: github.event_name == 'release' || github.event.inputs.dry_run == 'false'
+        run: cargo publish -p deft-daemon --token ${{ secrets.CRATES_IO_TOKEN }}

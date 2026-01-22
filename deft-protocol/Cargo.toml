@@ -2,7 +2,15 @@
 name = "deft-protocol"
 version.workspace = true
 edition.workspace = true
-description = "DEFT protocol definitions and parser"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "DEFT protocol definitions and parser - Delta-Enabled File Transfer"
+readme = "../README.md"
 
 [dependencies]
 thiserror.workspace = true

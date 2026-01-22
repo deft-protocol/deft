@@ -8,11 +8,15 @@ members = [
 ]
 
 [workspace.package]
-version = "1.0.0"
+version = "2.0.0"
 edition = "2021"
 authors = ["DEFT Contributors"]
 license = "MIT"
 repository = "https://github.com/deft-protocol/deft"
+homepage = "https://github.com/deft-protocol/deft"
+documentation = "https://docs.rs/deft-protocol"
+keywords = ["file-transfer", "mTLS", "delta-sync", "chunked"]
+categories = ["network-programming", "command-line-utilities"]
 
 [workspace.dependencies]
 # Async runtime
