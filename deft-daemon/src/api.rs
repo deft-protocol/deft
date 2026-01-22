@@ -2382,6 +2382,74 @@ async fn push_file(
         return Err(format!("AUTH failed: {}", line).into());
     }
 
+    // v2.0: Try delta sync first - request signature from server
+    line.clear();
+    write_half
+        .write_all(format!("DEFT DELTA_SIG_REQ {} 4096\n", virtual_file).as_bytes())
+        .await?;
+    reader.read_line(&mut line).await?;
+
+    // Check if delta sync is possible
+    if line.contains("DELTA_SIG") && line.contains("EXISTS:true") {
+        // Server has the file - use delta sync
+        use crate::delta::{Delta, FileSignature};
+        use base64::Engine;
+        use std::io::Cursor;
+
+        // Extract signature data from response
+        if let Some(data_start) = line.find("DATA:") {
+            let sig_b64 = line[data_start + 5..].trim();
+            if !sig_b64.is_empty() {
+                // Decode signature
+                if let Ok(sig_json_bytes) =
+                    base64::engine::general_purpose::STANDARD.decode(sig_b64)
+                {
+                    if let Ok(sig_json) = String::from_utf8(sig_json_bytes) {
+                        if let Ok(remote_sig) = serde_json::from_str::<FileSignature>(&sig_json) {
+                            // Compute delta
+                            let mut local_cursor = Cursor::new(&file_data);
+                            if let Ok(delta) = Delta::compute(&remote_sig, &mut local_cursor) {
+                                let stats = delta.stats();
+                                tracing::info!(
+                                    "Delta computed: {} copy blocks, {} insert bytes",
+                                    stats.copy_blocks,
+                                    stats.insert_bytes
+                                );
+
+                                // Serialize and send delta
+                                let delta_json = serde_json::to_string(&delta)?;
+                                let delta_b64 = base64::engine::general_purpose::STANDARD
+                                    .encode(delta_json.as_bytes());
+
+                                line.clear();
+                                write_half
+                                    .write_all(
+                                        format!(
+                                            "DEFT DELTA_PUT {} HASH:{} DATA:{}\n",
+                                            virtual_file, hash, delta_b64
+                                        )
+                                        .as_bytes(),
+                                    )
+                                    .await?;
+                                reader.read_line(&mut line).await?;
+
+                                if line.contains("DELTA_ACK") {
+                                    tracing::info!("Delta sync successful for {}", virtual_file);
+                                    // BYE
+                                    let _ = write_half.write_all(b"DEFT BYE\n").await;
+                                    return Ok(file_size);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fall back to regular transfer if delta sync failed or file doesn't exist
+    tracing::debug!("Using regular transfer for {}", virtual_file);
+
     // BEGIN_TRANSFER: format is <virtual_file> <total_chunks> <total_bytes> <file_hash>
     line.clear();
     write_half
