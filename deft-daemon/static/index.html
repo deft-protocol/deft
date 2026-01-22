@@ -178,24 +178,27 @@
                 <div class="grid-2">
                     <div class="card">
                         <h2>Connect to Remote Server</h2>
+                        <p class="text-muted">Select a configured partner to connect. Your identity is determined by your client certificate CN.</p>
                         <form id="connect-form" class="form">
                             <div class="form-group">
-                                <label>Remote Server Address *</label>
-                                <input type="text" id="client-server" class="form-control"
-                                    placeholder="host:port (e.g., 192.168.1.100:7741)" required>
+                                <label>Target Partner *</label>
+                                <select id="client-partner-select" class="form-control" required>
+                                    <option value="">Select a partner...</option>
+                                </select>
                             </div>
                             <div class="form-group">
-                                <label>Partner ID (how we identify to remote) *</label>
-                                <input type="text" id="client-partner-id" class="form-control"
-                                    placeholder="e.g., instance-a" required>
+                                <label>Server Endpoint *</label>
+                                <select id="client-server-select" class="form-control" required disabled>
+                                    <option value="">Select partner first...</option>
+                                </select>
                             </div>
                             <div class="form-group">
-                                <label>Client Certificate</label>
+                                <label>Client Certificate (uses config default if empty)</label>
                                 <input type="text" id="client-cert" class="form-control"
                                     placeholder="/path/to/client.crt">
                             </div>
                             <div class="form-group">
-                                <label>Client Key</label>
+                                <label>Client Key (uses config default if empty)</label>
                                 <input type="text" id="client-key" class="form-control"
                                     placeholder="/path/to/client.key">
                             </div>

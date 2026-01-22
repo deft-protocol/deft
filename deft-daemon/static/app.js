@@ -566,24 +566,66 @@ function renderHistory(data) {
 }
 
 // ============ Client ============
+
+// Populate partner dropdown for client connections
+function updateClientPartnerDropdown() {
+    const select = document.getElementById('client-partner-select');
+    const partnersWithEndpoints = cachedPartners.filter(p => p.endpoints && p.endpoints.length > 0);
+
+    select.innerHTML = '<option value="">Select a partner...</option>' +
+        partnersWithEndpoints.map(p => {
+            const certInfo = (p.allowed_server_certs || []).length > 0 ? ' 🔒' : '';
+            return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.id)}${certInfo}</option>`;
+        }).join('');
+
+    if (partnersWithEndpoints.length === 0) {
+        select.innerHTML = '<option value="">No partners with endpoints configured</option>';
+    }
+}
+
+// When partner is selected, populate endpoints dropdown
+document.getElementById('client-partner-select').addEventListener('change', (e) => {
+    const partnerId = e.target.value;
+    const serverSelect = document.getElementById('client-server-select');
+
+    if (!partnerId) {
+        serverSelect.disabled = true;
+        serverSelect.innerHTML = '<option value="">Select partner first...</option>';
+        return;
+    }
+
+    const partner = cachedPartners.find(p => p.id === partnerId);
+    if (!partner || !partner.endpoints || partner.endpoints.length === 0) {
+        serverSelect.disabled = true;
+        serverSelect.innerHTML = '<option value="">No endpoints configured</option>';
+        return;
+    }
+
+    serverSelect.disabled = false;
+    serverSelect.innerHTML = partner.endpoints.map((ep, i) =>
+        `<option value="${escapeHtml(ep)}">${escapeHtml(ep)}</option>`
+    ).join('');
+});
+
 document.getElementById('connect-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const server = document.getElementById('client-server').value.trim();
-    const partnerId = document.getElementById('client-partner-id').value.trim();
+    const partnerId = document.getElementById('client-partner-select').value;
+    const server = document.getElementById('client-server-select').value;
     const cert = document.getElementById('client-cert').value.trim();
     const key = document.getElementById('client-key').value.trim();
     const statusDiv = document.getElementById('client-status');
 
-    if (!server || !partnerId) {
+    if (!partnerId || !server) {
         statusDiv.className = 'client-status error';
-        statusDiv.textContent = 'Server address and Partner ID are required';
+        statusDiv.textContent = 'Please select a partner and endpoint';
         return;
     }
 
     statusDiv.className = 'client-status';
     statusDiv.textContent = 'Connecting...';
 
-    // Try to connect and list files
+    // Try to connect - partner_id is used to look up allowed_server_certs
+    // Our identity is determined by our client certificate CN
     const result = await apiPost('/api/client/connect', {
         server,
         partner_id: partnerId,
@@ -594,9 +636,9 @@ document.getElementById('connect-form').addEventListener('submit', async (e) => 
     if (result && result.success) {
         clientConnected = true;
         statusDiv.className = 'client-status connected';
-        statusDiv.textContent = `Connected to ${server} as ${partnerId}`;
+        statusDiv.textContent = `Connected to ${server} (partner: ${partnerId})`;
         updateRemoteFiles(result.virtual_files || []);
-        addLogEntry(`Connected to ${server} as ${partnerId}`);
+        addLogEntry(`Connected to ${server} via partner ${partnerId}`);
     } else {
         statusDiv.className = 'client-status error';
         statusDiv.textContent = result?.error || 'Connection failed';
@@ -839,6 +881,8 @@ async function refreshAll() {
         updateTransfers(),
         updateHistory()
     ]);
+    // Update client dropdown after partners are loaded
+    updateClientPartnerDropdown();
 }
 
 // Refresh status, transfers and history (called by interval)
