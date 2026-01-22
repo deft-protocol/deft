@@ -100,6 +100,19 @@ pub enum Command {
         #[serde(default)]
         compressed: bool,
     },
+    /// Request file signature for delta sync (v2.0)
+    DeltaSigReq {
+        virtual_file: String,
+        block_size: usize,
+    },
+    /// Send delta data to update existing file (v2.0)
+    DeltaPut {
+        virtual_file: String,
+        /// Base64-encoded delta operations
+        delta_data: String,
+        /// Expected final file hash after applying delta
+        final_hash: String,
+    },
     Bye,
 }
 
@@ -217,6 +230,27 @@ impl Command {
     pub fn bye() -> Self {
         Command::Bye
     }
+
+    /// Request file signature for delta sync (v2.0)
+    pub fn delta_sig_req(virtual_file: impl Into<String>, block_size: usize) -> Self {
+        Command::DeltaSigReq {
+            virtual_file: virtual_file.into(),
+            block_size,
+        }
+    }
+
+    /// Send delta data to update file (v2.0)
+    pub fn delta_put(
+        virtual_file: impl Into<String>,
+        delta_data: impl Into<String>,
+        final_hash: impl Into<String>,
+    ) -> Self {
+        Command::DeltaPut {
+            virtual_file: virtual_file.into(),
+            delta_data: delta_data.into(),
+            final_hash: final_hash.into(),
+        }
+    }
 }
 
 impl fmt::Display for Command {
@@ -291,6 +325,23 @@ impl fmt::Display for Command {
             }
             Command::Bye => {
                 write!(f, "DEFT BYE")
+            }
+            Command::DeltaSigReq {
+                virtual_file,
+                block_size,
+            } => {
+                write!(f, "DEFT DELTA_SIG_REQ {} {}", virtual_file, block_size)
+            }
+            Command::DeltaPut {
+                virtual_file,
+                delta_data,
+                final_hash,
+            } => {
+                write!(
+                    f,
+                    "DEFT DELTA_PUT {} HASH:{} DATA:{}",
+                    virtual_file, final_hash, delta_data
+                )
             }
         }
     }

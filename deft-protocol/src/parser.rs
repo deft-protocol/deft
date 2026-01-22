@@ -31,6 +31,8 @@ impl Parser {
             "RESUME_TRANSFER" => Self::parse_resume_transfer(&parts[1..]),
             "GET_STATUS" => Self::parse_get_status(&parts[1..]),
             "PUT" => Self::parse_put(&parts[1..]),
+            "DELTA_SIG_REQ" => Self::parse_delta_sig_req(&parts[1..]),
+            "DELTA_PUT" => Self::parse_delta_put(&parts[1..]),
             "BYE" => Ok(Command::Bye),
             cmd => Err(DeftError::UnknownCommand(cmd.to_string())),
         }
@@ -204,6 +206,60 @@ impl Parser {
             hash,
             nonce,
             compressed,
+        })
+    }
+
+    /// Parse DELTA_SIG_REQ <virtual_file> <block_size>
+    fn parse_delta_sig_req(parts: &[&str]) -> Result<Command, DeftError> {
+        if parts.len() < 2 {
+            return Err(DeftError::ParseError(
+                "DELTA_SIG_REQ requires <virtual_file> <block_size>".into(),
+            ));
+        }
+
+        let virtual_file = parts[0].to_string();
+        let block_size: usize = parts[1]
+            .parse()
+            .map_err(|_| DeftError::ParseError("Invalid block_size".into()))?;
+
+        Ok(Command::DeltaSigReq {
+            virtual_file,
+            block_size,
+        })
+    }
+
+    /// Parse DELTA_PUT <virtual_file> HASH:<hash> DATA:<base64_delta>
+    fn parse_delta_put(parts: &[&str]) -> Result<Command, DeftError> {
+        if parts.len() < 3 {
+            return Err(DeftError::ParseError(
+                "DELTA_PUT requires <virtual_file> HASH:<hash> DATA:<delta>".into(),
+            ));
+        }
+
+        let virtual_file = parts[0].to_string();
+
+        let mut final_hash = String::new();
+        let mut delta_data = String::new();
+
+        for part in &parts[1..] {
+            let upper = part.to_uppercase();
+            if upper.starts_with("HASH:") {
+                final_hash = part[5..].to_string();
+            } else if upper.starts_with("DATA:") {
+                delta_data = part[5..].to_string();
+            }
+        }
+
+        if final_hash.is_empty() || delta_data.is_empty() {
+            return Err(DeftError::ParseError(
+                "DELTA_PUT requires HASH:<hash> and DATA:<delta>".into(),
+            ));
+        }
+
+        Ok(Command::DeltaPut {
+            virtual_file,
+            delta_data,
+            final_hash,
         })
     }
 

@@ -287,6 +287,15 @@ impl CommandHandler {
                 compressed,
             ),
             Command::Bye => self.handle_bye(session),
+            Command::DeltaSigReq {
+                virtual_file,
+                block_size,
+            } => self.handle_delta_sig_req(session, virtual_file, block_size),
+            Command::DeltaPut {
+                virtual_file,
+                delta_data,
+                final_hash,
+            } => self.handle_delta_put(session, virtual_file, delta_data, final_hash),
         }
     }
 
@@ -1096,6 +1105,218 @@ impl CommandHandler {
         }
         session.close();
         Response::Goodbye
+    }
+
+    /// v2.0: Handle delta signature request - compute and return file signature
+    fn handle_delta_sig_req(
+        &self,
+        session: &Session,
+        virtual_file: String,
+        block_size: usize,
+    ) -> Response {
+        use crate::delta::FileSignature;
+        use base64::Engine;
+
+        if !session.is_authenticated() {
+            return Response::error(
+                DeftErrorCode::Unauthorized,
+                Some("Not authenticated".to_string()),
+            );
+        }
+
+        if !session.can_access_virtual_file(&virtual_file) {
+            return Response::error(
+                DeftErrorCode::Forbidden,
+                Some(format!("Access denied to: {}", virtual_file)),
+            );
+        }
+
+        // Find the file path for this virtual file
+        let file_path = match self.resolve_virtual_file_path(session, &virtual_file) {
+            Some(p) => p,
+            None => {
+                // File doesn't exist - return empty signature indicating new file
+                return Response::DeltaSig {
+                    virtual_file,
+                    signature_data: String::new(),
+                    file_exists: false,
+                };
+            }
+        };
+
+        // Compute file signature
+        match std::fs::File::open(&file_path) {
+            Ok(mut file) => match FileSignature::compute(&mut file, block_size) {
+                Ok(sig) => {
+                    // Serialize signature to JSON then base64
+                    let json = serde_json::to_string(&sig).unwrap_or_default();
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(json.as_bytes());
+                    Response::DeltaSig {
+                        virtual_file,
+                        signature_data: b64,
+                        file_exists: true,
+                    }
+                }
+                Err(e) => Response::error(
+                    DeftErrorCode::InternalServerError,
+                    Some(format!("Failed to compute signature: {}", e)),
+                ),
+            },
+            Err(_) => Response::DeltaSig {
+                virtual_file,
+                signature_data: String::new(),
+                file_exists: false,
+            },
+        }
+    }
+
+    /// v2.0: Handle delta put - apply delta to update existing file
+    fn handle_delta_put(
+        &self,
+        session: &mut Session,
+        virtual_file: String,
+        delta_data: String,
+        expected_hash: String,
+    ) -> Response {
+        use crate::delta::Delta;
+        use base64::Engine;
+
+        if !session.is_authenticated() {
+            return Response::error(
+                DeftErrorCode::Unauthorized,
+                Some("Not authenticated".to_string()),
+            );
+        }
+
+        if !session.can_access_virtual_file(&virtual_file) {
+            return Response::error(
+                DeftErrorCode::Forbidden,
+                Some(format!("Access denied to: {}", virtual_file)),
+            );
+        }
+
+        // Decode delta from base64
+        let delta_json = match base64::engine::general_purpose::STANDARD.decode(&delta_data) {
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(s) => s,
+                Err(e) => {
+                    return Response::error(
+                        DeftErrorCode::BadRequest,
+                        Some(format!("Invalid delta encoding: {}", e)),
+                    )
+                }
+            },
+            Err(e) => {
+                return Response::error(
+                    DeftErrorCode::BadRequest,
+                    Some(format!("Invalid base64: {}", e)),
+                )
+            }
+        };
+
+        // Parse delta
+        let delta: Delta = match serde_json::from_str(&delta_json) {
+            Ok(d) => d,
+            Err(e) => {
+                return Response::error(
+                    DeftErrorCode::BadRequest,
+                    Some(format!("Invalid delta JSON: {}", e)),
+                )
+            }
+        };
+
+        // Get file path
+        let file_path = match self.resolve_virtual_file_path_for_write(session, &virtual_file) {
+            Some(p) => p,
+            None => {
+                return Response::error(
+                    DeftErrorCode::NotFound,
+                    Some(format!("Cannot resolve path for: {}", virtual_file)),
+                )
+            }
+        };
+
+        // Open source file and apply delta
+        let mut source_file = match std::fs::File::open(&file_path) {
+            Ok(f) => f,
+            Err(e) => {
+                return Response::error(
+                    DeftErrorCode::NotFound,
+                    Some(format!("Source file not found: {}", e)),
+                )
+            }
+        };
+
+        let mut output = Vec::new();
+        match delta.apply(&mut source_file, &mut output) {
+            Ok(bytes_written) => {
+                // Verify hash
+                let mut hasher = Sha256::new();
+                hasher.update(&output);
+                let computed_hash = format!("{:x}", hasher.finalize());
+
+                if !computed_hash.eq_ignore_ascii_case(&expected_hash) {
+                    return Response::error(
+                        DeftErrorCode::BadRequest,
+                        Some(format!(
+                            "Hash mismatch: expected {}, got {}",
+                            expected_hash, computed_hash
+                        )),
+                    );
+                }
+
+                // Write output file
+                if let Err(e) = std::fs::write(&file_path, &output) {
+                    return Response::error(
+                        DeftErrorCode::InternalServerError,
+                        Some(format!("Failed to write file: {}", e)),
+                    );
+                }
+
+                Response::DeltaAck {
+                    virtual_file,
+                    bytes_written,
+                    final_hash: computed_hash,
+                }
+            }
+            Err(e) => Response::error(
+                DeftErrorCode::InternalServerError,
+                Some(format!("Failed to apply delta: {}", e)),
+            ),
+        }
+    }
+
+    /// Resolve virtual file to actual path (for reading)
+    fn resolve_virtual_file_path(&self, session: &Session, virtual_file: &str) -> Option<PathBuf> {
+        let partner_id = session.partner_id.as_ref()?;
+        let partner = self.config.find_partner(partner_id)?;
+
+        for vf in &partner.virtual_files {
+            if vf.name == virtual_file {
+                let path = PathBuf::from(&vf.path);
+                if path.exists() {
+                    return Some(path);
+                }
+            }
+        }
+        None
+    }
+
+    /// Resolve virtual file to actual path (for writing)
+    fn resolve_virtual_file_path_for_write(
+        &self,
+        session: &Session,
+        virtual_file: &str,
+    ) -> Option<PathBuf> {
+        let partner_id = session.partner_id.as_ref()?;
+        let partner = self.config.find_partner(partner_id)?;
+
+        for vf in &partner.virtual_files {
+            if vf.name == virtual_file {
+                return Some(PathBuf::from(&vf.path));
+            }
+        }
+        None
     }
 }
 

@@ -183,6 +183,18 @@ pub enum Response {
         message: Option<String>,
     },
     Goodbye,
+    /// Delta signature response (v2.0) - base64-encoded signature
+    DeltaSig {
+        virtual_file: String,
+        signature_data: String,
+        file_exists: bool,
+    },
+    /// Delta applied successfully (v2.0)
+    DeltaAck {
+        virtual_file: String,
+        bytes_written: u64,
+        final_hash: String,
+    },
 }
 
 impl Response {
@@ -374,6 +386,28 @@ impl fmt::Display for Response {
             },
             Response::Goodbye => {
                 write!(f, "DEFT GOODBYE")
+            }
+            Response::DeltaSig {
+                virtual_file,
+                signature_data,
+                file_exists,
+            } => {
+                write!(
+                    f,
+                    "DEFT DELTA_SIG {} EXISTS:{} DATA:{}",
+                    virtual_file, file_exists, signature_data
+                )
+            }
+            Response::DeltaAck {
+                virtual_file,
+                bytes_written,
+                final_hash,
+            } => {
+                write!(
+                    f,
+                    "DEFT DELTA_ACK {} {} HASH:{}",
+                    virtual_file, bytes_written, final_hash
+                )
             }
         }
     }
