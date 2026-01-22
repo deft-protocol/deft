@@ -6,12 +6,42 @@
 // v2.0 Delta::apply ready for full protocol integration
 #![allow(dead_code)]
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 
 /// Block size for delta computation (4KB default)
 pub const DELTA_BLOCK_SIZE: usize = 4096;
+
+/// Serde module for hex-encoded byte arrays
+mod hex_array {
+    use serde::{self, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(bytes: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let hex_string: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+        serializer.serialize_str(&hex_string)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let mut bytes = [0u8; 32];
+        for (i, chunk) in s.as_bytes().chunks(2).enumerate() {
+            if i >= 32 {
+                break;
+            }
+            let hex_str = std::str::from_utf8(chunk).map_err(serde::de::Error::custom)?;
+            bytes[i] = u8::from_str_radix(hex_str, 16).map_err(serde::de::Error::custom)?;
+        }
+        Ok(bytes)
+    }
+}
 
 /// Rolling checksum for fast block matching (Adler-32 like)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -67,15 +97,16 @@ impl Default for RollingChecksum {
 }
 
 /// Block signature for delta matching
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockSignature {
     pub index: u64,
     pub weak_checksum: u32,
+    #[serde(with = "hex_array")]
     pub strong_hash: [u8; 32],
 }
 
 /// File signature containing all block signatures
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileSignature {
     pub block_size: usize,
     pub file_size: u64,
@@ -138,16 +169,45 @@ impl FileSignature {
 }
 
 /// Delta operation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum DeltaOp {
     /// Copy block from source at given index
     Copy { block_index: u64 },
-    /// Insert new data
-    Insert { data: Vec<u8> },
+    /// Insert new data (base64 encoded for JSON)
+    Insert {
+        #[serde(with = "base64_bytes")]
+        data: Vec<u8>,
+    },
+}
+
+/// Serde module for base64-encoded byte vectors
+mod base64_bytes {
+    use serde::{self, Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+        serializer.serialize_str(&b64)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use base64::Engine;
+        let s = String::deserialize(deserializer)?;
+        base64::engine::general_purpose::STANDARD
+            .decode(&s)
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 /// Delta between two files
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Delta {
     pub block_size: usize,
     pub target_size: u64,

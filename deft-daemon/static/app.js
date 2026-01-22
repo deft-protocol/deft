@@ -878,46 +878,46 @@ document.getElementById('push-parallel-form')?.addEventListener('submit', async 
 
 document.getElementById('sync-delta-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const path = document.getElementById('sync-delta-path').value;
-    const vf = document.getElementById('sync-delta-vf').value;
+    const localPath = document.getElementById('sync-delta-local').value;
+    const remotePath = document.getElementById('sync-delta-remote').value;
     const blockSize = parseInt(document.getElementById('sync-delta-blocksize').value) || 4096;
     const btn = e.target.querySelector('button[type="submit"]');
     const resultDiv = document.getElementById('v2-result');
 
-    if (!path || !vf) {
-        alert('Please specify a file and select virtual file');
+    if (!localPath || !remotePath) {
+        alert('Please specify source and target files');
         return;
     }
 
     btn.disabled = true;
-    btn.textContent = 'Computing...';
-    resultDiv.innerHTML = '<div class="text-muted">Computing delta signature...</div>';
+    btn.textContent = 'Syncing...';
+    resultDiv.innerHTML = '<div class="text-muted">Computing and applying delta...</div>';
 
     try {
         const result = await apiPost('/api/client/sync-delta', {
-            local_path: path,
-            virtual_file: vf,
+            local_path: localPath,
+            remote_path: remotePath,
             block_size: blockSize
         });
         if (result && result.success) {
-            const sig = result.signature;
+            const delta = result.delta;
             resultDiv.innerHTML = `
                 <div class="success">
-                    ✓ Delta signature computed<br>
-                    <small>Blocks: ${sig.blocks} | File size: ${formatBytes(sig.file_size)} | Block size: ${sig.block_size}</small><br>
-                    <small class="text-muted">${result.message}</small>
+                    ✓ Delta sync complete<br>
+                    <small>Copy blocks: ${delta.copy_blocks} | Insert bytes: ${formatBytes(delta.insert_bytes)} | Savings: ${delta.savings_percent}</small><br>
+                    <small>Written: ${formatBytes(result.bytes_written)}</small>
                 </div>`;
-            addLogEntry(`✓ Delta signature: ${path} (${sig.blocks} blocks)`);
-            showNotification(`Delta signature computed`, 'success');
+            addLogEntry(`✓ Delta sync: ${localPath} → ${remotePath} (${delta.savings_percent} saved)`);
+            showNotification(`Delta sync complete`, 'success');
         } else {
             resultDiv.innerHTML = `<div class="error">✗ ${result?.error || 'Unknown error'}</div>`;
-            showNotification(result?.error || 'Delta computation failed', 'error');
+            showNotification(result?.error || 'Delta sync failed', 'error');
         }
     } catch (err) {
         resultDiv.innerHTML = `<div class="error">✗ ${err.message}</div>`;
     } finally {
         btn.disabled = false;
-        btn.textContent = 'Compute Delta';
+        btn.textContent = 'Apply Delta Sync';
     }
 });
 

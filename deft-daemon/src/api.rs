@@ -2568,14 +2568,15 @@ async fn handle_client_push_parallel(state: &ApiState, body: &[u8]) -> (u16, Str
     }
 }
 
-/// v2.0: Handle delta sync - compute and send only differences
-async fn handle_client_sync_delta(state: &ApiState, body: &[u8]) -> (u16, String) {
-    use crate::delta::{FileSignature, DELTA_BLOCK_SIZE};
+/// v2.0: Handle delta sync - compute delta and show what would be transferred
+async fn handle_client_sync_delta(_state: &ApiState, body: &[u8]) -> (u16, String) {
+    use crate::delta::{Delta, FileSignature, DELTA_BLOCK_SIZE};
+    use std::io::{Seek, SeekFrom};
 
     #[derive(Deserialize)]
     struct DeltaSyncRequest {
         local_path: String,
-        virtual_file: String,
+        remote_path: String,
         #[serde(default = "default_block_size")]
         block_size: usize,
     }
@@ -2587,57 +2588,114 @@ async fn handle_client_sync_delta(state: &ApiState, body: &[u8]) -> (u16, String
     let req: Result<DeltaSyncRequest, _> = serde_json::from_slice(body);
     match req {
         Ok(r) => {
-            // Verify connection
-            let conn = state.client_connection.read().await;
-            if conn.is_none() {
-                return (
-                    400,
-                    r#"{"success":false,"error":"Not connected. Use Connect first."}"#.to_string(),
-                );
-            }
-            drop(conn);
-
-            // Compute local file signature
-            let local_sig = match std::fs::File::open(&r.local_path) {
-                Ok(mut file) => match FileSignature::compute(&mut file, r.block_size) {
-                    Ok(sig) => sig,
-                    Err(e) => {
-                        return (
-                            500,
-                            serde_json::json!({
-                                "success": false,
-                                "error": format!("Failed to compute signature: {}", e)
-                            })
-                            .to_string(),
-                        )
-                    }
-                },
+            // Open remote file (the "old" version we want to update)
+            let mut remote_file = match std::fs::File::open(&r.remote_path) {
+                Ok(f) => f,
                 Err(e) => {
                     return (
                         400,
                         serde_json::json!({
                             "success": false,
-                            "error": format!("Failed to open file: {}", e)
+                            "error": format!("Failed to open remote file: {}", e)
                         })
                         .to_string(),
                     )
                 }
             };
 
-            let stats = serde_json::json!({
-                "success": true,
-                "virtual_file": r.virtual_file,
-                "local_path": r.local_path,
-                "mode": "delta",
-                "signature": {
-                    "blocks": local_sig.blocks.len(),
-                    "file_size": local_sig.file_size,
-                    "block_size": local_sig.block_size
-                },
-                "message": "Delta signature computed. Full sync requires remote signature exchange."
-            });
+            // Compute signature of remote file
+            let remote_sig = match FileSignature::compute(&mut remote_file, r.block_size) {
+                Ok(sig) => sig,
+                Err(e) => {
+                    return (
+                        500,
+                        serde_json::json!({
+                            "success": false,
+                            "error": format!("Failed to compute remote signature: {}", e)
+                        })
+                        .to_string(),
+                    )
+                }
+            };
 
-            (200, stats.to_string())
+            // Open local file (the "new" version we want to sync)
+            let mut local_file = match std::fs::File::open(&r.local_path) {
+                Ok(f) => f,
+                Err(e) => {
+                    return (
+                        400,
+                        serde_json::json!({
+                            "success": false,
+                            "error": format!("Failed to open local file: {}", e)
+                        })
+                        .to_string(),
+                    )
+                }
+            };
+
+            // Compute delta between remote signature and local file
+            let delta = match Delta::compute(&remote_sig, &mut local_file) {
+                Ok(d) => d,
+                Err(e) => {
+                    return (
+                        500,
+                        serde_json::json!({
+                            "success": false,
+                            "error": format!("Failed to compute delta: {}", e)
+                        })
+                        .to_string(),
+                    )
+                }
+            };
+
+            let stats = delta.stats();
+            let savings = delta.savings(remote_sig.file_size);
+
+            // Apply delta to reconstruct file
+            let _ = remote_file.seek(SeekFrom::Start(0));
+            let mut output = Vec::new();
+            match delta.apply(&mut remote_file, &mut output) {
+                Ok(bytes_written) => {
+                    // Write the reconstructed file
+                    if let Err(e) = std::fs::write(&r.remote_path, &output) {
+                        return (
+                            500,
+                            serde_json::json!({
+                                "success": false,
+                                "error": format!("Failed to write output: {}", e)
+                            })
+                            .to_string(),
+                        );
+                    }
+
+                    (
+                        200,
+                        serde_json::json!({
+                            "success": true,
+                            "local_path": r.local_path,
+                            "remote_path": r.remote_path,
+                            "mode": "delta",
+                            "delta": {
+                                "copy_blocks": stats.copy_blocks,
+                                "insert_bytes": stats.insert_bytes,
+                                "total_ops": stats.total_ops,
+                                "savings_percent": format!("{:.1}%", savings * 100.0)
+                            },
+                            "bytes_written": bytes_written,
+                            "message": "Delta sync complete. Remote file updated."
+                        })
+                        .to_string(),
+                    )
+                }
+                Err(e) => (
+                    500,
+                    serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to apply delta: {}", e)
+                    })
+                    .to_string(),
+                ),
+            }
         }
         Err(e) => (400, format!(r#"{{"error":"Invalid request: {}"}}"#, e)),
     }
