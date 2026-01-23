@@ -1406,22 +1406,40 @@ async fn handle_resume_transfer(state: &ApiState, id: &str) -> (u16, String) {
         id, transfer_exists, current_status, control_exists
     );
 
-    // Send resume command to the transfer task (which will notify remote)
+    // Only send resume command to the transfer task
+    // Do NOT change local status here - let push_file handle it after remote confirms
+    // This prevents race condition where status flips active->interrupted
     let sent = state.send_control(id, TransferControl::Resume).await;
-    let resumed = state.resume_transfer(id).await;
 
-    if resumed || sent {
+    if sent {
         (
             200,
-            serde_json::json!({"status": "resumed", "id": id, "remote_notified": sent}).to_string(),
+            serde_json::json!({"status": "resuming", "id": id, "remote_notified": sent}).to_string(),
         )
+    } else if transfer_exists {
+        // No control channel but transfer exists - might be a receive transfer
+        // Try to resume directly
+        let resumed = state.resume_transfer(id).await;
+        if resumed {
+            (
+                200,
+                serde_json::json!({"status": "resumed", "id": id, "remote_notified": false}).to_string(),
+            )
+        } else {
+            (
+                400,
+                serde_json::json!({
+                    "error": "Transfer not in interrupted state",
+                    "current_status": current_status
+                }).to_string(),
+            )
+        }
     } else {
         (
             404,
             serde_json::json!({
-                "error": "Transfer not found or not in interrupted state",
+                "error": "Transfer not found",
                 "transfer_exists": transfer_exists,
-                "current_status": current_status,
                 "control_channel_exists": control_exists
             }).to_string(),
         )
@@ -2702,12 +2720,26 @@ async fn push_file(
             // Check for control commands while paused
             if let Ok(cmd) = control_rx.try_recv() {
                 if matches!(cmd, TransferControl::Resume) {
+                    // Send RESUME_TRANSFER_CMD and wait for confirmation
                     let _ = write_half.write_all(format!("DEFT RESUME_TRANSFER_CMD {}\n", transfer_id).as_bytes()).await;
                     tracing::info!("Sent RESUME_TRANSFER_CMD {} to remote", transfer_id);
+                    
+                    // Read response
+                    line.clear();
+                    reader.read_line(&mut line).await?;
+                    
+                    if line.contains("TRANSFER_RESUMED") {
+                        // Remote confirmed - update local status and exit loop
+                        state.resume_transfer(transfer_id).await;
+                        tracing::info!("Transfer {} resumed after remote confirmation", transfer_id);
+                        break;
+                    } else {
+                        tracing::warn!("Unexpected response to RESUME_TRANSFER_CMD: {}", line.trim());
+                    }
                 }
             }
             // Wait a bit before checking again
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
 
         let start = (chunk_idx as usize) * chunk_size;
@@ -2741,20 +2773,36 @@ async fn push_file(
             if line.contains("TRANSFER_PAUSED") {
                 tracing::info!("Remote paused transfer {}, waiting for resume", transfer_id);
                 state.interrupt_transfer(transfer_id).await;
-                // Wait for resume before retrying this chunk
-                while state.is_transfer_interrupted(transfer_id).await {
+                
+                // Wait for Resume command from control channel
+                loop {
                     if *cancel_rx.borrow() {
                         return Err("Transfer cancelled".into());
                     }
+                    
                     if let Ok(cmd) = control_rx.try_recv() {
                         if matches!(cmd, TransferControl::Resume) {
+                            // Send RESUME_TRANSFER_CMD and wait for confirmation
                             let _ = write_half.write_all(format!("DEFT RESUME_TRANSFER_CMD {}\n", transfer_id).as_bytes()).await;
                             tracing::info!("Sent RESUME_TRANSFER_CMD {} to remote", transfer_id);
+                            
+                            // Read response
+                            line.clear();
+                            reader.read_line(&mut line).await?;
+                            
+                            if line.contains("TRANSFER_RESUMED") {
+                                // Remote confirmed resume - update local status
+                                state.resume_transfer(transfer_id).await;
+                                tracing::info!("Transfer {} resumed after remote confirmation", transfer_id);
+                                break; // Exit wait loop, retry PUT
+                            } else {
+                                tracing::warn!("Unexpected response to RESUME_TRANSFER_CMD: {}", line.trim());
+                            }
                         }
                     }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 }
-                // Retry this chunk after resume
+                // Retry this chunk after confirmed resume
                 continue;
             }
 
