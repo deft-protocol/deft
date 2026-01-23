@@ -451,6 +451,7 @@ impl ApiState {
     }
 
     pub async fn interrupt_transfer(&self, id: &str) -> bool {
+        // The transfer loop checks is_transfer_interrupted() to pause
         if let Some(t) = self.transfers.write().await.get_mut(id) {
             t.status = "interrupted".to_string();
             t.updated_at = chrono::Utc::now().to_rfc3339();
@@ -469,6 +470,15 @@ impl ApiState {
             } else {
                 false
             }
+        } else {
+            false
+        }
+    }
+
+    /// Check if a transfer is interrupted
+    pub async fn is_transfer_interrupted(&self, id: &str) -> bool {
+        if let Some(t) = self.transfers.read().await.get(id) {
+            t.status == "interrupted"
         } else {
             false
         }
@@ -2578,6 +2588,17 @@ async fn push_file(
         if *cancel_rx.borrow() {
             let _ = write_half.write_all(b"DEFT BYE\n").await;
             return Err("Transfer cancelled".into());
+        }
+
+        // Check for interrupt - wait until resumed or cancelled
+        while state.is_transfer_interrupted(transfer_id).await {
+            // Check for cancellation while interrupted
+            if *cancel_rx.borrow() {
+                let _ = write_half.write_all(b"DEFT BYE\n").await;
+                return Err("Transfer cancelled".into());
+            }
+            // Wait a bit before checking again
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         }
 
         let start = (chunk_idx as usize) * chunk_size;
