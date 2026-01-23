@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, watch, RwLock};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, info, warn};
 
@@ -211,6 +211,8 @@ pub struct ApiState {
     pub client_connection: RwLock<Option<ClientConnection>>,
     pub ws_broadcast: broadcast::Sender<WsEvent>,
     pub rate_limiter: crate::rate_limit::RateLimiter,
+    /// Cancellation tokens for active transfers (transfer_id -> cancel sender)
+    pub cancel_tokens: RwLock<HashMap<String, watch::Sender<bool>>>,
 }
 
 impl ApiState {
@@ -239,7 +241,30 @@ impl ApiState {
             client_connection: RwLock::new(None),
             ws_broadcast,
             rate_limiter,
+            cancel_tokens: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Create a cancellation token for a transfer, returns receiver to check for cancellation
+    pub async fn create_cancel_token(&self, transfer_id: &str) -> watch::Receiver<bool> {
+        let (tx, rx) = watch::channel(false);
+        self.cancel_tokens.write().await.insert(transfer_id.to_string(), tx);
+        rx
+    }
+
+    /// Cancel a transfer by signaling its cancellation token
+    pub async fn signal_cancel(&self, transfer_id: &str) -> bool {
+        if let Some(tx) = self.cancel_tokens.write().await.remove(transfer_id) {
+            let _ = tx.send(true);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Remove cancellation token when transfer completes
+    pub async fn remove_cancel_token(&self, transfer_id: &str) {
+        self.cancel_tokens.write().await.remove(transfer_id);
     }
 
     /// Broadcast a WebSocket event to all connected clients
@@ -1223,8 +1248,32 @@ async fn handle_create_transfer(state: &ApiState, body: &[u8]) -> (u16, String) 
 }
 
 async fn handle_cancel_transfer(state: &ApiState, id: &str) -> (u16, String) {
+    // Signal cancellation to the running transfer task
+    let signaled = state.signal_cancel(id).await;
+
+    // Also remove from transfers map
     let mut transfers = state.transfers.write().await;
-    if transfers.remove(id).is_some() {
+    if transfers.remove(id).is_some() || signaled {
+        // Add to history as cancelled
+        let mut history = state.history.write().await;
+        history.push(TransferHistoryEntry {
+            id: id.to_string(),
+            virtual_file: "unknown".to_string(),
+            partner_id: "unknown".to_string(),
+            direction: "unknown".to_string(),
+            status: "cancelled".to_string(),
+            total_bytes: 0,
+            started_at: chrono::Utc::now().to_rfc3339(),
+            completed_at: Some(chrono::Utc::now().to_rfc3339()),
+        });
+        drop(history);
+        drop(transfers);
+
+        state.broadcast(WsEvent::TransferComplete {
+            transfer_id: id.to_string(),
+            success: false,
+        });
+
         (200, r#"{"status":"cancelled"}"#.to_string())
     } else {
         (404, r#"{"error":"Transfer not found"}"#.to_string())
@@ -2311,8 +2360,14 @@ async fn handle_client_push(state: &ApiState, body: &[u8]) -> (u16, String) {
                 )
                 .await;
 
+            // Create cancellation token
+            let cancel_rx = state.create_cancel_token(&transfer_id).await;
+
             // Perform push
-            match push_file(state, &r.file_path, &r.virtual_file, &transfer_id).await {
+            let result = push_file(state, &r.file_path, &r.virtual_file, &transfer_id, cancel_rx).await;
+            state.remove_cancel_token(&transfer_id).await;
+
+            match result {
                 Ok(bytes) => {
                     state.complete_transfer(&transfer_id).await;
                     (
@@ -2348,6 +2403,7 @@ async fn push_file(
     file_path: &str,
     virtual_file: &str,
     transfer_id: &str,
+    cancel_rx: watch::Receiver<bool>,
 ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
     use sha2::{Digest, Sha256};
     use std::sync::Arc;
@@ -2518,6 +2574,12 @@ async fn push_file(
 
     // Send chunks in random order
     while let Some(chunk_idx) = orderer.next_chunk() {
+        // Check for cancellation
+        if *cancel_rx.borrow() {
+            let _ = write_half.write_all(b"DEFT BYE\n").await;
+            return Err("Transfer cancelled".into());
+        }
+
         let start = (chunk_idx as usize) * chunk_size;
         let end = std::cmp::min(start + chunk_size, file_data.len());
         let chunk_data = &file_data[start..end];
@@ -2641,9 +2703,15 @@ async fn handle_client_push_parallel(state: &ApiState, body: &[u8]) -> (u16, Str
                 )
                 .await;
 
+            // Create cancellation token
+            let cancel_rx = state.create_cancel_token(&transfer_id).await;
+
             // For now, delegate to regular push (full parallel impl requires protocol changes)
             // The parallel sender is used internally for concurrency control
-            match push_file(state, &r.file_path, &r.virtual_file, &transfer_id).await {
+            let result = push_file(state, &r.file_path, &r.virtual_file, &transfer_id, cancel_rx).await;
+            state.remove_cancel_token(&transfer_id).await;
+
+            match result {
                 Ok(bytes) => {
                     state.complete_transfer(&transfer_id).await;
                     (
