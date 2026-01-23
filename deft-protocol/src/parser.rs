@@ -340,6 +340,9 @@ impl Parser {
             "TRANSFER_ACCEPTED" => Self::parse_transfer_accepted(&parts[1..]),
             "TRANSFER_COMPLETE" => Self::parse_transfer_complete(&parts[1..]),
             "CHUNK_READY" => Self::parse_chunk_ready(&parts[1..]),
+            "TRANSFER_PAUSED" => Self::parse_transfer_paused(&parts[1..]),
+            "TRANSFER_RESUMED" => Self::parse_transfer_resumed(&parts[1..]),
+            "TRANSFER_ABORTED" => Self::parse_transfer_aborted(&parts[1..]),
             resp => Err(DeftError::ParseError(format!("Unknown response: {}", resp))),
         }
     }
@@ -572,6 +575,45 @@ impl Parser {
             virtual_file,
             chunk_index,
             size,
+        })
+    }
+
+    fn parse_transfer_paused(parts: &[&str]) -> Result<Response, DeftError> {
+        if parts.is_empty() {
+            return Err(DeftError::MissingField("transfer_id".into()));
+        }
+        Ok(Response::TransferPaused {
+            transfer_id: parts[0].to_string(),
+        })
+    }
+
+    fn parse_transfer_resumed(parts: &[&str]) -> Result<Response, DeftError> {
+        if parts.is_empty() {
+            return Err(DeftError::MissingField("transfer_id".into()));
+        }
+        Ok(Response::TransferResumed {
+            transfer_id: parts[0].to_string(),
+        })
+    }
+
+    fn parse_transfer_aborted(parts: &[&str]) -> Result<Response, DeftError> {
+        if parts.is_empty() {
+            return Err(DeftError::MissingField("transfer_id".into()));
+        }
+
+        let transfer_id = parts[0].to_string();
+        let mut reason = None;
+
+        for part in &parts[1..] {
+            let upper = part.to_uppercase();
+            if upper.starts_with("REASON:") {
+                reason = Some(part[7..].to_string());
+            }
+        }
+
+        Ok(Response::TransferAborted {
+            transfer_id,
+            reason,
         })
     }
 }
@@ -898,5 +940,182 @@ mod tests {
             cmd.to_string(),
             "DEFT BEGIN_TRANSFER data-file 50 5242880 sha256:xyz789"
         );
+    }
+
+    // ==================== Transfer Control Commands Tests ====================
+
+    #[test]
+    fn test_parse_pause_transfer() {
+        let cmd = Parser::parse_command("DEFT PAUSE_TRANSFER tx_12345").unwrap();
+        match cmd {
+            Command::PauseTransfer { transfer_id } => {
+                assert_eq!(transfer_id, "tx_12345");
+            }
+            _ => panic!("Expected PauseTransfer command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_pause_transfer_missing_id() {
+        let result = Parser::parse_command("DEFT PAUSE_TRANSFER");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pause_transfer_display() {
+        let cmd = Command::PauseTransfer {
+            transfer_id: "tx_abc123".to_string(),
+        };
+        assert_eq!(cmd.to_string(), "DEFT PAUSE_TRANSFER tx_abc123");
+    }
+
+    #[test]
+    fn test_parse_resume_transfer_cmd() {
+        let cmd = Parser::parse_command("DEFT RESUME_TRANSFER_CMD tx_67890").unwrap();
+        match cmd {
+            Command::ResumeTransferCmd { transfer_id } => {
+                assert_eq!(transfer_id, "tx_67890");
+            }
+            _ => panic!("Expected ResumeTransferCmd command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_resume_transfer_cmd_missing_id() {
+        let result = Parser::parse_command("DEFT RESUME_TRANSFER_CMD");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resume_transfer_cmd_display() {
+        let cmd = Command::ResumeTransferCmd {
+            transfer_id: "tx_resume_test".to_string(),
+        };
+        assert_eq!(cmd.to_string(), "DEFT RESUME_TRANSFER_CMD tx_resume_test");
+    }
+
+    #[test]
+    fn test_parse_abort_transfer_without_reason() {
+        let cmd = Parser::parse_command("DEFT ABORT_TRANSFER tx_cancel123").unwrap();
+        match cmd {
+            Command::AbortTransfer { transfer_id, reason } => {
+                assert_eq!(transfer_id, "tx_cancel123");
+                assert!(reason.is_none());
+            }
+            _ => panic!("Expected AbortTransfer command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_abort_transfer_with_reason() {
+        let cmd = Parser::parse_command("DEFT ABORT_TRANSFER tx_cancel456 REASON:user_requested").unwrap();
+        match cmd {
+            Command::AbortTransfer { transfer_id, reason } => {
+                assert_eq!(transfer_id, "tx_cancel456");
+                assert_eq!(reason, Some("user_requested".to_string()));
+            }
+            _ => panic!("Expected AbortTransfer command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_abort_transfer_missing_id() {
+        let result = Parser::parse_command("DEFT ABORT_TRANSFER");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_abort_transfer_display_without_reason() {
+        let cmd = Command::AbortTransfer {
+            transfer_id: "tx_abort_test".to_string(),
+            reason: None,
+        };
+        assert_eq!(cmd.to_string(), "DEFT ABORT_TRANSFER tx_abort_test");
+    }
+
+    #[test]
+    fn test_abort_transfer_display_with_reason() {
+        let cmd = Command::AbortTransfer {
+            transfer_id: "tx_abort_test".to_string(),
+            reason: Some("timeout".to_string()),
+        };
+        assert_eq!(cmd.to_string(), "DEFT ABORT_TRANSFER tx_abort_test REASON:timeout");
+    }
+
+    #[test]
+    fn test_parse_transfer_paused_response() {
+        let resp = Parser::parse_response("DEFT TRANSFER_PAUSED tx_paused123").unwrap();
+        match resp {
+            Response::TransferPaused { transfer_id } => {
+                assert_eq!(transfer_id, "tx_paused123");
+            }
+            _ => panic!("Expected TransferPaused response"),
+        }
+    }
+
+    #[test]
+    fn test_parse_transfer_resumed_response() {
+        let resp = Parser::parse_response("DEFT TRANSFER_RESUMED tx_resumed456").unwrap();
+        match resp {
+            Response::TransferResumed { transfer_id } => {
+                assert_eq!(transfer_id, "tx_resumed456");
+            }
+            _ => panic!("Expected TransferResumed response"),
+        }
+    }
+
+    #[test]
+    fn test_parse_transfer_aborted_response_without_reason() {
+        let resp = Parser::parse_response("DEFT TRANSFER_ABORTED tx_aborted789").unwrap();
+        match resp {
+            Response::TransferAborted { transfer_id, reason } => {
+                assert_eq!(transfer_id, "tx_aborted789");
+                assert!(reason.is_none());
+            }
+            _ => panic!("Expected TransferAborted response"),
+        }
+    }
+
+    #[test]
+    fn test_parse_transfer_aborted_response_with_reason() {
+        let resp = Parser::parse_response("DEFT TRANSFER_ABORTED tx_aborted789 REASON:network_error").unwrap();
+        match resp {
+            Response::TransferAborted { transfer_id, reason } => {
+                assert_eq!(transfer_id, "tx_aborted789");
+                assert_eq!(reason, Some("network_error".to_string()));
+            }
+            _ => panic!("Expected TransferAborted response"),
+        }
+    }
+
+    #[test]
+    fn test_transfer_control_roundtrip_pause() {
+        let original = Command::PauseTransfer {
+            transfer_id: "roundtrip_test".to_string(),
+        };
+        let serialized = original.to_string();
+        let parsed = Parser::parse_command(&serialized).unwrap();
+        assert_eq!(format!("{:?}", original), format!("{:?}", parsed));
+    }
+
+    #[test]
+    fn test_transfer_control_roundtrip_resume() {
+        let original = Command::ResumeTransferCmd {
+            transfer_id: "roundtrip_resume".to_string(),
+        };
+        let serialized = original.to_string();
+        let parsed = Parser::parse_command(&serialized).unwrap();
+        assert_eq!(format!("{:?}", original), format!("{:?}", parsed));
+    }
+
+    #[test]
+    fn test_transfer_control_roundtrip_abort_with_reason() {
+        let original = Command::AbortTransfer {
+            transfer_id: "roundtrip_abort".to_string(),
+            reason: Some("test_reason".to_string()),
+        };
+        let serialized = original.to_string();
+        let parsed = Parser::parse_command(&serialized).unwrap();
+        assert_eq!(format!("{:?}", original), format!("{:?}", parsed));
     }
 }

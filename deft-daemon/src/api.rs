@@ -484,25 +484,40 @@ impl ApiState {
 
     pub async fn interrupt_transfer(&self, id: &str) -> bool {
         // The transfer loop checks is_transfer_interrupted() to pause
-        if let Some(t) = self.transfers.write().await.get_mut(id) {
+        let mut transfers = self.transfers.write().await;
+        if let Some(t) = transfers.get_mut(id) {
             t.status = "interrupted".to_string();
             t.updated_at = chrono::Utc::now().to_rfc3339();
+            let all: Vec<TransferStatus> = transfers.values().cloned().collect();
+            drop(transfers);
+            // Broadcast status change
+            self.broadcast(WsEvent::Transfers(all));
+            tracing::info!("Transfer {} interrupted", id);
             true
         } else {
+            tracing::warn!("interrupt_transfer: transfer {} not found", id);
             false
         }
     }
 
     pub async fn resume_transfer(&self, id: &str) -> bool {
-        if let Some(t) = self.transfers.write().await.get_mut(id) {
+        let mut transfers = self.transfers.write().await;
+        if let Some(t) = transfers.get_mut(id) {
             if t.status == "interrupted" {
                 t.status = "active".to_string();
                 t.updated_at = chrono::Utc::now().to_rfc3339();
+                let all: Vec<TransferStatus> = transfers.values().cloned().collect();
+                drop(transfers);
+                // Broadcast status change
+                self.broadcast(WsEvent::Transfers(all));
+                tracing::info!("Transfer {} resumed", id);
                 true
             } else {
+                tracing::warn!("resume_transfer: transfer {} not in interrupted state (status={})", id, t.status);
                 false
             }
         } else {
+            tracing::warn!("resume_transfer: transfer {} not found", id);
             false
         }
     }
@@ -1379,10 +1394,23 @@ async fn handle_interrupt_transfer(state: &ApiState, id: &str) -> (u16, String) 
 }
 
 async fn handle_resume_transfer(state: &ApiState, id: &str) -> (u16, String) {
+    // Log current state for debugging
+    let transfers = state.transfers.read().await;
+    let transfer_exists = transfers.contains_key(id);
+    let current_status = transfers.get(id).map(|t| t.status.clone());
+    drop(transfers);
+    
+    let control_exists = state.control_channels.read().await.contains_key(id);
+    tracing::info!(
+        "handle_resume_transfer: id={}, exists={}, status={:?}, control_channel={}",
+        id, transfer_exists, current_status, control_exists
+    );
+
     // Send resume command to the transfer task (which will notify remote)
     let sent = state.send_control(id, TransferControl::Resume).await;
+    let resumed = state.resume_transfer(id).await;
 
-    if state.resume_transfer(id).await || sent {
+    if resumed || sent {
         (
             200,
             serde_json::json!({"status": "resumed", "id": id, "remote_notified": sent}).to_string(),
@@ -1390,7 +1418,12 @@ async fn handle_resume_transfer(state: &ApiState, id: &str) -> (u16, String) {
     } else {
         (
             404,
-            r#"{"error":"Transfer not found or not in interrupted state"}"#.to_string(),
+            serde_json::json!({
+                "error": "Transfer not found or not in interrupted state",
+                "transfer_exists": transfer_exists,
+                "current_status": current_status,
+                "control_channel_exists": control_exists
+            }).to_string(),
         )
     }
 }

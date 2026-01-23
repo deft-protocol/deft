@@ -1547,4 +1547,250 @@ mod tests {
         assert!(matches!(response, Response::Goodbye));
         assert_eq!(session.state, SessionState::Closed);
     }
+
+    // ==================== Transfer Control Handler Tests ====================
+
+    #[test]
+    fn test_pause_transfer_not_authenticated() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Welcomed; // Not authenticated
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::PauseTransfer {
+                transfer_id: "tx_123".to_string(),
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::BadRequest);
+            }
+            _ => panic!("Expected Error response for unauthenticated session"),
+        }
+    }
+
+    #[test]
+    fn test_pause_transfer_no_active_transfer() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::PauseTransfer {
+                transfer_id: "tx_nonexistent".to_string(),
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::NotFound);
+            }
+            _ => panic!("Expected NotFound error for nonexistent transfer"),
+        }
+    }
+
+    #[test]
+    fn test_pause_transfer_success() {
+        use crate::session::ActiveTransfer;
+
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+        session.active_transfer = Some(ActiveTransfer {
+            id: "tx_pause_test".to_string(),
+            virtual_file: "test.dat".to_string(),
+            paused: false,
+        });
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::PauseTransfer {
+                transfer_id: "tx_pause_test".to_string(),
+            },
+        );
+
+        match response {
+            Response::TransferPaused { transfer_id } => {
+                assert_eq!(transfer_id, "tx_pause_test");
+            }
+            _ => panic!("Expected TransferPaused response"),
+        }
+
+        assert!(session.active_transfer.as_ref().unwrap().paused);
+    }
+
+    #[test]
+    fn test_pause_transfer_wrong_id() {
+        use crate::session::ActiveTransfer;
+
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+        session.active_transfer = Some(ActiveTransfer {
+            id: "tx_actual".to_string(),
+            virtual_file: "test.dat".to_string(),
+            paused: false,
+        });
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::PauseTransfer {
+                transfer_id: "tx_different".to_string(),
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::NotFound);
+            }
+            _ => panic!("Expected NotFound error for wrong transfer ID"),
+        }
+    }
+
+    #[test]
+    fn test_resume_transfer_cmd_success() {
+        use crate::session::ActiveTransfer;
+
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+        session.active_transfer = Some(ActiveTransfer {
+            id: "tx_resume_test".to_string(),
+            virtual_file: "test.dat".to_string(),
+            paused: true,
+        });
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::ResumeTransferCmd {
+                transfer_id: "tx_resume_test".to_string(),
+            },
+        );
+
+        match response {
+            Response::TransferResumed { transfer_id } => {
+                assert_eq!(transfer_id, "tx_resume_test");
+            }
+            _ => panic!("Expected TransferResumed response"),
+        }
+
+        assert!(!session.active_transfer.as_ref().unwrap().paused);
+    }
+
+    #[test]
+    fn test_abort_transfer_success() {
+        use crate::session::ActiveTransfer;
+
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+        session.active_transfer = Some(ActiveTransfer {
+            id: "tx_abort_test".to_string(),
+            virtual_file: "test.dat".to_string(),
+            paused: false,
+        });
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::AbortTransfer {
+                transfer_id: "tx_abort_test".to_string(),
+                reason: Some("user_cancelled".to_string()),
+            },
+        );
+
+        match response {
+            Response::TransferAborted { transfer_id, reason } => {
+                assert_eq!(transfer_id, "tx_abort_test");
+                assert_eq!(reason, Some("user_cancelled".to_string()));
+            }
+            _ => panic!("Expected TransferAborted response"),
+        }
+
+        assert!(session.active_transfer.is_none());
+    }
+
+    #[test]
+    fn test_abort_transfer_without_reason() {
+        use crate::session::ActiveTransfer;
+
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+        session.active_transfer = Some(ActiveTransfer {
+            id: "tx_abort_no_reason".to_string(),
+            virtual_file: "test.dat".to_string(),
+            paused: false,
+        });
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::AbortTransfer {
+                transfer_id: "tx_abort_no_reason".to_string(),
+                reason: None,
+            },
+        );
+
+        match response {
+            Response::TransferAborted { transfer_id, reason } => {
+                assert_eq!(transfer_id, "tx_abort_no_reason");
+                assert!(reason.is_none());
+            }
+            _ => panic!("Expected TransferAborted response"),
+        }
+    }
+
+    #[test]
+    fn test_pause_resume_cycle() {
+        use crate::session::ActiveTransfer;
+
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+        session.active_transfer = Some(ActiveTransfer {
+            id: "tx_cycle".to_string(),
+            virtual_file: "test.dat".to_string(),
+            paused: false,
+        });
+
+        // Pause
+        let response = handler.handle_command(
+            &mut session,
+            Command::PauseTransfer {
+                transfer_id: "tx_cycle".to_string(),
+            },
+        );
+        assert!(matches!(response, Response::TransferPaused { .. }));
+        assert!(session.active_transfer.as_ref().unwrap().paused);
+
+        // Resume
+        let response = handler.handle_command(
+            &mut session,
+            Command::ResumeTransferCmd {
+                transfer_id: "tx_cycle".to_string(),
+            },
+        );
+        assert!(matches!(response, Response::TransferResumed { .. }));
+        assert!(!session.active_transfer.as_ref().unwrap().paused);
+
+        // Pause again
+        let response = handler.handle_command(
+            &mut session,
+            Command::PauseTransfer {
+                transfer_id: "tx_cycle".to_string(),
+            },
+        );
+        assert!(matches!(response, Response::TransferPaused { .. }));
+        assert!(session.active_transfer.as_ref().unwrap().paused);
+    }
 }
