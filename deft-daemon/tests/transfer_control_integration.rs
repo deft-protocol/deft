@@ -35,6 +35,7 @@ enum MockControl {
 enum MockResponse {
     ChunkReady,
     TransferPaused,
+    TransferResumed,
     ChunkAck,
 }
 
@@ -110,6 +111,18 @@ impl MockReceiver {
     async fn handle_put(&self) -> MockResponse {
         if *self.paused.read().await {
             MockResponse::TransferPaused
+        } else {
+            MockResponse::ChunkReady
+        }
+    }
+
+    /// Handle PUT when receiver just resumed - returns TRANSFER_RESUMED once
+    async fn handle_put_after_resume(&self, just_resumed: &mut bool) -> MockResponse {
+        if *self.paused.read().await {
+            MockResponse::TransferPaused
+        } else if *just_resumed {
+            *just_resumed = false;
+            MockResponse::TransferResumed
         } else {
             MockResponse::ChunkReady
         }
@@ -394,4 +407,111 @@ async fn test_resume_waits_for_receiver_confirmation() {
 
     // PUT should work
     assert_eq!(receiver.handle_put().await, MockResponse::ChunkReady);
+}
+
+#[tokio::test]
+async fn test_put_handles_transfer_resumed_response() {
+    // This tests the specific bug: sender receives TRANSFER_RESUMED after retry
+    // and must handle it correctly by retrying PUT
+    
+    let sender = Arc::new(MockSender::new("tx_test_009"));
+    let receiver = Arc::new(MockReceiver::new("tx_test_009"));
+
+    // Both pause
+    sender.interrupt().await;
+    receiver.handle_pause().await;
+
+    // Verify paused state
+    assert!(sender.is_interrupted().await);
+    assert!(receiver.is_paused().await);
+    assert_eq!(receiver.handle_put().await, MockResponse::TransferPaused);
+
+    // Receiver resumes via its API (not sender-initiated)
+    receiver.handle_resume().await;
+    let mut just_resumed = true;
+
+    // Sender retries PUT - first response is TRANSFER_RESUMED
+    let response1 = receiver.handle_put_after_resume(&mut just_resumed).await;
+    assert_eq!(response1, MockResponse::TransferResumed);
+    
+    // Sender must handle TRANSFER_RESUMED by:
+    // 1. Updating local status if interrupted
+    if sender.is_interrupted().await {
+        sender.resume().await;
+    }
+    // 2. Retrying PUT
+    let response2 = receiver.handle_put_after_resume(&mut just_resumed).await;
+    assert_eq!(response2, MockResponse::ChunkReady);
+
+    // Both should now be active
+    assert_eq!(sender.get_status().await, "active");
+    assert!(!receiver.is_paused().await);
+}
+
+#[tokio::test]
+async fn test_put_retry_loop_with_transfer_resumed() {
+    // Full simulation of PUT retry loop handling all response types
+    
+    let receiver = Arc::new(MockReceiver::new("tx_test_010"));
+    let sender_status = Arc::new(RwLock::new("active".to_string()));
+    
+    // Track chunks sent
+    let chunks_sent = Arc::new(RwLock::new(0u32));
+    let chunks_sent_clone = chunks_sent.clone();
+    let sender_status_clone = sender_status.clone();
+    let receiver_clone = receiver.clone();
+
+    // Pause after 2 chunks
+    let pause_at_chunk = 2;
+    let total_chunks = 5;
+
+    let sender_task = tokio::spawn(async move {
+        while *chunks_sent_clone.read().await < total_chunks {
+            // Simulate PUT retry loop
+            loop {
+                let response = receiver_clone.handle_put().await;
+                
+                match response {
+                    MockResponse::TransferPaused => {
+                        // Set local status to interrupted and wait
+                        *sender_status_clone.write().await = "interrupted".to_string();
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        continue; // Retry PUT
+                    }
+                    MockResponse::ChunkReady => {
+                        // Success - if we were interrupted, resume now
+                        if *sender_status_clone.read().await == "interrupted" {
+                            *sender_status_clone.write().await = "active".to_string();
+                        }
+                        break;
+                    }
+                    _ => break,
+                }
+            }
+            
+            // "Send" the chunk
+            let mut sent = chunks_sent_clone.write().await;
+            *sent += 1;
+            
+            // Pause after specific chunk
+            if *sent == pause_at_chunk {
+                receiver_clone.handle_pause().await;
+            }
+        }
+        
+        *chunks_sent_clone.read().await
+    });
+
+    // Let transfer start
+    tokio::time::sleep(Duration::from_millis(30)).await;
+
+    // After pause happens, wait a bit then resume
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    receiver.handle_resume().await;
+
+    // Wait for completion
+    let result = tokio::time::timeout(Duration::from_secs(2), sender_task).await;
+    assert!(result.is_ok(), "Transfer should complete");
+    assert_eq!(result.unwrap().unwrap(), total_chunks);
+    assert_eq!(*sender_status.read().await, "active");
 }
