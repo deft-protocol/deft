@@ -2823,6 +2823,15 @@ async fn push_file(
                 break; // Success, exit retry loop
             }
             
+            // Handle TRANSFER_RESUMED - receiver resumed, retry the PUT
+            if line.contains("TRANSFER_RESUMED") {
+                tracing::info!("Receiver resumed transfer {}, retrying PUT", transfer_id);
+                if state.is_transfer_interrupted(transfer_id).await {
+                    state.resume_transfer(transfer_id).await;
+                }
+                continue; // Retry the PUT
+            }
+            
             return Err(format!("PUT failed: {}", line).into());
         }
 
