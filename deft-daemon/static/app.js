@@ -985,6 +985,33 @@ async function refreshDynamic() {
     await Promise.all([updateStatus(), updateTransfers(), updateHistory()]);
 }
 
+// ============ Network Interface Detection ============
+async function updateNetworkInfo() {
+    const info = await apiFetch('/api/network/interfaces');
+    if (!info) return;
+
+    const networkInfoEl = document.getElementById('network-info');
+    const parallelSelect = document.getElementById('push-parallel');
+
+    if (networkInfoEl) {
+        const names = info.interfaces
+            .filter(i => !i.is_loopback && i.is_up)
+            .map(i => i.name)
+            .join(', ');
+        networkInfoEl.textContent = info.transfer_capable > 0
+            ? `${info.transfer_capable} interface(s): ${names} → ${info.suggested_parallel_streams} streams recommended`
+            : 'No transfer interfaces detected';
+    }
+
+    // Update auto-detect option with actual value
+    if (parallelSelect) {
+        const autoOpt = parallelSelect.querySelector('option[value="auto"]');
+        if (autoOpt) {
+            autoOpt.textContent = `Auto-detect (${info.suggested_parallel_streams})`;
+        }
+    }
+}
+
 // ============ Initialize ============
 document.addEventListener('DOMContentLoaded', () => {
     // Pause refresh when any input/textarea/select is focused
@@ -996,6 +1023,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initial load via HTTP
     refreshAll();
     updateSettings();
+    updateNetworkInfo();
 
     // Connect WebSocket for real-time updates
     connectWebSocket();
