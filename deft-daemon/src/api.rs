@@ -2630,13 +2630,13 @@ async fn push_file(
     // Fall back to regular transfer if delta sync failed or file doesn't exist
     tracing::debug!("Using regular transfer for {}", virtual_file);
 
-    // BEGIN_TRANSFER: format is <virtual_file> <total_chunks> <total_bytes> <file_hash>
+    // BEGIN_TRANSFER: format is <virtual_file> <total_chunks> <total_bytes> <file_hash> TX_ID:<id>
     line.clear();
     write_half
         .write_all(
             format!(
-                "DEFT BEGIN_TRANSFER {} {} {} {}\n",
-                virtual_file, total_chunks, file_size, hash
+                "DEFT BEGIN_TRANSFER {} {} {} {} TX_ID:{}\n",
+                virtual_file, total_chunks, file_size, hash, transfer_id
             )
             .as_bytes(),
         )

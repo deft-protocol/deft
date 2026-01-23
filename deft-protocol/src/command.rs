@@ -82,6 +82,9 @@ pub enum Command {
         total_chunks: u64,
         total_bytes: u64,
         file_hash: String,
+        /// Sender's transfer_id for correlation (v2.1)
+        #[serde(default)]
+        transfer_id: Option<String>,
     },
     ResumeTransfer {
         virtual_file: String,
@@ -171,6 +174,23 @@ impl Command {
             total_chunks,
             total_bytes,
             file_hash: file_hash.into(),
+            transfer_id: None,
+        }
+    }
+
+    pub fn begin_transfer_with_id(
+        virtual_file: impl Into<String>,
+        total_chunks: u64,
+        total_bytes: u64,
+        file_hash: impl Into<String>,
+        transfer_id: impl Into<String>,
+    ) -> Self {
+        Command::BeginTransfer {
+            virtual_file: virtual_file.into(),
+            total_chunks,
+            total_bytes,
+            file_hash: file_hash.into(),
+            transfer_id: Some(transfer_id.into()),
         }
     }
 
@@ -299,12 +319,21 @@ impl fmt::Display for Command {
                 total_chunks,
                 total_bytes,
                 file_hash,
+                transfer_id,
             } => {
-                write!(
-                    f,
-                    "DEFT BEGIN_TRANSFER {} {} {} {}",
-                    virtual_file, total_chunks, total_bytes, file_hash
-                )
+                if let Some(tid) = transfer_id {
+                    write!(
+                        f,
+                        "DEFT BEGIN_TRANSFER {} {} {} {} TX_ID:{}",
+                        virtual_file, total_chunks, total_bytes, file_hash, tid
+                    )
+                } else {
+                    write!(
+                        f,
+                        "DEFT BEGIN_TRANSFER {} {} {} {}",
+                        virtual_file, total_chunks, total_bytes, file_hash
+                    )
+                }
             }
             Command::ResumeTransfer {
                 virtual_file,

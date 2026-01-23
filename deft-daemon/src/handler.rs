@@ -292,12 +292,14 @@ impl CommandHandler {
                 total_chunks,
                 total_bytes,
                 file_hash,
+                transfer_id,
             } => self.handle_begin_transfer(
                 session,
                 virtual_file,
                 total_chunks,
                 total_bytes,
                 file_hash,
+                transfer_id,
             ),
             Command::ResumeTransfer {
                 virtual_file,
@@ -594,6 +596,7 @@ impl CommandHandler {
         total_chunks: u64,
         total_bytes: u64,
         file_hash: String,
+        sender_transfer_id: Option<String>,
     ) -> Response {
         if !session.is_authenticated() {
             return Response::error(
@@ -627,8 +630,20 @@ impl CommandHandler {
             session.window_size,
         );
 
-        let transfer_id = self.transfer_manager.start_transfer(transfer);
+        // Use sender's transfer_id if provided, otherwise generate our own
+        let transfer_id = if let Some(ref tid) = sender_transfer_id {
+            self.transfer_manager.start_transfer_with_id(transfer, tid.clone())
+        } else {
+            self.transfer_manager.start_transfer(transfer)
+        };
         session.add_transfer(transfer_id.clone());
+
+        // Set active_transfer for pause/resume/abort support
+        session.active_transfer = Some(crate::session::ActiveTransfer {
+            id: transfer_id.clone(),
+            virtual_file: virtual_file.clone(),
+            paused: false,
+        });
 
         // Register transfer to API dashboard
         self.register_transfer_to_api(

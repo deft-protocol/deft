@@ -241,6 +241,16 @@ impl TransferManager {
         id
     }
 
+    /// Start a transfer with a specific ID (for sender-receiver correlation)
+    pub fn start_transfer_with_id(&self, mut transfer: ActiveTransfer, id: String) -> String {
+        transfer.transfer_id = id.clone();
+        self.active_transfers
+            .write()
+            .unwrap()
+            .insert(id.clone(), transfer);
+        id
+    }
+
     pub fn get_transfer(&self, transfer_id: &str) -> Option<ActiveTransfer> {
         self.active_transfers
             .read()

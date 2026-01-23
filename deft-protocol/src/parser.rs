@@ -100,7 +100,7 @@ impl Parser {
     }
 
     fn parse_begin_transfer(parts: &[&str]) -> Result<Command, DeftError> {
-        // BEGIN_TRANSFER <virtual_file> <total_chunks> <total_bytes> <file_hash>
+        // BEGIN_TRANSFER <virtual_file> <total_chunks> <total_bytes> <file_hash> [TX_ID:<id>]
         if parts.len() < 4 {
             return Err(DeftError::ParseError(
                 "BEGIN_TRANSFER requires <virtual_file> <total_chunks> <total_bytes> <file_hash>"
@@ -117,11 +117,21 @@ impl Parser {
             .map_err(|_| DeftError::ParseError("Invalid total_bytes".into()))?;
         let file_hash = parts[3].to_string();
 
+        // Parse optional TX_ID:<id> parameter
+        let mut transfer_id = None;
+        for part in &parts[4..] {
+            let upper = part.to_uppercase();
+            if upper.starts_with("TX_ID:") {
+                transfer_id = Some(part[6..].to_string());
+            }
+        }
+
         Ok(Command::BeginTransfer {
             virtual_file,
             total_chunks,
             total_bytes,
             file_hash,
+            transfer_id,
         })
     }
 
@@ -918,11 +928,13 @@ mod tests {
                 total_chunks,
                 total_bytes,
                 file_hash,
+                transfer_id,
             } => {
                 assert_eq!(virtual_file, "invoices-jan");
                 assert_eq!(total_chunks, 100);
                 assert_eq!(total_bytes, 10485760);
                 assert_eq!(file_hash, "sha256:abcdef123456");
+                assert!(transfer_id.is_none());
             }
             _ => panic!("Expected BeginTransfer command"),
         }
@@ -935,10 +947,45 @@ mod tests {
             total_chunks: 50,
             total_bytes: 5242880,
             file_hash: "sha256:xyz789".to_string(),
+            transfer_id: None,
         };
         assert_eq!(
             cmd.to_string(),
             "DEFT BEGIN_TRANSFER data-file 50 5242880 sha256:xyz789"
+        );
+    }
+
+    #[test]
+    fn test_begin_transfer_with_transfer_id() {
+        let cmd = Parser::parse_command(
+            "DEFT BEGIN_TRANSFER invoices 50 1048576 sha256:abc TX_ID:push_12345",
+        )
+        .unwrap();
+        match cmd {
+            Command::BeginTransfer {
+                virtual_file,
+                transfer_id,
+                ..
+            } => {
+                assert_eq!(virtual_file, "invoices");
+                assert_eq!(transfer_id, Some("push_12345".to_string()));
+            }
+            _ => panic!("Expected BeginTransfer command"),
+        }
+    }
+
+    #[test]
+    fn test_begin_transfer_display_with_transfer_id() {
+        let cmd = Command::BeginTransfer {
+            virtual_file: "data-file".to_string(),
+            total_chunks: 50,
+            total_bytes: 5242880,
+            file_hash: "sha256:xyz789".to_string(),
+            transfer_id: Some("tx_sender_123".to_string()),
+        };
+        assert_eq!(
+            cmd.to_string(),
+            "DEFT BEGIN_TRANSFER data-file 50 5242880 sha256:xyz789 TX_ID:tx_sender_123"
         );
     }
 

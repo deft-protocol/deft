@@ -74,6 +74,7 @@ impl MockSession {
                 total_chunks,
                 total_bytes,
                 file_hash,
+                ..
             } => {
                 if self.state != SessionState::Authenticated {
                     return Response::error(DeftErrorCode::Unauthorized, None);

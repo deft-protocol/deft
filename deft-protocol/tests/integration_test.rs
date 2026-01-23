@@ -60,6 +60,7 @@ fn test_transfer_flow() {
         total_chunks,
         total_bytes,
         file_hash,
+        ..
     } = parsed
     {
         assert_eq!(virtual_file, "invoices");
