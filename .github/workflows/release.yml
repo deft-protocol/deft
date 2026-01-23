@@ -128,11 +128,21 @@ jobs:
         with:
           path: artifacts
 
+      - name: Prepare release files
+        run: |
+          cd artifacts
+          # Move all archives from subdirectories to current directory
+          find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec mv {} . \;
+          # Remove empty subdirectories
+          find . -mindepth 1 -type d -empty -delete
+          # List files for debugging
+          echo "=== Release files ==="
+          ls -la *.tar.gz *.zip 2>/dev/null || echo "No archives found"
+
       - name: Generate checksums
         run: |
           cd artifacts
-          find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec mv {} . \;
-          sha256sum deft-* > SHA256SUMS.txt
+          sha256sum *.tar.gz *.zip 2>/dev/null > SHA256SUMS.txt || true
           cat SHA256SUMS.txt
 
       - name: Create Release
@@ -142,8 +152,8 @@ jobs:
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           generate_release_notes: true
           files: |
-            artifacts/deft-*.tar.gz
-            artifacts/deft-*.zip
+            artifacts/*.tar.gz
+            artifacts/*.zip
             artifacts/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
