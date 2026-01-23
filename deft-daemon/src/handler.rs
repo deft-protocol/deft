@@ -811,13 +811,31 @@ impl CommandHandler {
         // Track compressed flag for binary data reception
         session.last_chunk_compressed = compressed;
 
-        // Check if transfer is paused
+        // Check if transfer is paused (via session state OR via API state)
         if let Some(ref transfer) = session.active_transfer {
+            // Check session pause state (set by PAUSE_TRANSFER command)
             if transfer.paused {
-                tracing::info!("PUT rejected: transfer {} is paused", transfer.id);
+                tracing::info!("PUT rejected: transfer {} is paused (session)", transfer.id);
                 return Response::TransferPaused {
                     transfer_id: transfer.id.clone(),
                 };
+            }
+            // Also check API state (set by /api/transfers/{id}/interrupt)
+            if let Some(ref api_state) = self.api_state {
+                let is_api_interrupted = {
+                    let rt = tokio::runtime::Handle::try_current();
+                    if let Ok(handle) = rt {
+                        handle.block_on(api_state.is_transfer_interrupted(&transfer.id))
+                    } else {
+                        false
+                    }
+                };
+                if is_api_interrupted {
+                    tracing::info!("PUT rejected: transfer {} is paused (API)", transfer.id);
+                    return Response::TransferPaused {
+                        transfer_id: transfer.id.clone(),
+                    };
+                }
             }
         }
 
