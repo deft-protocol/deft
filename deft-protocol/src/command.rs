@@ -113,6 +113,19 @@ pub enum Command {
         /// Expected final file hash after applying delta
         final_hash: String,
     },
+    /// Pause an active transfer (v2.0)
+    PauseTransfer {
+        transfer_id: String,
+    },
+    /// Resume a paused transfer (v2.0)
+    ResumeTransferCmd {
+        transfer_id: String,
+    },
+    /// Abort a transfer permanently (v2.0)
+    AbortTransfer {
+        transfer_id: String,
+        reason: Option<String>,
+    },
     Bye,
 }
 
@@ -342,6 +355,19 @@ impl fmt::Display for Command {
                     "DEFT DELTA_PUT {} HASH:{} DATA:{}",
                     virtual_file, final_hash, delta_data
                 )
+            }
+            Command::PauseTransfer { transfer_id } => {
+                write!(f, "DEFT PAUSE_TRANSFER {}", transfer_id)
+            }
+            Command::ResumeTransferCmd { transfer_id } => {
+                write!(f, "DEFT RESUME_TRANSFER_CMD {}", transfer_id)
+            }
+            Command::AbortTransfer { transfer_id, reason } => {
+                if let Some(r) = reason {
+                    write!(f, "DEFT ABORT_TRANSFER {} REASON:{}", transfer_id, r)
+                } else {
+                    write!(f, "DEFT ABORT_TRANSFER {}", transfer_id)
+                }
             }
         }
     }

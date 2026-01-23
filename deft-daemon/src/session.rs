@@ -50,6 +50,16 @@ pub struct Session {
     pub pull_chunks_sent: u64,
     // Push transfer tracking
     pub last_chunk_compressed: bool,
+    // Transfer control state
+    pub active_transfer: Option<ActiveTransfer>,
+}
+
+/// Active transfer state for pause/resume/abort
+#[derive(Debug, Clone)]
+pub struct ActiveTransfer {
+    pub id: String,
+    pub virtual_file: String,
+    pub paused: bool,
 }
 
 impl Session {
@@ -72,6 +82,7 @@ impl Session {
             pull_total_chunks: 0,
             pull_chunks_sent: 0,
             last_chunk_compressed: false,
+            active_transfer: None,
         }
     }
 

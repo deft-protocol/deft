@@ -33,6 +33,9 @@ impl Parser {
             "PUT" => Self::parse_put(&parts[1..]),
             "DELTA_SIG_REQ" => Self::parse_delta_sig_req(&parts[1..]),
             "DELTA_PUT" => Self::parse_delta_put(&parts[1..]),
+            "PAUSE_TRANSFER" => Self::parse_pause_transfer(&parts[1..]),
+            "RESUME_TRANSFER_CMD" => Self::parse_resume_transfer_cmd(&parts[1..]),
+            "ABORT_TRANSFER" => Self::parse_abort_transfer(&parts[1..]),
             "BYE" => Ok(Command::Bye),
             cmd => Err(DeftError::UnknownCommand(cmd.to_string())),
         }
@@ -260,6 +263,54 @@ impl Parser {
             virtual_file,
             delta_data,
             final_hash,
+        })
+    }
+
+    /// Parse PAUSE_TRANSFER <transfer_id>
+    fn parse_pause_transfer(parts: &[&str]) -> Result<Command, DeftError> {
+        if parts.is_empty() {
+            return Err(DeftError::ParseError(
+                "PAUSE_TRANSFER requires <transfer_id>".into(),
+            ));
+        }
+        Ok(Command::PauseTransfer {
+            transfer_id: parts[0].to_string(),
+        })
+    }
+
+    /// Parse RESUME_TRANSFER_CMD <transfer_id>
+    fn parse_resume_transfer_cmd(parts: &[&str]) -> Result<Command, DeftError> {
+        if parts.is_empty() {
+            return Err(DeftError::ParseError(
+                "RESUME_TRANSFER_CMD requires <transfer_id>".into(),
+            ));
+        }
+        Ok(Command::ResumeTransferCmd {
+            transfer_id: parts[0].to_string(),
+        })
+    }
+
+    /// Parse ABORT_TRANSFER <transfer_id> [REASON:<reason>]
+    fn parse_abort_transfer(parts: &[&str]) -> Result<Command, DeftError> {
+        if parts.is_empty() {
+            return Err(DeftError::ParseError(
+                "ABORT_TRANSFER requires <transfer_id>".into(),
+            ));
+        }
+
+        let transfer_id = parts[0].to_string();
+        let mut reason = None;
+
+        for part in &parts[1..] {
+            let upper = part.to_uppercase();
+            if upper.starts_with("REASON:") {
+                reason = Some(part[7..].to_string());
+            }
+        }
+
+        Ok(Command::AbortTransfer {
+            transfer_id,
+            reason,
         })
     }
 

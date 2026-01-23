@@ -296,6 +296,15 @@ impl CommandHandler {
                 delta_data,
                 final_hash,
             } => self.handle_delta_put(session, virtual_file, delta_data, final_hash),
+            Command::PauseTransfer { transfer_id } => {
+                self.handle_pause_transfer(session, transfer_id)
+            }
+            Command::ResumeTransferCmd { transfer_id } => {
+                self.handle_resume_transfer_cmd(session, transfer_id)
+            }
+            Command::AbortTransfer { transfer_id, reason } => {
+                self.handle_abort_transfer(session, transfer_id, reason)
+            }
         }
     }
 
@@ -1337,6 +1346,89 @@ fn compute_cert_fingerprint(cert_path: &str) -> Option<String> {
             .map(|b| format!("{:02x}", b))
             .collect::<String>(),
     )
+}
+
+impl CommandHandler {
+    fn handle_pause_transfer(&self, session: &mut Session, transfer_id: String) -> Response {
+        if session.state != SessionState::Authenticated {
+            return Response::error(
+                DeftErrorCode::BadRequest,
+                Some("Must be authenticated".to_string()),
+            );
+        }
+
+        // Mark the transfer as paused in session
+        if let Some(ref mut transfer) = session.active_transfer {
+            if transfer.id == transfer_id {
+                transfer.paused = true;
+                tracing::info!("Transfer {} paused by remote", transfer_id);
+                return Response::TransferPaused { transfer_id };
+            }
+        }
+
+        Response::error(
+            DeftErrorCode::NotFound,
+            Some(format!("Transfer {} not found", transfer_id)),
+        )
+    }
+
+    fn handle_resume_transfer_cmd(&self, session: &mut Session, transfer_id: String) -> Response {
+        if session.state != SessionState::Authenticated {
+            return Response::error(
+                DeftErrorCode::BadRequest,
+                Some("Must be authenticated".to_string()),
+            );
+        }
+
+        // Mark the transfer as resumed in session
+        if let Some(ref mut transfer) = session.active_transfer {
+            if transfer.id == transfer_id {
+                transfer.paused = false;
+                tracing::info!("Transfer {} resumed by remote", transfer_id);
+                return Response::TransferResumed { transfer_id };
+            }
+        }
+
+        Response::error(
+            DeftErrorCode::NotFound,
+            Some(format!("Transfer {} not found", transfer_id)),
+        )
+    }
+
+    fn handle_abort_transfer(
+        &self,
+        session: &mut Session,
+        transfer_id: String,
+        reason: Option<String>,
+    ) -> Response {
+        if session.state != SessionState::Authenticated {
+            return Response::error(
+                DeftErrorCode::BadRequest,
+                Some("Must be authenticated".to_string()),
+            );
+        }
+
+        // Abort the transfer
+        if let Some(ref transfer) = session.active_transfer {
+            if transfer.id == transfer_id {
+                tracing::info!(
+                    "Transfer {} aborted by remote: {:?}",
+                    transfer_id,
+                    reason
+                );
+                session.active_transfer = None;
+                return Response::TransferAborted {
+                    transfer_id,
+                    reason,
+                };
+            }
+        }
+
+        Response::error(
+            DeftErrorCode::NotFound,
+            Some(format!("Transfer {} not found", transfer_id)),
+        )
+    }
 }
 
 #[cfg(test)]

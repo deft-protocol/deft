@@ -195,6 +195,19 @@ pub enum Response {
         bytes_written: u64,
         final_hash: String,
     },
+    /// Transfer paused acknowledgment (v2.0)
+    TransferPaused {
+        transfer_id: String,
+    },
+    /// Transfer resumed acknowledgment (v2.0)
+    TransferResumed {
+        transfer_id: String,
+    },
+    /// Transfer aborted acknowledgment (v2.0)
+    TransferAborted {
+        transfer_id: String,
+        reason: Option<String>,
+    },
 }
 
 impl Response {
@@ -408,6 +421,19 @@ impl fmt::Display for Response {
                     "DEFT DELTA_ACK {} {} HASH:{}",
                     virtual_file, bytes_written, final_hash
                 )
+            }
+            Response::TransferPaused { transfer_id } => {
+                write!(f, "DEFT TRANSFER_PAUSED {}", transfer_id)
+            }
+            Response::TransferResumed { transfer_id } => {
+                write!(f, "DEFT TRANSFER_RESUMED {}", transfer_id)
+            }
+            Response::TransferAborted { transfer_id, reason } => {
+                if let Some(r) = reason {
+                    write!(f, "DEFT TRANSFER_ABORTED {} REASON:{}", transfer_id, r)
+                } else {
+                    write!(f, "DEFT TRANSFER_ABORTED {}", transfer_id)
+                }
             }
         }
     }
