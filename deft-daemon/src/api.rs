@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{broadcast, watch, RwLock};
+use tokio::sync::{broadcast, mpsc, watch, RwLock};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, info, warn};
 
@@ -14,6 +14,14 @@ use crate::delta::{Delta, FileSignature, DELTA_BLOCK_SIZE};
 use crate::metrics;
 use crate::parallel::ParallelConfig;
 use crate::transfer_state::TransferStateStore;
+
+/// Control commands that can be sent to an active transfer
+#[derive(Debug, Clone)]
+pub enum TransferControl {
+    Pause,
+    Resume,
+    Abort { reason: Option<String> },
+}
 
 /// API Server configuration
 #[derive(Debug, Clone)]
@@ -213,6 +221,8 @@ pub struct ApiState {
     pub rate_limiter: crate::rate_limit::RateLimiter,
     /// Cancellation tokens for active transfers (transfer_id -> cancel sender)
     pub cancel_tokens: RwLock<HashMap<String, watch::Sender<bool>>>,
+    /// Control channels for active transfers (transfer_id -> control sender)
+    pub control_channels: RwLock<HashMap<String, mpsc::Sender<TransferControl>>>,
 }
 
 impl ApiState {
@@ -242,7 +252,29 @@ impl ApiState {
             ws_broadcast,
             rate_limiter,
             cancel_tokens: RwLock::new(HashMap::new()),
+            control_channels: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Create a control channel for a transfer, returns receiver
+    pub async fn create_control_channel(&self, transfer_id: &str) -> mpsc::Receiver<TransferControl> {
+        let (tx, rx) = mpsc::channel(16);
+        self.control_channels.write().await.insert(transfer_id.to_string(), tx);
+        rx
+    }
+
+    /// Send a control command to an active transfer
+    pub async fn send_control(&self, transfer_id: &str, cmd: TransferControl) -> bool {
+        if let Some(tx) = self.control_channels.read().await.get(transfer_id) {
+            tx.send(cmd).await.is_ok()
+        } else {
+            false
+        }
+    }
+
+    /// Remove control channel when transfer completes
+    pub async fn remove_control_channel(&self, transfer_id: &str) {
+        self.control_channels.write().await.remove(transfer_id);
     }
 
     /// Create a cancellation token for a transfer, returns receiver to check for cancellation
@@ -1333,10 +1365,13 @@ async fn handle_retry_transfer(state: &ApiState, id: &str) -> (u16, String) {
 }
 
 async fn handle_interrupt_transfer(state: &ApiState, id: &str) -> (u16, String) {
-    if state.interrupt_transfer(id).await {
+    // Send pause command to the transfer task (which will notify remote)
+    let sent = state.send_control(id, TransferControl::Pause).await;
+
+    if state.interrupt_transfer(id).await || sent {
         (
             200,
-            serde_json::json!({"status": "interrupted", "id": id}).to_string(),
+            serde_json::json!({"status": "interrupted", "id": id, "remote_notified": sent}).to_string(),
         )
     } else {
         (404, r#"{"error":"Transfer not found"}"#.to_string())
@@ -1344,10 +1379,13 @@ async fn handle_interrupt_transfer(state: &ApiState, id: &str) -> (u16, String) 
 }
 
 async fn handle_resume_transfer(state: &ApiState, id: &str) -> (u16, String) {
-    if state.resume_transfer(id).await {
+    // Send resume command to the transfer task (which will notify remote)
+    let sent = state.send_control(id, TransferControl::Resume).await;
+
+    if state.resume_transfer(id).await || sent {
         (
             200,
-            serde_json::json!({"status": "resumed", "id": id}).to_string(),
+            serde_json::json!({"status": "resumed", "id": id, "remote_notified": sent}).to_string(),
         )
     } else {
         (
@@ -2370,12 +2408,14 @@ async fn handle_client_push(state: &ApiState, body: &[u8]) -> (u16, String) {
                 )
                 .await;
 
-            // Create cancellation token
+            // Create cancellation token and control channel
             let cancel_rx = state.create_cancel_token(&transfer_id).await;
+            let control_rx = state.create_control_channel(&transfer_id).await;
 
             // Perform push
-            let result = push_file(state, &r.file_path, &r.virtual_file, &transfer_id, cancel_rx).await;
+            let result = push_file(state, &r.file_path, &r.virtual_file, &transfer_id, cancel_rx, control_rx).await;
             state.remove_cancel_token(&transfer_id).await;
+            state.remove_control_channel(&transfer_id).await;
 
             match result {
                 Ok(bytes) => {
@@ -2414,6 +2454,7 @@ async fn push_file(
     virtual_file: &str,
     transfer_id: &str,
     cancel_rx: watch::Receiver<bool>,
+    mut control_rx: mpsc::Receiver<TransferControl>,
 ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
     use sha2::{Digest, Sha256};
     use std::sync::Arc;
@@ -2586,16 +2627,51 @@ async fn push_file(
     while let Some(chunk_idx) = orderer.next_chunk() {
         // Check for cancellation
         if *cancel_rx.borrow() {
+            let _ = write_half.write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes()).await;
             let _ = write_half.write_all(b"DEFT BYE\n").await;
             return Err("Transfer cancelled".into());
+        }
+
+        // Check for control commands (non-blocking)
+        while let Ok(cmd) = control_rx.try_recv() {
+            match cmd {
+                TransferControl::Pause => {
+                    // Send PAUSE to remote
+                    let _ = write_half.write_all(format!("DEFT PAUSE_TRANSFER {}\n", transfer_id).as_bytes()).await;
+                    tracing::info!("Sent PAUSE_TRANSFER {} to remote", transfer_id);
+                }
+                TransferControl::Resume => {
+                    // Send RESUME to remote
+                    let _ = write_half.write_all(format!("DEFT RESUME_TRANSFER_CMD {}\n", transfer_id).as_bytes()).await;
+                    tracing::info!("Sent RESUME_TRANSFER_CMD {} to remote", transfer_id);
+                }
+                TransferControl::Abort { reason } => {
+                    // Send ABORT to remote
+                    if let Some(r) = reason {
+                        let _ = write_half.write_all(format!("DEFT ABORT_TRANSFER {} REASON:{}\n", transfer_id, r).as_bytes()).await;
+                    } else {
+                        let _ = write_half.write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes()).await;
+                    }
+                    let _ = write_half.write_all(b"DEFT BYE\n").await;
+                    return Err("Transfer aborted".into());
+                }
+            }
         }
 
         // Check for interrupt - wait until resumed or cancelled
         while state.is_transfer_interrupted(transfer_id).await {
             // Check for cancellation while interrupted
             if *cancel_rx.borrow() {
+                let _ = write_half.write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes()).await;
                 let _ = write_half.write_all(b"DEFT BYE\n").await;
                 return Err("Transfer cancelled".into());
+            }
+            // Check for control commands while paused
+            if let Ok(cmd) = control_rx.try_recv() {
+                if matches!(cmd, TransferControl::Resume) {
+                    let _ = write_half.write_all(format!("DEFT RESUME_TRANSFER_CMD {}\n", transfer_id).as_bytes()).await;
+                    tracing::info!("Sent RESUME_TRANSFER_CMD {} to remote", transfer_id);
+                }
             }
             // Wait a bit before checking again
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -2724,13 +2800,15 @@ async fn handle_client_push_parallel(state: &ApiState, body: &[u8]) -> (u16, Str
                 )
                 .await;
 
-            // Create cancellation token
+            // Create cancellation token and control channel
             let cancel_rx = state.create_cancel_token(&transfer_id).await;
+            let control_rx = state.create_control_channel(&transfer_id).await;
 
             // For now, delegate to regular push (full parallel impl requires protocol changes)
             // The parallel sender is used internally for concurrency control
-            let result = push_file(state, &r.file_path, &r.virtual_file, &transfer_id, cancel_rx).await;
+            let result = push_file(state, &r.file_path, &r.virtual_file, &transfer_id, cancel_rx, control_rx).await;
             state.remove_cancel_token(&transfer_id).await;
+            state.remove_control_channel(&transfer_id).await;
 
             match result {
                 Ok(bytes) => {
