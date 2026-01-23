@@ -2720,22 +2720,48 @@ async fn push_file(
         let chunk_hash = format!("{:x}", chunk_hasher.finalize());
 
         // PUT command: DEFT PUT <vf> CHUNK <idx> SIZE:<size> HASH:<hash>
-        line.clear();
-        write_half
-            .write_all(
-                format!(
-                    "DEFT PUT {} CHUNK {} SIZE:{} HASH:{}\n",
-                    virtual_file,
-                    chunk_idx,
-                    chunk_data.len(),
-                    chunk_hash
+        // Retry loop in case of TRANSFER_PAUSED response
+        loop {
+            line.clear();
+            write_half
+                .write_all(
+                    format!(
+                        "DEFT PUT {} CHUNK {} SIZE:{} HASH:{}\n",
+                        virtual_file,
+                        chunk_idx,
+                        chunk_data.len(),
+                        chunk_hash
+                    )
+                    .as_bytes(),
                 )
-                .as_bytes(),
-            )
-            .await?;
-        reader.read_line(&mut line).await?;
+                .await?;
+            reader.read_line(&mut line).await?;
 
-        if !line.contains("CHUNK_READY") {
+            // Handle TRANSFER_PAUSED response - remote paused the transfer
+            if line.contains("TRANSFER_PAUSED") {
+                tracing::info!("Remote paused transfer {}, waiting for resume", transfer_id);
+                state.interrupt_transfer(transfer_id).await;
+                // Wait for resume before retrying this chunk
+                while state.is_transfer_interrupted(transfer_id).await {
+                    if *cancel_rx.borrow() {
+                        return Err("Transfer cancelled".into());
+                    }
+                    if let Ok(cmd) = control_rx.try_recv() {
+                        if matches!(cmd, TransferControl::Resume) {
+                            let _ = write_half.write_all(format!("DEFT RESUME_TRANSFER_CMD {}\n", transfer_id).as_bytes()).await;
+                            tracing::info!("Sent RESUME_TRANSFER_CMD {} to remote", transfer_id);
+                        }
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                }
+                // Retry this chunk after resume
+                continue;
+            }
+
+            if line.contains("CHUNK_READY") {
+                break; // Success, exit retry loop
+            }
+            
             return Err(format!("PUT failed: {}", line).into());
         }
 

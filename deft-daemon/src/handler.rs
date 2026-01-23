@@ -811,6 +811,16 @@ impl CommandHandler {
         // Track compressed flag for binary data reception
         session.last_chunk_compressed = compressed;
 
+        // Check if transfer is paused
+        if let Some(ref transfer) = session.active_transfer {
+            if transfer.paused {
+                tracing::info!("PUT rejected: transfer {} is paused", transfer.id);
+                return Response::TransferPaused {
+                    transfer_id: transfer.id.clone(),
+                };
+            }
+        }
+
         // Find active transfer for this virtual file
         let transfer_id = self.find_transfer_for_file(session, &virtual_file);
 
