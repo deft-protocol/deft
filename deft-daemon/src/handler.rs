@@ -192,6 +192,40 @@ impl CommandHandler {
         }
     }
 
+    /// Sync transfer pause state to API (called when remote sends PAUSE_TRANSFER)
+    pub fn pause_transfer_to_api(&self, id: &str) {
+        if let Some(ref api) = self.api_state {
+            let api = api.clone();
+            let id = id.to_string();
+            tokio::spawn(async move {
+                api.interrupt_transfer(&id).await;
+            });
+        }
+    }
+
+    /// Sync transfer resume state to API (called when remote sends RESUME_TRANSFER_CMD)
+    pub fn resume_transfer_to_api(&self, id: &str) {
+        if let Some(ref api) = self.api_state {
+            let api = api.clone();
+            let id = id.to_string();
+            tokio::spawn(async move {
+                api.resume_transfer(&id).await;
+            });
+        }
+    }
+
+    /// Sync transfer abort state to API (called when remote sends ABORT_TRANSFER)
+    pub fn abort_transfer_to_api(&self, id: &str, reason: Option<String>) {
+        if let Some(ref api) = self.api_state {
+            let api = api.clone();
+            let id = id.to_string();
+            let error = reason.unwrap_or_else(|| "Aborted by remote".to_string());
+            tokio::spawn(async move {
+                api.fail_transfer(&id, &error).await;
+            });
+        }
+    }
+
     /// Persist chunk received for resumable transfers
     fn persist_chunk_received(&self, transfer_id: &str, chunk_index: u64) {
         if let Ok(mut state) = self.transfer_state_store.load(transfer_id) {
@@ -1362,6 +1396,8 @@ impl CommandHandler {
             if transfer.id == transfer_id {
                 transfer.paused = true;
                 tracing::info!("Transfer {} paused by remote", transfer_id);
+                // Sync to API state for console visibility
+                self.pause_transfer_to_api(&transfer_id);
                 return Response::TransferPaused { transfer_id };
             }
         }
@@ -1385,6 +1421,8 @@ impl CommandHandler {
             if transfer.id == transfer_id {
                 transfer.paused = false;
                 tracing::info!("Transfer {} resumed by remote", transfer_id);
+                // Sync to API state for console visibility
+                self.resume_transfer_to_api(&transfer_id);
                 return Response::TransferResumed { transfer_id };
             }
         }
@@ -1416,6 +1454,8 @@ impl CommandHandler {
                     transfer_id,
                     reason
                 );
+                // Sync to API state for console visibility
+                self.abort_transfer_to_api(&transfer_id, reason.clone());
                 session.active_transfer = None;
                 return Response::TransferAborted {
                     transfer_id,
