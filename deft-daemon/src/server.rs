@@ -348,6 +348,9 @@ where
         handler.complete_transfer_to_api(transfer_id);
     }
 
+    // Properly shutdown the write half to send TLS close_notify
+    let _ = writer.shutdown().await;
+
     Ok(())
 }
 

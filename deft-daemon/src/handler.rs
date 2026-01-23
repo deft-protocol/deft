@@ -821,15 +821,14 @@ impl CommandHandler {
                 };
             }
             // Also check API state (set by /api/transfers/{id}/interrupt)
+            // Use block_in_place to safely call async code from sync context
             if let Some(ref api_state) = self.api_state {
-                let is_api_interrupted = {
-                    let rt = tokio::runtime::Handle::try_current();
-                    if let Ok(handle) = rt {
-                        handle.block_on(api_state.is_transfer_interrupted(&transfer.id))
-                    } else {
-                        false
-                    }
-                };
+                let api_state_clone = api_state.clone();
+                let transfer_id_clone = transfer.id.clone();
+                let is_api_interrupted = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current()
+                        .block_on(api_state_clone.is_transfer_interrupted(&transfer_id_clone))
+                });
                 if is_api_interrupted {
                     tracing::info!("PUT rejected: transfer {} is paused (API)", transfer.id);
                     return Response::TransferPaused {

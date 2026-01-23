@@ -2138,6 +2138,7 @@ async fn connect_to_server(
 
     // BYE
     let _ = write_half.write_all(b"DEFT BYE\n").await;
+    let _ = write_half.shutdown().await;
 
     Ok(virtual_files)
 }
@@ -2413,6 +2414,7 @@ async fn pull_file(
 
     // BYE
     let _ = write_half.write_all(b"DEFT BYE\n").await;
+    let _ = write_half.shutdown().await;
 
     Ok(total_bytes)
 }
@@ -2635,6 +2637,7 @@ async fn push_file(
                                     tracing::info!("Delta sync successful for {}", virtual_file);
                                     // BYE
                                     let _ = write_half.write_all(b"DEFT BYE\n").await;
+                                    let _ = write_half.shutdown().await;
                                     return Ok(file_size);
                                 }
                             }
@@ -2680,6 +2683,7 @@ async fn push_file(
         if *cancel_rx.borrow() {
             let _ = write_half.write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes()).await;
             let _ = write_half.write_all(b"DEFT BYE\n").await;
+            let _ = write_half.shutdown().await;
             return Err("Transfer cancelled".into());
         }
 
@@ -2704,6 +2708,7 @@ async fn push_file(
                         let _ = write_half.write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes()).await;
                     }
                     let _ = write_half.write_all(b"DEFT BYE\n").await;
+                    let _ = write_half.shutdown().await;
                     return Err("Transfer aborted".into());
                 }
             }
@@ -2713,6 +2718,7 @@ async fn push_file(
         if *cancel_rx.borrow() {
             let _ = write_half.write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes()).await;
             let _ = write_half.write_all(b"DEFT BYE\n").await;
+            let _ = write_half.shutdown().await;
             return Err("Transfer cancelled".into());
         }
 
@@ -2860,6 +2866,9 @@ async fn push_file(
 
     // BYE
     let _ = write_half.write_all(b"DEFT BYE\n").await;
+    
+    // Properly shutdown the TLS connection to send close_notify
+    let _ = write_half.shutdown().await;
 
     Ok(file_size)
 }

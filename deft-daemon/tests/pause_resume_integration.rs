@@ -567,7 +567,7 @@ async fn test_pause_resume_from_receiver() {
 }
 
 #[tokio::test]
-#[ignore] // TODO: Fix TLS connection issue on sender side
+#[ignore] // Push API is synchronous - transfer completes before we can pause
 async fn test_pause_resume_from_sender() {
     let fixture = match TestFixture::new().await {
         Ok(f) => f,
@@ -581,19 +581,28 @@ async fn test_pause_resume_from_sender() {
     println!("Connecting instance-b to instance-a...");
     let _ = fixture.connect_b_to_a().await;
 
-    // Start push from B
+    // Start push from B (async - won't wait for completion)
     println!("Starting push from instance-b...");
     let push_result = fixture.push_file_from_b().await;
-    let transfer_id = match &push_result {
-        Ok(v) => v["transfer_id"].as_str().unwrap_or("unknown").to_string(),
-        Err(e) => {
-            eprintln!("Failed to push: {}", e);
-            return;
-        }
-    };
+    println!("Push result: {:?}", push_result);
 
-    // Wait for transfer to start
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Wait for transfer to be registered on B
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // Get transfer_id from B's transfers list
+    let transfers_b = fixture.get_transfers(&fixture.instance_b).await.unwrap_or_default();
+    println!("Transfers on B: {:?}", transfers_b);
+    
+    let transfer_id = transfers_b.first()
+        .and_then(|t| t["id"].as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    println!("Using transfer_id from B: {}", transfer_id);
+
+    if transfer_id == "unknown" || transfers_b.is_empty() {
+        eprintln!("No transfer found on B, skipping test");
+        return;
+    }
 
     // Pause from sender (B)
     println!("Pausing transfer from sender (B)...");
