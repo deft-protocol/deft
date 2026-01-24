@@ -817,20 +817,27 @@ impl CommandHandler {
         // API state takes precedence: if API says "active", transfer is resumed even if session.paused is true
         if let Some(ref mut transfer) = session.active_transfer {
             // Check API state first (can be resumed locally via /api/transfers/{id}/resume)
-            let is_api_interrupted = if let Some(ref api_state) = self.api_state {
+            let (is_api_interrupted, api_status) = if let Some(ref api_state) = self.api_state {
                 let api_state_clone = api_state.clone();
                 let transfer_id_clone = transfer.id.clone();
                 tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current()
-                        .block_on(api_state_clone.is_transfer_interrupted(&transfer_id_clone))
+                    let rt = tokio::runtime::Handle::current();
+                    let interrupted = rt.block_on(api_state_clone.is_transfer_interrupted(&transfer_id_clone));
+                    let status = rt.block_on(api_state_clone.get_transfer_status(&transfer_id_clone));
+                    (interrupted, status)
                 })
             } else {
-                false
+                (false, None)
             };
+
+            tracing::debug!(
+                "PUT check: transfer={}, session.paused={}, api_interrupted={}, api_status={:?}",
+                transfer.id, transfer.paused, is_api_interrupted, api_status
+            );
 
             // If API says interrupted, reject
             if is_api_interrupted {
-                tracing::info!("PUT rejected: transfer {} is paused (API)", transfer.id);
+                tracing::info!("PUT rejected: transfer {} is paused (API, status={:?})", transfer.id, api_status);
                 return Response::TransferPaused {
                     transfer_id: transfer.id.clone(),
                 };

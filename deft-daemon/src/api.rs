@@ -544,6 +544,11 @@ impl ApiState {
         }
     }
 
+    /// Get transfer status for debugging
+    pub async fn get_transfer_status(&self, id: &str) -> Option<String> {
+        self.transfers.read().await.get(id).map(|t| t.status.clone())
+    }
+
     pub async fn fail_transfer(&self, id: &str, error: &str) {
         let mut transfers = self.transfers.write().await;
         if let Some(t) = transfers.remove(id) {
