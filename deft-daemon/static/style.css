@@ -733,3 +733,96 @@ select.form-control {
     height: 12px;
     display: inline-block;
 }
+
+/* Unified Transfer Cards */
+#unified-transfers {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.transfer-card {
+    background: var(--bg-secondary);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    border: 1px solid var(--border);
+}
+
+.transfer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.transfer-info {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.transfer-file {
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.transfer-id {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+}
+
+.transfer-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.transfer-meta {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+}
+
+.transfer-progress {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.transfer-progress .progress-bar {
+    flex: 1;
+}
+
+.progress-text {
+    font-size: 0.875rem;
+    font-weight: 500;
+    min-width: 3rem;
+    text-align: right;
+}
+
+.transfer-chunks {
+    border-top: 1px solid var(--border);
+    padding-top: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.chunks-header {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.transfer-chunks .chunk-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+}

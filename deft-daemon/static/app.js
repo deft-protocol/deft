@@ -133,30 +133,17 @@ function completeChunkMatrix(transferId, success) {
 }
 
 function renderChunkMatrixContainer() {
-    const container = document.getElementById('chunk-matrices');
-    if (!container) return;
-
+    // Update inline chunk grids in unified transfer cards
     const ids = Object.keys(activeChunkMatrices);
-    if (ids.length === 0) {
-        container.innerHTML = '<p class="text-muted">No active transfers</p>';
-        return;
-    }
+    ids.forEach(id => {
+        const grid = document.getElementById(`grid-${id}`);
+        if (grid && activeChunkMatrices[id]) {
+            renderChunkMatrix(id);
+        }
+    });
 
-    container.innerHTML = ids.map(id => {
-        const m = activeChunkMatrices[id];
-        return `
-            <div class="chunk-matrix-card" id="matrix-${id}">
-                <div class="matrix-header">
-                    <strong>${escapeHtml(m.virtualFile)}</strong>
-                    <span class="badge ${m.direction === 'send' ? 'badge-primary' : 'badge-info'}">${m.direction}</span>
-                    <span class="matrix-progress">${getMatrixProgress(id)}</span>
-                </div>
-                <div class="chunk-grid" id="grid-${id}"></div>
-            </div>
-        `;
-    }).join('');
-
-    ids.forEach(id => renderChunkMatrix(id));
+    // Also trigger a full re-render of transfers to include new chunk data
+    updateTransfers();
 }
 
 function renderChunkMatrix(transferId) {
@@ -549,45 +536,81 @@ document.getElementById('vf-form').addEventListener('submit', async (e) => {
 // ============ Transfers ============
 async function updateTransfers() {
     const data = await apiFetch('/api/transfers');
-    if (data) renderTransfers(data);
+    if (data) renderUnifiedTransfers(data);
 }
 
-function renderTransfers(data) {
-    const tbody = document.getElementById('transfers-table');
+function renderUnifiedTransfers(data) {
+    const container = document.getElementById('unified-transfers');
+    if (!container) return;
 
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty">No active transfers</td></tr>';
+        container.innerHTML = '<p class="text-muted">No active transfers</p>';
         return;
     }
 
-    tbody.innerHTML = data.map(t => `
-        <tr>
-            <td><code>${escapeHtml(t.id.substring(0, 8))}</code></td>
-            <td>${escapeHtml(t.virtual_file)}</td>
-            <td>${escapeHtml(t.partner_id)}</td>
-            <td>
-                <span class="badge ${t.direction === 'send' ? 'badge-info' : 'badge-success'}">
-                    ${t.direction === 'send' ? '↑ Send' : '↓ Receive'}
-                </span>
-            </td>
-            <td>
+    container.innerHTML = data.map(t => {
+        const matrix = activeChunkMatrices[t.id];
+        const chunkHtml = matrix ? renderInlineChunkGrid(t.id, matrix) : '';
+
+        return `
+        <div class="transfer-card" data-transfer-id="${escapeHtml(t.id)}">
+            <div class="transfer-header">
+                <div class="transfer-info">
+                    <span class="transfer-file">${escapeHtml(t.virtual_file)}</span>
+                    <code class="transfer-id">${escapeHtml(t.id.substring(0, 8))}</code>
+                    <span class="badge ${t.direction === 'send' ? 'badge-info' : 'badge-success'}">
+                        ${t.direction === 'send' ? '↑ Send' : '↓ Receive'}
+                    </span>
+                    <span class="badge badge-${t.status === 'active' ? 'success' : (t.status === 'interrupted' ? 'warning' : 'secondary')}">${t.status}</span>
+                </div>
+                <div class="transfer-actions">
+                    ${t.status === 'interrupted' ?
+                `<button class="btn btn-sm btn-primary" onclick="resumeTransfer('${escapeHtml(t.id)}')">Resume</button>` :
+                `<button class="btn btn-sm btn-warning" onclick="interruptTransfer('${escapeHtml(t.id)}')">Pause</button>`
+            }
+                    <button class="btn btn-sm btn-danger" onclick="cancelTransfer('${escapeHtml(t.id)}')">Cancel</button>
+                </div>
+            </div>
+            <div class="transfer-meta">
+                <span>Partner: <strong>${escapeHtml(t.partner_id)}</strong></span>
+                <span>${formatBytes(t.bytes_transferred)} / ${formatBytes(t.total_bytes)}</span>
+            </div>
+            <div class="transfer-progress">
                 <div class="progress-bar">
                     <div class="progress-fill" style="width: ${t.progress_percent}%"></div>
                 </div>
-                <small>${t.progress_percent}% (${formatBytes(t.bytes_transferred)} / ${formatBytes(t.total_bytes)})</small>
-            </td>
-            <td>
-                <span class="badge badge-${t.status === 'active' ? 'success' : (t.status === 'interrupted' ? 'warning' : 'error')}">${t.status}</span>
-            </td>
-            <td class="action-btns">
-                ${t.status === 'interrupted' ?
-            `<button class="btn btn-sm btn-primary" onclick="resumeTransfer('${escapeHtml(t.id)}')">Resume</button>` :
-            `<button class="btn btn-sm btn-warning" onclick="interruptTransfer('${escapeHtml(t.id)}')">Interrupt</button>`
-        }
-                <button class="btn btn-sm btn-danger" onclick="cancelTransfer('${escapeHtml(t.id)}')">Cancel</button>
-            </td>
-        </tr>
-    `).join('');
+                <span class="progress-text">${t.progress_percent}%</span>
+            </div>
+            ${chunkHtml}
+        </div>
+        `;
+    }).join('');
+}
+
+function renderInlineChunkGrid(transferId, matrix) {
+    if (!matrix || !matrix.statuses || matrix.statuses.length === 0) return '';
+
+    const total = matrix.total || matrix.statuses.length;
+    const validated = matrix.statuses.filter(s => s === 'validated').length;
+    const chunkSize = Math.max(4, Math.min(10, Math.floor(180 / Math.sqrt(total))));
+
+    const chunks = matrix.statuses.map((status, i) =>
+        `<div class="chunk chunk-${status}" title="Chunk ${i}: ${status}" style="width:${chunkSize}px;height:${chunkSize}px;"></div>`
+    ).join('');
+
+    return `
+        <div class="transfer-chunks">
+            <div class="chunks-header">
+                <span>Chunks: ${validated}/${total}</span>
+            </div>
+            <div class="chunk-grid" id="grid-${transferId}">${chunks}</div>
+        </div>
+    `;
+}
+
+// Legacy function for backward compatibility
+function renderTransfers(data) {
+    renderUnifiedTransfers(data);
 }
 
 async function cancelTransfer(id) {

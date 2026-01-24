@@ -136,11 +136,8 @@
             <!-- Transfers Tab -->
             <section id="transfers" class="tab-content">
                 <div class="card">
-                    <h2>Chunk Visualization</h2>
-                    <p class="text-muted">Real-time view of chunk transfer status</p>
-                    <div id="chunk-matrices">
-                        <p class="text-muted">No active transfers</p>
-                    </div>
+                    <h2>Active Transfers</h2>
+                    <p class="text-muted">Real-time transfer status with chunk visualization</p>
                     <div class="chunk-legend">
                         <span><span class="chunk chunk-pending"></span> Pending</span>
                         <span><span class="chunk chunk-receiving"></span> Receiving</span>
@@ -148,27 +145,9 @@
                         <span><span class="chunk chunk-validated"></span> Validated</span>
                         <span><span class="chunk chunk-error"></span> Error</span>
                     </div>
-                </div>
-                <div class="card">
-                    <h2>Active Transfers</h2>
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Virtual File</th>
-                                <th>Partner</th>
-                                <th>Direction</th>
-                                <th>Progress</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="transfers-table">
-                            <tr>
-                                <td colspan="7" class="empty">No active transfers</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                    <div id="unified-transfers">
+                        <p class="text-muted">No active transfers</p>
+                    </div>
                 </div>
             </section>
 
