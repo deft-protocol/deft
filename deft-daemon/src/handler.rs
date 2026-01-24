@@ -813,30 +813,41 @@ impl CommandHandler {
         // Track compressed flag for binary data reception
         session.last_chunk_compressed = compressed;
 
-        // Check if transfer is paused (via session state OR via API state)
-        if let Some(ref transfer) = session.active_transfer {
-            // Check session pause state (set by PAUSE_TRANSFER command)
+        // Check if transfer is paused (via session state AND API state)
+        // API state takes precedence: if API says "active", transfer is resumed even if session.paused is true
+        if let Some(ref mut transfer) = session.active_transfer {
+            // Check API state first (can be resumed locally via /api/transfers/{id}/resume)
+            let is_api_interrupted = if let Some(ref api_state) = self.api_state {
+                let api_state_clone = api_state.clone();
+                let transfer_id_clone = transfer.id.clone();
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current()
+                        .block_on(api_state_clone.is_transfer_interrupted(&transfer_id_clone))
+                })
+            } else {
+                false
+            };
+
+            // If API says interrupted, reject
+            if is_api_interrupted {
+                tracing::info!("PUT rejected: transfer {} is paused (API)", transfer.id);
+                return Response::TransferPaused {
+                    transfer_id: transfer.id.clone(),
+                };
+            }
+
+            // If session says paused but API says active, sync session state (receiver resumed locally)
+            if transfer.paused && !is_api_interrupted {
+                tracing::info!("Transfer {} resumed via API, syncing session state", transfer.id);
+                transfer.paused = false;
+            }
+
+            // If session is still paused (shouldn't happen after above sync), reject
             if transfer.paused {
                 tracing::info!("PUT rejected: transfer {} is paused (session)", transfer.id);
                 return Response::TransferPaused {
                     transfer_id: transfer.id.clone(),
                 };
-            }
-            // Also check API state (set by /api/transfers/{id}/interrupt)
-            // Use block_in_place to safely call async code from sync context
-            if let Some(ref api_state) = self.api_state {
-                let api_state_clone = api_state.clone();
-                let transfer_id_clone = transfer.id.clone();
-                let is_api_interrupted = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current()
-                        .block_on(api_state_clone.is_transfer_interrupted(&transfer_id_clone))
-                });
-                if is_api_interrupted {
-                    tracing::info!("PUT rejected: transfer {} is paused (API)", transfer.id);
-                    return Response::TransferPaused {
-                        transfer_id: transfer.id.clone(),
-                    };
-                }
             }
         }
 
