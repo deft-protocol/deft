@@ -428,7 +428,10 @@ impl fmt::Display for Response {
             Response::TransferResumed { transfer_id } => {
                 write!(f, "DEFT TRANSFER_RESUMED {}", transfer_id)
             }
-            Response::TransferAborted { transfer_id, reason } => {
+            Response::TransferAborted {
+                transfer_id,
+                reason,
+            } => {
                 if let Some(r) = reason {
                     write!(f, "DEFT TRANSFER_ABORTED {} REASON:{}", transfer_id, r)
                 } else {
@@ -584,5 +587,81 @@ mod tests {
         let deserialized: TransferReceipt = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.transfer_id, receipt.transfer_id);
         assert_eq!(deserialized.total_bytes, receipt.total_bytes);
+    }
+
+    #[test]
+    fn test_error_display() {
+        let resp = Response::Error {
+            code: DeftErrorCode::BadRequest,
+            message: Some("Invalid request".to_string()),
+        };
+        let s = resp.to_string();
+        assert!(s.contains("ERROR"));
+        assert!(s.contains("400"));
+    }
+
+    #[test]
+    fn test_error_no_message() {
+        let resp = Response::Error {
+            code: DeftErrorCode::NotFound,
+            message: None,
+        };
+        let s = resp.to_string();
+        assert!(s.contains("ERROR"));
+        assert!(s.contains("404"));
+    }
+
+    #[test]
+    fn test_goodbye_display() {
+        let resp = Response::Goodbye;
+        assert_eq!(resp.to_string(), "DEFT GOODBYE");
+    }
+
+    #[test]
+    fn test_transfer_paused_display() {
+        let resp = Response::TransferPaused {
+            transfer_id: "tx-pause-123".to_string(),
+        };
+        assert_eq!(resp.to_string(), "DEFT TRANSFER_PAUSED tx-pause-123");
+    }
+
+    #[test]
+    fn test_transfer_resumed_display() {
+        let resp = Response::TransferResumed {
+            transfer_id: "tx-resume-456".to_string(),
+        };
+        assert_eq!(resp.to_string(), "DEFT TRANSFER_RESUMED tx-resume-456");
+    }
+
+    #[test]
+    fn test_transfer_aborted_display_no_reason() {
+        let resp = Response::TransferAborted {
+            transfer_id: "tx-abort-789".to_string(),
+            reason: None,
+        };
+        assert_eq!(resp.to_string(), "DEFT TRANSFER_ABORTED tx-abort-789");
+    }
+
+    #[test]
+    fn test_transfer_aborted_display_with_reason() {
+        let resp = Response::TransferAborted {
+            transfer_id: "tx-abort-abc".to_string(),
+            reason: Some("connection lost".to_string()),
+        };
+        let s = resp.to_string();
+        assert!(s.contains("tx-abort-abc"));
+        assert!(s.contains("connection lost"));
+    }
+
+    #[test]
+    fn test_response_serialization() {
+        let resp = Response::AuthOk {
+            partner_name: "Test Partner".to_string(),
+            virtual_files: vec!["file1".to_string(), "file2".to_string()],
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("Test Partner"));
+        let parsed: Response = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, Response::AuthOk { .. }));
     }
 }

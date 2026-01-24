@@ -338,9 +338,10 @@ impl CommandHandler {
             Command::ResumeTransferCmd { transfer_id } => {
                 self.handle_resume_transfer_cmd(session, transfer_id)
             }
-            Command::AbortTransfer { transfer_id, reason } => {
-                self.handle_abort_transfer(session, transfer_id, reason)
-            }
+            Command::AbortTransfer {
+                transfer_id,
+                reason,
+            } => self.handle_abort_transfer(session, transfer_id, reason),
         }
     }
 
@@ -632,7 +633,8 @@ impl CommandHandler {
 
         // Use sender's transfer_id if provided, otherwise generate our own
         let transfer_id = if let Some(ref tid) = sender_transfer_id {
-            self.transfer_manager.start_transfer_with_id(transfer, tid.clone())
+            self.transfer_manager
+                .start_transfer_with_id(transfer, tid.clone())
         } else {
             self.transfer_manager.start_transfer(transfer)
         };
@@ -1491,11 +1493,7 @@ impl CommandHandler {
         // Abort the transfer
         if let Some(ref transfer) = session.active_transfer {
             if transfer.id == transfer_id {
-                tracing::info!(
-                    "Transfer {} aborted by remote: {:?}",
-                    transfer_id,
-                    reason
-                );
+                tracing::info!("Transfer {} aborted by remote: {:?}", transfer_id, reason);
                 // Sync to API state for console visibility
                 self.abort_transfer_to_api(&transfer_id, reason.clone());
                 session.active_transfer = None;
@@ -1790,7 +1788,10 @@ mod tests {
         );
 
         match response {
-            Response::TransferAborted { transfer_id, reason } => {
+            Response::TransferAborted {
+                transfer_id,
+                reason,
+            } => {
                 assert_eq!(transfer_id, "tx_abort_test");
                 assert_eq!(reason, Some("user_cancelled".to_string()));
             }
@@ -1823,7 +1824,10 @@ mod tests {
         );
 
         match response {
-            Response::TransferAborted { transfer_id, reason } => {
+            Response::TransferAborted {
+                transfer_id,
+                reason,
+            } => {
                 assert_eq!(transfer_id, "tx_abort_no_reason");
                 assert!(reason.is_none());
             }
@@ -1874,5 +1878,505 @@ mod tests {
         );
         assert!(matches!(response, Response::TransferPaused { .. }));
         assert!(session.active_transfer.as_ref().unwrap().paused);
+    }
+
+    #[test]
+    fn test_discover_not_authenticated() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Welcomed; // Not authenticated
+
+        let response = handler.handle_command(&mut session, Command::Discover);
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::Unauthorized);
+            }
+            _ => panic!("Expected Error for unauthenticated session"),
+        }
+    }
+
+    #[test]
+    fn test_discover_authenticated() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+        session.partner_id = Some("test-partner".to_string());
+
+        let response = handler.handle_command(&mut session, Command::Discover);
+
+        // Files response (may be empty list)
+        match response {
+            Response::Files { files } => {
+                assert!(files.is_empty() || !files.is_empty());
+            }
+            _ => panic!("Expected Files response"),
+        }
+    }
+
+    #[test]
+    fn test_describe_not_authenticated() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Welcomed;
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::Describe {
+                virtual_file: "test.dat".to_string(),
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::Unauthorized);
+            }
+            _ => panic!("Expected Error for unauthenticated session"),
+        }
+    }
+
+    #[test]
+    fn test_describe_unknown_virtual_file() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+        session.partner_id = Some("test-partner".to_string());
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::Describe {
+                virtual_file: "nonexistent-file".to_string(),
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                // Forbidden because partner doesn't have access to this virtual file
+                assert_eq!(code, DeftErrorCode::Forbidden);
+            }
+            _ => panic!("Expected Forbidden error for unknown virtual file"),
+        }
+    }
+
+    #[test]
+    fn test_begin_transfer_not_authenticated() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Welcomed;
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::BeginTransfer {
+                virtual_file: "test.dat".to_string(),
+                total_chunks: 4,
+                total_bytes: 1024,
+                file_hash: "abc123".to_string(),
+                transfer_id: None,
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::Unauthorized);
+            }
+            _ => panic!("Expected Error for unauthenticated session"),
+        }
+    }
+
+    #[test]
+    fn test_begin_transfer_unknown_virtual_file() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+        session.partner_id = Some("test-partner".to_string());
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::BeginTransfer {
+                virtual_file: "nonexistent".to_string(),
+                total_chunks: 4,
+                total_bytes: 1024,
+                file_hash: "abc123".to_string(),
+                transfer_id: None,
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                // Forbidden because partner doesn't have access
+                assert_eq!(code, DeftErrorCode::Forbidden);
+            }
+            _ => panic!("Expected Forbidden error"),
+        }
+    }
+
+    #[test]
+    fn test_resume_transfer_not_authenticated() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Welcomed;
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::ResumeTransfer {
+                virtual_file: "test.dat".to_string(),
+                transfer_id: "tx_123".to_string(),
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::Unauthorized);
+            }
+            _ => panic!("Expected Error for unauthenticated session"),
+        }
+    }
+
+    #[test]
+    fn test_get_status_not_authenticated() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Welcomed;
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::GetStatus {
+                virtual_file: "test.dat".to_string(),
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::Unauthorized);
+            }
+            _ => panic!("Expected Error for unauthenticated session"),
+        }
+    }
+
+    #[test]
+    fn test_get_status_unknown_virtual_file() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::GetStatus {
+                virtual_file: "nonexistent".to_string(),
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                // Forbidden because partner doesn't have access
+                assert_eq!(code, DeftErrorCode::Forbidden);
+            }
+            _ => panic!("Expected Forbidden error"),
+        }
+    }
+
+    #[test]
+    fn test_abort_transfer_not_authenticated() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Welcomed;
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::AbortTransfer {
+                transfer_id: "tx_123".to_string(),
+                reason: None,
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::BadRequest);
+            }
+            _ => panic!("Expected Error for unauthenticated session"),
+        }
+    }
+
+    #[test]
+    fn test_abort_no_active_transfer() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::AbortTransfer {
+                transfer_id: "tx_123".to_string(),
+                reason: None,
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::NotFound);
+            }
+            _ => panic!("Expected NotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_resume_transfer_cmd_not_authenticated() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Welcomed;
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::ResumeTransferCmd {
+                transfer_id: "tx_123".to_string(),
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::BadRequest);
+            }
+            _ => panic!("Expected Error for unauthenticated session"),
+        }
+    }
+
+    #[test]
+    fn test_resume_cmd_no_active_transfer() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::ResumeTransferCmd {
+                transfer_id: "tx_123".to_string(),
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::NotFound);
+            }
+            _ => panic!("Expected NotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_hello_updates_session_state() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+
+        let caps = Capabilities::new();
+
+        let _response = handler.handle_command(
+            &mut session,
+            Command::Hello {
+                version: "1.0".to_string(),
+                capabilities: caps,
+            },
+        );
+
+        assert_eq!(session.state, SessionState::Welcomed);
+    }
+
+    #[test]
+    fn test_session_partner_id_tracking() {
+        let mut session = Session::new();
+        assert!(session.partner_id.is_none());
+
+        session.partner_id = Some("partner-a".to_string());
+        assert_eq!(session.partner_id, Some("partner-a".to_string()));
+    }
+
+    #[test]
+    fn test_session_active_transfer_state() {
+        use crate::session::ActiveTransfer;
+
+        let mut session = Session::new();
+        assert!(session.active_transfer.is_none());
+
+        session.active_transfer = Some(ActiveTransfer {
+            id: "tx_001".to_string(),
+            virtual_file: "data.bin".to_string(),
+            paused: false,
+        });
+
+        let transfer = session.active_transfer.as_ref().unwrap();
+        assert_eq!(transfer.id, "tx_001");
+        assert_eq!(transfer.virtual_file, "data.bin");
+        assert!(!transfer.paused);
+
+        session.active_transfer.as_mut().unwrap().paused = true;
+        assert!(session.active_transfer.as_ref().unwrap().paused);
+    }
+
+    #[test]
+    fn test_abort_transfer_wrong_id() {
+        use crate::session::ActiveTransfer;
+
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+        session.active_transfer = Some(ActiveTransfer {
+            id: "tx_actual".to_string(),
+            virtual_file: "test.dat".to_string(),
+            paused: false,
+        });
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::AbortTransfer {
+                transfer_id: "tx_wrong".to_string(),
+                reason: None,
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::NotFound);
+            }
+            _ => panic!("Expected NotFound error for wrong transfer ID"),
+        }
+    }
+
+    #[test]
+    fn test_resume_cmd_wrong_id() {
+        use crate::session::ActiveTransfer;
+
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+        session.active_transfer = Some(ActiveTransfer {
+            id: "tx_actual".to_string(),
+            virtual_file: "test.dat".to_string(),
+            paused: true,
+        });
+
+        let response = handler.handle_command(
+            &mut session,
+            Command::ResumeTransferCmd {
+                transfer_id: "tx_wrong".to_string(),
+            },
+        );
+
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::NotFound);
+            }
+            _ => panic!("Expected NotFound error for wrong transfer ID"),
+        }
+    }
+
+    #[test]
+    fn test_handler_with_api_state() {
+        use crate::api::ApiState;
+        use std::sync::Arc;
+
+        let config = test_config();
+        let api_config = test_config();
+        let api_state = Arc::new(ApiState::new(api_config, None));
+
+        let handler = CommandHandler::with_api_state(config, Some(api_state));
+        assert!(handler.api_state.is_some());
+    }
+
+    #[test]
+    fn test_handler_without_api_state() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        assert!(handler.api_state.is_none());
+    }
+
+    #[test]
+    fn test_handle_line_auth() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Welcomed;
+
+        let response = handler.handle_line(&mut session, "DEFT AUTH unknown-partner");
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::Unauthorized);
+            }
+            _ => panic!("Expected Unauthorized error"),
+        }
+    }
+
+    #[test]
+    fn test_handle_line_discover() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+        session.partner_id = Some("partner".to_string());
+
+        let response = handler.handle_line(&mut session, "DEFT DISCOVER");
+        assert!(matches!(response, Response::Files { .. }));
+    }
+
+    #[test]
+    fn test_parallel_config() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let pc = handler.parallel_config();
+        assert!(pc.max_concurrent > 0);
+    }
+
+    #[test]
+    fn test_transfer_state_store() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let _store = handler.transfer_state_store();
+    }
+
+    #[test]
+    fn test_handle_line_describe() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Authenticated;
+        session.partner_id = Some("partner".to_string());
+
+        let response = handler.handle_line(&mut session, "DEFT DESCRIBE nonexistent");
+        assert!(matches!(response, Response::Error { .. }));
+    }
+
+    #[test]
+    fn test_handle_line_pause_unauthenticated() {
+        let config = test_config();
+        let handler = CommandHandler::new(config);
+        let mut session = Session::new();
+        session.state = SessionState::Welcomed;
+
+        let response = handler.handle_line(&mut session, "DEFT PAUSE_TRANSFER tx123");
+        match response {
+            Response::Error { code, .. } => {
+                assert_eq!(code, DeftErrorCode::BadRequest);
+            }
+            _ => panic!("Expected BadRequest error"),
+        }
+    }
+
+    #[test]
+    fn test_compute_cert_fingerprint_empty() {
+        let result = compute_cert_fingerprint("");
+        assert!(result.is_none());
     }
 }

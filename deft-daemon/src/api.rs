@@ -257,9 +257,15 @@ impl ApiState {
     }
 
     /// Create a control channel for a transfer, returns receiver
-    pub async fn create_control_channel(&self, transfer_id: &str) -> mpsc::Receiver<TransferControl> {
+    pub async fn create_control_channel(
+        &self,
+        transfer_id: &str,
+    ) -> mpsc::Receiver<TransferControl> {
         let (tx, rx) = mpsc::channel(16);
-        self.control_channels.write().await.insert(transfer_id.to_string(), tx);
+        self.control_channels
+            .write()
+            .await
+            .insert(transfer_id.to_string(), tx);
         rx
     }
 
@@ -280,7 +286,10 @@ impl ApiState {
     /// Create a cancellation token for a transfer, returns receiver to check for cancellation
     pub async fn create_cancel_token(&self, transfer_id: &str) -> watch::Receiver<bool> {
         let (tx, rx) = watch::channel(false);
-        self.cancel_tokens.write().await.insert(transfer_id.to_string(), tx);
+        self.cancel_tokens
+            .write()
+            .await
+            .insert(transfer_id.to_string(), tx);
         rx
     }
 
@@ -513,7 +522,11 @@ impl ApiState {
                 tracing::info!("Transfer {} resumed", id);
                 true
             } else {
-                tracing::warn!("resume_transfer: transfer {} not in interrupted state (status={})", id, t.status);
+                tracing::warn!(
+                    "resume_transfer: transfer {} not in interrupted state (status={})",
+                    id,
+                    t.status
+                );
                 false
             }
         } else {
@@ -1386,7 +1399,8 @@ async fn handle_interrupt_transfer(state: &ApiState, id: &str) -> (u16, String) 
     if state.interrupt_transfer(id).await || sent {
         (
             200,
-            serde_json::json!({"status": "interrupted", "id": id, "remote_notified": sent}).to_string(),
+            serde_json::json!({"status": "interrupted", "id": id, "remote_notified": sent})
+                .to_string(),
         )
     } else {
         (404, r#"{"error":"Transfer not found"}"#.to_string())
@@ -1399,11 +1413,14 @@ async fn handle_resume_transfer(state: &ApiState, id: &str) -> (u16, String) {
     let transfer_exists = transfers.contains_key(id);
     let current_status = transfers.get(id).map(|t| t.status.clone());
     drop(transfers);
-    
+
     let control_exists = state.control_channels.read().await.contains_key(id);
     tracing::info!(
         "handle_resume_transfer: id={}, exists={}, status={:?}, control_channel={}",
-        id, transfer_exists, current_status, control_exists
+        id,
+        transfer_exists,
+        current_status,
+        control_exists
     );
 
     // Only send resume command to the transfer task
@@ -1414,7 +1431,8 @@ async fn handle_resume_transfer(state: &ApiState, id: &str) -> (u16, String) {
     if sent {
         (
             200,
-            serde_json::json!({"status": "resuming", "id": id, "remote_notified": sent}).to_string(),
+            serde_json::json!({"status": "resuming", "id": id, "remote_notified": sent})
+                .to_string(),
         )
     } else if transfer_exists {
         // No control channel but transfer exists - might be a receive transfer
@@ -1423,7 +1441,8 @@ async fn handle_resume_transfer(state: &ApiState, id: &str) -> (u16, String) {
         if resumed {
             (
                 200,
-                serde_json::json!({"status": "resumed", "id": id, "remote_notified": false}).to_string(),
+                serde_json::json!({"status": "resumed", "id": id, "remote_notified": false})
+                    .to_string(),
             )
         } else {
             (
@@ -1431,7 +1450,8 @@ async fn handle_resume_transfer(state: &ApiState, id: &str) -> (u16, String) {
                 serde_json::json!({
                     "error": "Transfer not in interrupted state",
                     "current_status": current_status
-                }).to_string(),
+                })
+                .to_string(),
             )
         }
     } else {
@@ -1441,7 +1461,8 @@ async fn handle_resume_transfer(state: &ApiState, id: &str) -> (u16, String) {
                 "error": "Transfer not found",
                 "transfer_exists": transfer_exists,
                 "control_channel_exists": control_exists
-            }).to_string(),
+            })
+            .to_string(),
         )
     }
 }
@@ -2466,7 +2487,15 @@ async fn handle_client_push(state: &ApiState, body: &[u8]) -> (u16, String) {
             let control_rx = state.create_control_channel(&transfer_id).await;
 
             // Perform push
-            let result = push_file(state, &r.file_path, &r.virtual_file, &transfer_id, cancel_rx, control_rx).await;
+            let result = push_file(
+                state,
+                &r.file_path,
+                &r.virtual_file,
+                &transfer_id,
+                cancel_rx,
+                control_rx,
+            )
+            .await;
             state.remove_cancel_token(&transfer_id).await;
             state.remove_control_channel(&transfer_id).await;
 
@@ -2681,7 +2710,9 @@ async fn push_file(
     while let Some(chunk_idx) = orderer.next_chunk() {
         // Check for cancellation
         if *cancel_rx.borrow() {
-            let _ = write_half.write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes()).await;
+            let _ = write_half
+                .write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes())
+                .await;
             let _ = write_half.write_all(b"DEFT BYE\n").await;
             let _ = write_half.shutdown().await;
             return Err("Transfer cancelled".into());
@@ -2692,20 +2723,31 @@ async fn push_file(
             match cmd {
                 TransferControl::Pause => {
                     // Send PAUSE to remote
-                    let _ = write_half.write_all(format!("DEFT PAUSE_TRANSFER {}\n", transfer_id).as_bytes()).await;
+                    let _ = write_half
+                        .write_all(format!("DEFT PAUSE_TRANSFER {}\n", transfer_id).as_bytes())
+                        .await;
                     tracing::info!("Sent PAUSE_TRANSFER {} to remote", transfer_id);
                 }
                 TransferControl::Resume => {
                     // Send RESUME to remote
-                    let _ = write_half.write_all(format!("DEFT RESUME_TRANSFER_CMD {}\n", transfer_id).as_bytes()).await;
+                    let _ = write_half
+                        .write_all(format!("DEFT RESUME_TRANSFER_CMD {}\n", transfer_id).as_bytes())
+                        .await;
                     tracing::info!("Sent RESUME_TRANSFER_CMD {} to remote", transfer_id);
                 }
                 TransferControl::Abort { reason } => {
                     // Send ABORT to remote
                     if let Some(r) = reason {
-                        let _ = write_half.write_all(format!("DEFT ABORT_TRANSFER {} REASON:{}\n", transfer_id, r).as_bytes()).await;
+                        let _ = write_half
+                            .write_all(
+                                format!("DEFT ABORT_TRANSFER {} REASON:{}\n", transfer_id, r)
+                                    .as_bytes(),
+                            )
+                            .await;
                     } else {
-                        let _ = write_half.write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes()).await;
+                        let _ = write_half
+                            .write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes())
+                            .await;
                     }
                     let _ = write_half.write_all(b"DEFT BYE\n").await;
                     let _ = write_half.shutdown().await;
@@ -2716,7 +2758,9 @@ async fn push_file(
 
         // Check for cancellation
         if *cancel_rx.borrow() {
-            let _ = write_half.write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes()).await;
+            let _ = write_half
+                .write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes())
+                .await;
             let _ = write_half.write_all(b"DEFT BYE\n").await;
             let _ = write_half.shutdown().await;
             return Err("Transfer cancelled".into());
@@ -2726,21 +2770,90 @@ async fn push_file(
         if let Ok(cmd) = control_rx.try_recv() {
             match cmd {
                 TransferControl::Pause => {
-                    let _ = write_half.write_all(format!("DEFT PAUSE_TRANSFER {}\n", transfer_id).as_bytes()).await;
-                    state.interrupt_transfer(transfer_id).await;
+                    let _ = write_half
+                        .write_all(format!("DEFT PAUSE_TRANSFER {}\n", transfer_id).as_bytes())
+                        .await;
                     tracing::info!("Sent PAUSE_TRANSFER {} to remote", transfer_id);
-                }
-                TransferControl::Resume => {
-                    let _ = write_half.write_all(format!("DEFT RESUME_TRANSFER_CMD {}\n", transfer_id).as_bytes()).await;
-                    tracing::info!("Sent RESUME_TRANSFER_CMD {} to remote", transfer_id);
+
+                    // Read response to PAUSE_TRANSFER
                     line.clear();
-                    if reader.read_line(&mut line).await.is_ok() && line.contains("TRANSFER_RESUMED") {
-                        state.resume_transfer(transfer_id).await;
-                        tracing::info!("Transfer {} resumed after remote confirmation", transfer_id);
+                    if reader.read_line(&mut line).await.is_ok() && line.contains("TRANSFER_PAUSED")
+                    {
+                        state.interrupt_transfer(transfer_id).await;
+                        tracing::info!("Remote confirmed pause for transfer {}", transfer_id);
+
+                        // Wait in a loop until Resume command is received
+                        loop {
+                            if *cancel_rx.borrow() {
+                                return Err("Transfer cancelled".into());
+                            }
+
+                            // Check for resume command from sender's API
+                            if let Ok(resume_cmd) = control_rx.try_recv() {
+                                match resume_cmd {
+                                    TransferControl::Resume => {
+                                        let _ = write_half
+                                            .write_all(
+                                                format!(
+                                                    "DEFT RESUME_TRANSFER_CMD {}\n",
+                                                    transfer_id
+                                                )
+                                                .as_bytes(),
+                                            )
+                                            .await;
+                                        tracing::info!(
+                                            "Sent RESUME_TRANSFER_CMD {} to remote",
+                                            transfer_id
+                                        );
+                                        line.clear();
+                                        if reader.read_line(&mut line).await.is_ok()
+                                            && line.contains("TRANSFER_RESUMED")
+                                        {
+                                            state.resume_transfer(transfer_id).await;
+                                            tracing::info!(
+                                                "Transfer {} resumed after remote confirmation",
+                                                transfer_id
+                                            );
+                                            break; // Exit pause loop, continue with transfer
+                                        } else {
+                                            tracing::warn!(
+                                                "Unexpected response to RESUME_TRANSFER_CMD: {}",
+                                                line.trim()
+                                            );
+                                            // Try to continue anyway
+                                            state.resume_transfer(transfer_id).await;
+                                            break;
+                                        }
+                                    }
+                                    TransferControl::Abort { .. } => {
+                                        let _ = write_half
+                                            .write_all(
+                                                format!("DEFT ABORT_TRANSFER {}\n", transfer_id)
+                                                    .as_bytes(),
+                                            )
+                                            .await;
+                                        return Err("Transfer aborted by user".into());
+                                    }
+                                    TransferControl::Pause => {
+                                        // Already paused, ignore
+                                    }
+                                }
+                            }
+
+                            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                        }
+                    } else {
+                        tracing::warn!("Unexpected response to PAUSE_TRANSFER: {}", line.trim());
                     }
                 }
+                TransferControl::Resume => {
+                    // Resume when not paused - just continue
+                    tracing::debug!("Resume received but transfer not paused, continuing");
+                }
                 TransferControl::Abort { .. } => {
-                    let _ = write_half.write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes()).await;
+                    let _ = write_half
+                        .write_all(format!("DEFT ABORT_TRANSFER {}\n", transfer_id).as_bytes())
+                        .await;
                     return Err("Transfer aborted by user".into());
                 }
             }
@@ -2775,9 +2888,12 @@ async fn push_file(
 
             // Handle TRANSFER_PAUSED response - remote paused the transfer
             if line.contains("TRANSFER_PAUSED") {
-                tracing::info!("Remote paused transfer {}, will retry PUT periodically", transfer_id);
+                tracing::info!(
+                    "Remote paused transfer {}, will retry PUT periodically",
+                    transfer_id
+                );
                 state.interrupt_transfer(transfer_id).await;
-                
+
                 // Wait and retry - receiver might resume via its own API
                 // Check for sender-initiated resume command OR just wait and retry PUT
                 let mut retry_count = 0;
@@ -2785,29 +2901,40 @@ async fn push_file(
                     if *cancel_rx.borrow() {
                         return Err("Transfer cancelled".into());
                     }
-                    
+
                     // Check for sender-initiated resume
                     if let Ok(cmd) = control_rx.try_recv() {
                         if matches!(cmd, TransferControl::Resume) {
-                            let _ = write_half.write_all(format!("DEFT RESUME_TRANSFER_CMD {}\n", transfer_id).as_bytes()).await;
+                            let _ = write_half
+                                .write_all(
+                                    format!("DEFT RESUME_TRANSFER_CMD {}\n", transfer_id)
+                                        .as_bytes(),
+                                )
+                                .await;
                             tracing::info!("Sent RESUME_TRANSFER_CMD {} to remote", transfer_id);
                             line.clear();
-                            if reader.read_line(&mut line).await.is_ok() && line.contains("TRANSFER_RESUMED") {
+                            if reader.read_line(&mut line).await.is_ok()
+                                && line.contains("TRANSFER_RESUMED")
+                            {
                                 state.resume_transfer(transfer_id).await;
-                                tracing::info!("Transfer {} resumed via sender command", transfer_id);
+                                tracing::info!(
+                                    "Transfer {} resumed via sender command",
+                                    transfer_id
+                                );
                                 break;
                             }
                         }
                     }
-                    
+
                     // Periodically retry PUT to detect receiver-initiated resume
                     retry_count += 1;
-                    if retry_count >= 10 {  // Every ~1 second
+                    if retry_count >= 10 {
+                        // Every ~1 second
                         retry_count = 0;
                         tracing::debug!("Retrying PUT to check if receiver resumed");
-                        break;  // Exit inner loop to retry PUT
+                        break; // Exit inner loop to retry PUT
                     }
-                    
+
                     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 }
                 // Retry this chunk
@@ -2822,7 +2949,7 @@ async fn push_file(
                 }
                 break; // Success, exit retry loop
             }
-            
+
             // Handle TRANSFER_RESUMED - receiver resumed, retry the PUT
             if line.contains("TRANSFER_RESUMED") {
                 tracing::info!("Receiver resumed transfer {}, retrying PUT", transfer_id);
@@ -2831,7 +2958,7 @@ async fn push_file(
                 }
                 continue; // Retry the PUT
             }
-            
+
             return Err(format!("PUT failed: {}", line).into());
         }
 
@@ -2875,7 +3002,7 @@ async fn push_file(
 
     // BYE
     let _ = write_half.write_all(b"DEFT BYE\n").await;
-    
+
     // Properly shutdown the TLS connection to send close_notify
     let _ = write_half.shutdown().await;
 
@@ -2938,7 +3065,15 @@ async fn handle_client_push_parallel(state: &ApiState, body: &[u8]) -> (u16, Str
 
             // For now, delegate to regular push (full parallel impl requires protocol changes)
             // The parallel sender is used internally for concurrency control
-            let result = push_file(state, &r.file_path, &r.virtual_file, &transfer_id, cancel_rx, control_rx).await;
+            let result = push_file(
+                state,
+                &r.file_path,
+                &r.virtual_file,
+                &transfer_id,
+                cancel_rx,
+                control_rx,
+            )
+            .await;
             state.remove_cancel_token(&transfer_id).await;
             state.remove_control_channel(&transfer_id).await;
 
@@ -3479,5 +3614,945 @@ mod tests {
         // Should return None (allowed) for first request
         let result = state.check_api_rate_limit(ip).await;
         assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_interrupt_transfer() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "txn_int_001".to_string(),
+                "file".to_string(),
+                "partner".to_string(),
+                "send".to_string(),
+                1024,
+            )
+            .await;
+
+        let result = state.interrupt_transfer("txn_int_001").await;
+        assert!(result);
+
+        let transfers = state.transfers.read().await;
+        let t = transfers.get("txn_int_001").unwrap();
+        assert_eq!(t.status, "interrupted");
+    }
+
+    #[tokio::test]
+    async fn test_interrupt_nonexistent_transfer() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        let result = state.interrupt_transfer("nonexistent").await;
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_resume_transfer() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "txn_res_001".to_string(),
+                "file".to_string(),
+                "partner".to_string(),
+                "send".to_string(),
+                1024,
+            )
+            .await;
+
+        // Interrupt first
+        state.interrupt_transfer("txn_res_001").await;
+        assert!(state.is_transfer_interrupted("txn_res_001").await);
+
+        // Resume
+        let result = state.resume_transfer("txn_res_001").await;
+        assert!(result);
+        assert!(!state.is_transfer_interrupted("txn_res_001").await);
+
+        let transfers = state.transfers.read().await;
+        let t = transfers.get("txn_res_001").unwrap();
+        assert_eq!(t.status, "active");
+    }
+
+    #[tokio::test]
+    async fn test_resume_nonexistent_transfer() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        let result = state.resume_transfer("nonexistent").await;
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_resume_active_transfer_fails() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "txn_res_002".to_string(),
+                "file".to_string(),
+                "partner".to_string(),
+                "send".to_string(),
+                1024,
+            )
+            .await;
+
+        // Try to resume an active transfer (should fail)
+        let result = state.resume_transfer("txn_res_002").await;
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_is_transfer_interrupted() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        // Nonexistent should return false
+        assert!(!state.is_transfer_interrupted("nonexistent").await);
+
+        state
+            .register_transfer(
+                "txn_chk_001".to_string(),
+                "file".to_string(),
+                "partner".to_string(),
+                "send".to_string(),
+                1024,
+            )
+            .await;
+
+        // Active should return false
+        assert!(!state.is_transfer_interrupted("txn_chk_001").await);
+
+        // After interrupt should return true
+        state.interrupt_transfer("txn_chk_001").await;
+        assert!(state.is_transfer_interrupted("txn_chk_001").await);
+    }
+
+    #[tokio::test]
+    async fn test_control_channel() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        let mut rx = state.create_control_channel("txn_ctl_001").await;
+
+        // Send pause command
+        let sent = state
+            .send_control("txn_ctl_001", TransferControl::Pause)
+            .await;
+        assert!(sent);
+
+        // Receive it
+        let cmd = rx.recv().await;
+        assert!(matches!(cmd, Some(TransferControl::Pause)));
+
+        // Send resume
+        let sent = state
+            .send_control("txn_ctl_001", TransferControl::Resume)
+            .await;
+        assert!(sent);
+        let cmd = rx.recv().await;
+        assert!(matches!(cmd, Some(TransferControl::Resume)));
+
+        // Remove channel
+        state.remove_control_channel("txn_ctl_001").await;
+
+        // Sending should fail now
+        let sent = state
+            .send_control("txn_ctl_001", TransferControl::Resume)
+            .await;
+        assert!(!sent);
+    }
+
+    #[tokio::test]
+    async fn test_send_control_nonexistent() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        let sent = state
+            .send_control("nonexistent", TransferControl::Pause)
+            .await;
+        assert!(!sent);
+    }
+
+    #[tokio::test]
+    async fn test_cancel_token() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        let rx = state.create_cancel_token("txn_can_001").await;
+        assert!(!*rx.borrow());
+
+        // Signal cancel
+        let signaled = state.signal_cancel("txn_can_001").await;
+        assert!(signaled);
+
+        // Signaling again should fail (token removed)
+        let signaled = state.signal_cancel("txn_can_001").await;
+        assert!(!signaled);
+    }
+
+    #[tokio::test]
+    async fn test_remove_cancel_token() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        let _rx = state.create_cancel_token("txn_can_002").await;
+        state.remove_cancel_token("txn_can_002").await;
+
+        // Should fail to signal now
+        let signaled = state.signal_cancel("txn_can_002").await;
+        assert!(!signaled);
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_and_subscribe() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        let mut rx = state.subscribe();
+
+        // Broadcast an event
+        state.broadcast(WsEvent::TransferComplete {
+            transfer_id: "test".to_string(),
+            success: true,
+        });
+
+        let event = rx.recv().await;
+        assert!(event.is_ok());
+        match event.unwrap() {
+            WsEvent::TransferComplete {
+                transfer_id,
+                success,
+            } => {
+                assert_eq!(transfer_id, "test");
+                assert!(success);
+            }
+            _ => panic!("Expected TransferComplete event"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_remove_transfer() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "txn_rem_001".to_string(),
+                "file".to_string(),
+                "partner".to_string(),
+                "send".to_string(),
+                1024,
+            )
+            .await;
+
+        state.remove_transfer("txn_rem_001").await;
+        assert!(state.transfers.read().await.get("txn_rem_001").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_update_chunk_status_out_of_bounds() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "txn_oob_001".to_string(),
+                "file".to_string(),
+                "partner".to_string(),
+                "send".to_string(),
+                1024,
+            )
+            .await;
+        state
+            .init_transfer_chunks("txn_oob_001", 5, "file", "send")
+            .await;
+
+        // Update out of bounds - should not panic
+        state
+            .update_chunk_status("txn_oob_001", 100, ChunkStatus::Validated)
+            .await;
+
+        // Existing chunks should still be pending
+        let transfers = state.transfers.read().await;
+        let t = transfers.get("txn_oob_001").unwrap();
+        assert!(t.chunk_statuses.iter().all(|s| *s == ChunkStatus::Pending));
+    }
+
+    #[tokio::test]
+    async fn test_progress_overflow_protection() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "txn_ovf_001".to_string(),
+                "file".to_string(),
+                "partner".to_string(),
+                "send".to_string(),
+                1000,
+            )
+            .await;
+
+        // Test overflow - bytes > total
+        state
+            .update_transfer_progress("txn_ovf_001", 2000, 1000)
+            .await;
+
+        let transfers = state.transfers.read().await;
+        let t = transfers.get("txn_ovf_001").unwrap();
+        assert_eq!(t.progress_percent, 100); // Capped at 100
+    }
+
+    #[tokio::test]
+    async fn test_update_progress_nonexistent() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        // Should not panic
+        state
+            .update_transfer_progress("nonexistent", 500, 1000)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_complete_nonexistent_transfer() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        let history_len_before = state.history.read().await.len();
+
+        // Should not panic
+        state.complete_transfer("nonexistent").await;
+
+        // History should not grow for nonexistent transfer
+        assert_eq!(state.history.read().await.len(), history_len_before);
+    }
+
+    #[tokio::test]
+    async fn test_fail_nonexistent_transfer() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        let history_len_before = state.history.read().await.len();
+
+        // Should not panic
+        state.fail_transfer("nonexistent", "error").await;
+
+        // History should not grow for nonexistent transfer
+        assert_eq!(state.history.read().await.len(), history_len_before);
+    }
+
+    #[test]
+    fn test_api_config_default() {
+        let config = super::ApiConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.listen, "127.0.0.1:7742");
+        assert!(config.api_key.is_none());
+    }
+
+    #[test]
+    fn test_client_connection_default() {
+        let conn = ClientConnection::default();
+        assert!(conn.server.is_empty());
+        assert!(conn.partner_id.is_empty());
+        assert!(conn.cert.is_empty());
+        assert!(conn.key.is_empty());
+        assert!(conn.ca.is_empty());
+    }
+
+    #[test]
+    fn test_transfer_control_debug() {
+        let pause = TransferControl::Pause;
+        let resume = TransferControl::Resume;
+        let abort = TransferControl::Abort {
+            reason: Some("test".to_string()),
+        };
+        let abort_none = TransferControl::Abort { reason: None };
+
+        assert!(format!("{:?}", pause).contains("Pause"));
+        assert!(format!("{:?}", resume).contains("Resume"));
+        assert!(format!("{:?}", abort).contains("Abort"));
+        assert!(format!("{:?}", abort).contains("test"));
+        assert!(format!("{:?}", abort_none).contains("None"));
+    }
+
+    #[test]
+    fn test_transfer_status_serialization() {
+        let status = TransferStatus {
+            id: "tx_test".to_string(),
+            virtual_file: "file".to_string(),
+            partner_id: "partner".to_string(),
+            direction: "send".to_string(),
+            status: "active".to_string(),
+            progress_percent: 50,
+            bytes_transferred: 512,
+            total_bytes: 1024,
+            started_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-01T00:00:01Z".to_string(),
+            total_chunks: 4,
+            chunk_statuses: vec![
+                ChunkStatus::Validated,
+                ChunkStatus::Validated,
+                ChunkStatus::Receiving,
+                ChunkStatus::Pending,
+            ],
+        };
+
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("\"id\":\"tx_test\""));
+        assert!(json.contains("\"progress_percent\":50"));
+        assert!(json.contains("\"chunk_statuses\""));
+    }
+
+    #[test]
+    fn test_partner_status_serialization() {
+        let status = PartnerStatus {
+            id: "partner-a".to_string(),
+            virtual_files: vec!["file1".to_string(), "file2".to_string()],
+            allowed_certs: vec!["cert1".to_string()],
+            connected: true,
+            last_seen: Some("2024-01-01T00:00:00Z".to_string()),
+            transfers_today: 5,
+            bytes_today: 1024000,
+        };
+
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("\"id\":\"partner-a\""));
+        assert!(json.contains("\"connected\":true"));
+        assert!(json.contains("\"transfers_today\":5"));
+    }
+
+    #[test]
+    fn test_system_status_serialization() {
+        let status = SystemStatus {
+            version: "2.0.0".to_string(),
+            uptime_seconds: 3600,
+            active_connections: 2,
+            active_transfers: 1,
+            total_transfers: 100,
+            total_bytes: 1024000000,
+            metrics_enabled: true,
+        };
+
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("\"version\":\"2.0.0\""));
+        assert!(json.contains("\"uptime_seconds\":3600"));
+        assert!(json.contains("\"metrics_enabled\":true"));
+    }
+
+    #[test]
+    fn test_virtual_file_info_serialization() {
+        let info = VirtualFileInfo {
+            name: "invoices".to_string(),
+            path: "/data/invoices".to_string(),
+            direction: "send".to_string(),
+            partner_id: "partner-a".to_string(),
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("\"name\":\"invoices\""));
+        assert!(json.contains("\"direction\":\"send\""));
+    }
+
+    #[test]
+    fn test_transfer_history_entry_roundtrip() {
+        let entry = TransferHistoryEntry {
+            id: "tx_001".to_string(),
+            virtual_file: "file".to_string(),
+            partner_id: "partner".to_string(),
+            direction: "send".to_string(),
+            status: "complete".to_string(),
+            total_bytes: 1024,
+            started_at: "2024-01-01T00:00:00Z".to_string(),
+            completed_at: Some("2024-01-01T00:01:00Z".to_string()),
+        };
+
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: TransferHistoryEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, "tx_001");
+        assert_eq!(parsed.status, "complete");
+        assert_eq!(
+            parsed.completed_at,
+            Some("2024-01-01T00:01:00Z".to_string())
+        );
+    }
+
+    #[test]
+    fn test_trusted_server_status_serialization() {
+        let status = TrustedServerStatus {
+            name: "server-b".to_string(),
+            address: "192.168.1.100:7750".to_string(),
+            cert_fingerprint: Some("SHA256:abc123".to_string()),
+        };
+
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("\"name\":\"server-b\""));
+        assert!(json.contains("\"cert_fingerprint\""));
+    }
+
+    #[test]
+    fn test_create_transfer_request_deserialization() {
+        let json = r#"{"partner_id":"partner-a","virtual_file":"invoices","source_path":"/data/file.txt"}"#;
+        let req: CreateTransferRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.partner_id, "partner-a");
+        assert_eq!(req.virtual_file, "invoices");
+        assert_eq!(req.source_path, Some("/data/file.txt".to_string()));
+    }
+
+    #[test]
+    fn test_ws_event_chunk_update_serialization() {
+        let event = WsEvent::ChunkUpdate {
+            transfer_id: "tx_001".to_string(),
+            chunk_index: 5,
+            status: ChunkStatus::Validated,
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"chunk_update\""));
+        assert!(json.contains("\"chunk_index\":5"));
+        assert!(json.contains("\"validated\""));
+    }
+
+    #[test]
+    fn test_ws_event_transfer_init_serialization() {
+        let event = WsEvent::TransferInit {
+            transfer_id: "tx_001".to_string(),
+            total_chunks: 10,
+            virtual_file: "file".to_string(),
+            direction: "send".to_string(),
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"transfer_init\""));
+        assert!(json.contains("\"total_chunks\":10"));
+    }
+
+    #[test]
+    fn test_ws_event_transfers_serialization() {
+        let transfers = vec![TransferStatus {
+            id: "tx_001".to_string(),
+            virtual_file: "file".to_string(),
+            partner_id: "partner".to_string(),
+            direction: "send".to_string(),
+            status: "active".to_string(),
+            progress_percent: 0,
+            bytes_transferred: 0,
+            total_bytes: 1024,
+            started_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            total_chunks: 0,
+            chunk_statuses: vec![],
+        }];
+
+        let event = WsEvent::Transfers(transfers);
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"transfers\""));
+    }
+
+    #[test]
+    fn test_ws_event_history_serialization() {
+        let history = vec![TransferHistoryEntry {
+            id: "tx_001".to_string(),
+            virtual_file: "file".to_string(),
+            partner_id: "partner".to_string(),
+            direction: "send".to_string(),
+            status: "complete".to_string(),
+            total_bytes: 1024,
+            started_at: "2024-01-01T00:00:00Z".to_string(),
+            completed_at: Some("2024-01-01T00:01:00Z".to_string()),
+        }];
+
+        let event = WsEvent::History(history);
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"history\""));
+    }
+
+    #[test]
+    fn test_all_chunk_statuses() {
+        let statuses = vec![
+            ChunkStatus::Pending,
+            ChunkStatus::Receiving,
+            ChunkStatus::Received,
+            ChunkStatus::Validated,
+            ChunkStatus::Error,
+        ];
+
+        for status in statuses {
+            let json = serde_json::to_string(&status).unwrap();
+            let parsed: ChunkStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(status, parsed);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_multiple_concurrent_transfers() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        // Register multiple transfers concurrently
+        let futures: Vec<_> = (0..10)
+            .map(|i| {
+                let state_ref = &state;
+                async move {
+                    state_ref
+                        .register_transfer(
+                            format!("txn_concurrent_{}", i),
+                            format!("file_{}", i),
+                            "partner".to_string(),
+                            "send".to_string(),
+                            1024 * (i + 1) as u64,
+                        )
+                        .await;
+                }
+            })
+            .collect();
+
+        futures_util::future::join_all(futures).await;
+
+        let transfers = state.transfers.read().await;
+        assert_eq!(transfers.len(), 10);
+    }
+
+    #[tokio::test]
+    async fn test_control_channel_abort_with_reason() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        let mut rx = state.create_control_channel("txn_abort_001").await;
+
+        let sent = state
+            .send_control(
+                "txn_abort_001",
+                TransferControl::Abort {
+                    reason: Some("user requested".to_string()),
+                },
+            )
+            .await;
+        assert!(sent);
+
+        let cmd = rx.recv().await;
+        match cmd {
+            Some(TransferControl::Abort { reason }) => {
+                assert_eq!(reason, Some("user requested".to_string()));
+            }
+            _ => panic!("Expected Abort command"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_active_transfers() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        // Register some transfers
+        state
+            .register_transfer(
+                "tx1".into(),
+                "file1".into(),
+                "partner1".into(),
+                "send".into(),
+                1024,
+            )
+            .await;
+        state
+            .register_transfer(
+                "tx2".into(),
+                "file2".into(),
+                "partner2".into(),
+                "recv".into(),
+                2048,
+            )
+            .await;
+
+        let transfers = state.transfers.read().await;
+        assert_eq!(transfers.len(), 2);
+        assert!(transfers.contains_key("tx1"));
+        assert!(transfers.contains_key("tx2"));
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_event() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        let mut rx = state.ws_broadcast.subscribe();
+
+        // Send a broadcast event
+        let _ = state.ws_broadcast.send(WsEvent::Transfers(vec![]));
+
+        // Verify receipt
+        let event = rx.recv().await;
+        assert!(event.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_transfer_status_update_sequence() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "seq_tx".into(),
+                "file".into(),
+                "partner".into(),
+                "send".into(),
+                4096,
+            )
+            .await;
+
+        // Update progress at various stages
+        state.update_transfer_progress("seq_tx", 1024, 4096).await;
+        {
+            let transfers = state.transfers.read().await;
+            let tx = transfers.get("seq_tx").unwrap();
+            assert_eq!(tx.progress_percent, 25);
+        }
+
+        state.update_transfer_progress("seq_tx", 2048, 4096).await;
+        {
+            let transfers = state.transfers.read().await;
+            let tx = transfers.get("seq_tx").unwrap();
+            assert_eq!(tx.progress_percent, 50);
+        }
+
+        state.update_transfer_progress("seq_tx", 4096, 4096).await;
+        {
+            let transfers = state.transfers.read().await;
+            let tx = transfers.get("seq_tx").unwrap();
+            assert_eq!(tx.progress_percent, 100);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_complete_transfer_adds_to_history() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "hist_tx".into(),
+                "file".into(),
+                "partner".into(),
+                "send".into(),
+                1024,
+            )
+            .await;
+
+        let history_len_before = state.history.read().await.len();
+
+        state.complete_transfer("hist_tx").await;
+
+        let history_len_after = state.history.read().await.len();
+        assert_eq!(history_len_after, history_len_before + 1);
+
+        // Verify transfer removed from active
+        let transfers = state.transfers.read().await;
+        assert!(!transfers.contains_key("hist_tx"));
+    }
+
+    #[tokio::test]
+    async fn test_fail_transfer_adds_to_history() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "fail_tx".into(),
+                "file".into(),
+                "partner".into(),
+                "send".into(),
+                1024,
+            )
+            .await;
+
+        let history_len_before = state.history.read().await.len();
+
+        state.fail_transfer("fail_tx", "connection lost").await;
+
+        let history_len_after = state.history.read().await.len();
+        assert_eq!(history_len_after, history_len_before + 1);
+
+        // Verify transfer removed from active
+        let transfers = state.transfers.read().await;
+        assert!(!transfers.contains_key("fail_tx"));
+
+        // Verify error recorded in history
+        let history = state.history.read().await;
+        let entry = history.iter().find(|e| e.id == "fail_tx").unwrap();
+        assert!(entry.status.starts_with("failed"));
+    }
+
+    #[tokio::test]
+    async fn test_cancel_token_lifecycle() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        // Create token
+        let rx = state.create_cancel_token("cancel_tx").await;
+        assert!(!*rx.borrow());
+
+        // Signal cancellation by sending true through the token
+        {
+            let tokens = state.cancel_tokens.read().await;
+            if let Some(tx) = tokens.get("cancel_tx") {
+                let _ = tx.send(true);
+            }
+        }
+
+        // Verify cancelled
+        assert!(*rx.borrow());
+
+        // Remove token
+        state.remove_cancel_token("cancel_tx").await;
+        let tokens = state.cancel_tokens.read().await;
+        assert!(!tokens.contains_key("cancel_tx"));
+    }
+
+    #[tokio::test]
+    async fn test_control_channel_lifecycle() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        // Create channel
+        let _rx = state.create_control_channel("ctrl_tx").await;
+        {
+            let channels = state.control_channels.read().await;
+            assert!(channels.contains_key("ctrl_tx"));
+        }
+
+        // Remove channel
+        state.remove_control_channel("ctrl_tx").await;
+        {
+            let channels = state.control_channels.read().await;
+            assert!(!channels.contains_key("ctrl_tx"));
+        }
+    }
+
+    #[test]
+    fn test_create_virtual_file_request_deserialization() {
+        let json = r#"{"name":"invoices","path":"/data/out","direction":"send","pattern":"*.txt","partners":["partner-a"]}"#;
+        let req: CreateVirtualFileRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.name, "invoices");
+        assert_eq!(req.path, "/data/out");
+        assert_eq!(req.direction, "send");
+        assert_eq!(req.pattern, Some("*.txt".to_string()));
+        assert_eq!(req.partners, Some(vec!["partner-a".to_string()]));
+    }
+
+    #[test]
+    fn test_partner_request_deserialization() {
+        let json =
+            r#"{"id":"partner-b","allowed_certs":["cert1","cert2"],"virtual_files":["file1"]}"#;
+        let req: PartnerRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.id, "partner-b");
+        assert_eq!(
+            req.allowed_certs,
+            Some(vec!["cert1".to_string(), "cert2".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_trusted_server_request_deserialization() {
+        let json =
+            r#"{"name":"server-c","address":"10.0.0.1:7750","cert_fingerprint":"SHA256:xyz789"}"#;
+        let req: TrustedServerRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.name, "server-c");
+        assert_eq!(req.address, "10.0.0.1:7750");
+        assert_eq!(req.cert_fingerprint, Some("SHA256:xyz789".to_string()));
+    }
+
+    #[test]
+    fn test_client_connection_with_values() {
+        let conn = ClientConnection {
+            server: "partner-server.example.com:7750".to_string(),
+            partner_id: "our-org".to_string(),
+            cert: "/path/to/cert.pem".to_string(),
+            key: "/path/to/key.pem".to_string(),
+            ca: "/path/to/ca.pem".to_string(),
+        };
+        assert_eq!(conn.server, "partner-server.example.com:7750");
+        assert_eq!(conn.partner_id, "our-org");
+    }
+
+    #[tokio::test]
+    async fn test_set_client_connection() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        let conn = ClientConnection {
+            server: "server.example.com:7750".to_string(),
+            partner_id: "test-partner".to_string(),
+            cert: "/path/cert.pem".to_string(),
+            key: "/path/key.pem".to_string(),
+            ca: "/path/ca.pem".to_string(),
+        };
+
+        *state.client_connection.write().await = Some(conn.clone());
+
+        let stored = state.client_connection.read().await;
+        assert!(stored.is_some());
+        assert_eq!(stored.as_ref().unwrap().server, "server.example.com:7750");
+    }
+
+    #[tokio::test]
+    async fn test_uptime_tracking() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        // Small delay to ensure uptime > 0
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        let uptime = state.start_time.elapsed();
+        assert!(uptime.as_millis() >= 10);
+    }
+
+    #[test]
+    fn test_ws_event_transfer_progress_serialization() {
+        let event = WsEvent::TransferProgress {
+            transfer_id: "tx_progress".to_string(),
+            virtual_file: "file.dat".to_string(),
+            bytes_transferred: 512000,
+            total_bytes: 1024000,
+            progress_percent: 50,
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"transfer_progress\""));
+        assert!(json.contains("\"progress_percent\":50"));
+        assert!(json.contains("\"bytes_transferred\":512000"));
+    }
+
+    #[tokio::test]
+    async fn test_chunk_statuses_update() {
+        let config = test_config();
+        let state = ApiState::new(config, None);
+
+        state
+            .register_transfer(
+                "chunk_tx".into(),
+                "file".into(),
+                "partner".into(),
+                "recv".into(),
+                1024,
+            )
+            .await;
+
+        // Update chunk status for index 0
+        state
+            .update_chunk_status("chunk_tx", 0, ChunkStatus::Receiving)
+            .await;
+
+        let transfers = state.transfers.read().await;
+        let tx = transfers.get("chunk_tx").unwrap();
+
+        // Verify first chunk status updated if vector is populated
+        if !tx.chunk_statuses.is_empty() {
+            assert_eq!(tx.chunk_statuses[0], ChunkStatus::Receiving);
+        }
     }
 }

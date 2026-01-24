@@ -61,7 +61,10 @@ impl TestApiState {
         }
     }
 
-    async fn create_control_channel(&self, transfer_id: &str) -> mpsc::Receiver<TestTransferControl> {
+    async fn create_control_channel(
+        &self,
+        transfer_id: &str,
+    ) -> mpsc::Receiver<TestTransferControl> {
         let (tx, rx) = mpsc::channel(16);
         self.control_channels
             .write()
@@ -109,7 +112,11 @@ impl TestApiState {
     }
 
     async fn get_transfer_status(&self, id: &str) -> Option<String> {
-        self.transfers.read().await.get(id).map(|t| t.status.clone())
+        self.transfers
+            .read()
+            .await
+            .get(id)
+            .map(|t| t.status.clone())
     }
 
     async fn remove_transfer(&self, id: &str) -> bool {
@@ -459,7 +466,10 @@ async fn test_full_transfer_flow_with_interrupt() {
             }
 
             // Wait while paused
-            while state_clone.is_transfer_interrupted(&transfer_id_clone).await {
+            while state_clone
+                .is_transfer_interrupted(&transfer_id_clone)
+                .await
+            {
                 tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
                 if *cancel_rx.borrow() {
                     return ("cancelled", chunks_sent);
@@ -479,12 +489,16 @@ async fn test_full_transfer_flow_with_interrupt() {
     // 4. Wait a bit then interrupt
     tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
     state.interrupt_transfer(&transfer_id).await;
-    state.send_control(&transfer_id, TestTransferControl::Pause).await;
+    state
+        .send_control(&transfer_id, TestTransferControl::Pause)
+        .await;
 
     // 5. Wait a bit then resume
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     state.resume_transfer(&transfer_id).await;
-    state.send_control(&transfer_id, TestTransferControl::Resume).await;
+    state
+        .send_control(&transfer_id, TestTransferControl::Resume)
+        .await;
 
     // 6. Wait for completion
     let (status, chunks) = transfer_task.await.unwrap();
@@ -515,7 +529,10 @@ async fn test_transfer_cancel_during_pause() {
                 }
             }
 
-            while state_clone.is_transfer_interrupted(&transfer_id_clone).await {
+            while state_clone
+                .is_transfer_interrupted(&transfer_id_clone)
+                .await
+            {
                 if *cancel_rx.borrow() {
                     return "cancelled_while_paused";
                 }

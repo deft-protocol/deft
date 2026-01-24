@@ -261,4 +261,106 @@ mod tests {
         assert_eq!(session.state, SessionState::Connected);
         assert!(session.id.starts_with("sess_"));
     }
+
+    #[test]
+    fn test_session_state_transitions() {
+        let mut session = Session::new();
+
+        assert_eq!(session.state, SessionState::Connected);
+        assert!(!session.is_authenticated());
+
+        session.state = SessionState::Welcomed;
+        assert_eq!(session.state, SessionState::Welcomed);
+        assert!(!session.is_authenticated());
+
+        session.state = SessionState::Authenticated;
+        assert!(session.is_authenticated());
+
+        session.state = SessionState::Closed;
+        assert!(!session.is_authenticated());
+    }
+
+    #[test]
+    fn test_session_active_transfer() {
+        let mut session = Session::new();
+        assert!(session.active_transfer.is_none());
+
+        session.active_transfer = Some(ActiveTransfer {
+            id: "tx-001".to_string(),
+            virtual_file: "file.dat".to_string(),
+            paused: false,
+        });
+
+        let transfer = session.active_transfer.as_ref().unwrap();
+        assert_eq!(transfer.id, "tx-001");
+        assert!(!transfer.paused);
+
+        // Pause the transfer
+        session.active_transfer.as_mut().unwrap().paused = true;
+        assert!(session.active_transfer.as_ref().unwrap().paused);
+    }
+
+    #[test]
+    fn test_session_pull_tracking() {
+        let mut session = Session::new();
+
+        session.active_pull_transfer = Some("pull-tx-001".to_string());
+        session.active_pull_vf = Some("data.bin".to_string());
+        session.pull_total_chunks = 100;
+        session.pull_chunks_sent = 50;
+
+        assert_eq!(
+            session.active_pull_transfer,
+            Some("pull-tx-001".to_string())
+        );
+        assert_eq!(session.pull_chunks_sent, 50);
+    }
+
+    #[test]
+    fn test_client_cert_info_default() {
+        let info = ClientCertInfo::default();
+        assert!(info.cn.is_none());
+        assert!(info.fingerprint.is_none());
+        assert!(info.serial.is_none());
+    }
+
+    #[test]
+    fn test_session_multiple_virtual_files() {
+        let mut session = Session::new();
+        session.set_authenticated(
+            "partner".to_string(),
+            "Partner Name".to_string(),
+            vec!["vf1".to_string(), "vf2".to_string(), "vf3".to_string()],
+        );
+
+        assert!(session.can_access_virtual_file("vf1"));
+        assert!(session.can_access_virtual_file("vf2"));
+        assert!(session.can_access_virtual_file("vf3"));
+        assert!(!session.can_access_virtual_file("vf4"));
+    }
+
+    #[test]
+    fn test_generate_unique_session_ids() {
+        let session1 = Session::new();
+        let session2 = Session::new();
+        let session3 = Session::new();
+
+        assert_ne!(session1.id, session2.id);
+        assert_ne!(session2.id, session3.id);
+        assert_ne!(session1.id, session3.id);
+    }
+
+    #[test]
+    fn test_session_capabilities() {
+        let mut session = Session::new();
+
+        let caps = Capabilities::new()
+            .with(Capability::Chunked)
+            .with(Capability::Parallel);
+
+        session.set_welcomed("2.0".to_string(), caps);
+
+        assert!(session.has_capability(Capability::Chunked));
+        assert!(session.has_capability(Capability::Parallel));
+    }
 }

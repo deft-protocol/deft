@@ -963,4 +963,176 @@ mod tests {
         // Should have operations (copy and/or insert)
         assert!(stats.total_ops > 0);
     }
+
+    #[test]
+    fn test_transfer_result_complete() {
+        let result = TransferResult {
+            transfer_id: "complete-001".to_string(),
+            chunks_sent: 50,
+            total_chunks: 50,
+            total_bytes: 5_242_880,
+            file_hash: "sha256:abcdef1234567890".to_string(),
+            bytes_saved: 1_048_576,
+        };
+
+        assert_eq!(result.transfer_id, "complete-001");
+        assert_eq!(result.chunks_sent, result.total_chunks);
+        assert!(result.bytes_saved > 0);
+    }
+
+    #[test]
+    fn test_transfer_result_partial() {
+        let result = TransferResult {
+            transfer_id: "partial-001".to_string(),
+            chunks_sent: 25,
+            total_chunks: 50,
+            total_bytes: 2_621_440,
+            file_hash: "sha256:partial".to_string(),
+            bytes_saved: 0,
+        };
+
+        assert!(result.chunks_sent < result.total_chunks);
+        assert_eq!(result.bytes_saved, 0);
+    }
+
+    #[tokio::test]
+    async fn test_parallel_sender_multiple_results() {
+        let sender = ParallelSender::new(ParallelConfig::default());
+
+        // Record multiple successful chunks
+        for i in 0..5 {
+            sender
+                .record_result(ChunkResult {
+                    chunk_index: i,
+                    success: true,
+                    bytes_sent: 1024,
+                    error: None,
+                })
+                .await;
+        }
+
+        assert_eq!(sender.success_count().await, 5);
+        assert!(sender.failed_chunks().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_parallel_sender_mixed_results() {
+        let sender = ParallelSender::new(ParallelConfig::default());
+
+        // Mix of success and failure
+        sender
+            .record_result(ChunkResult {
+                chunk_index: 0,
+                success: true,
+                bytes_sent: 1024,
+                error: None,
+            })
+            .await;
+
+        sender
+            .record_result(ChunkResult {
+                chunk_index: 1,
+                success: false,
+                bytes_sent: 0,
+                error: Some("connection reset".to_string()),
+            })
+            .await;
+
+        sender
+            .record_result(ChunkResult {
+                chunk_index: 2,
+                success: true,
+                bytes_sent: 2048,
+                error: None,
+            })
+            .await;
+
+        assert_eq!(sender.success_count().await, 2);
+        let failed = sender.failed_chunks().await;
+        assert_eq!(failed.len(), 1);
+        assert!(failed.contains(&1));
+    }
+
+    #[test]
+    fn test_parallel_config_custom() {
+        let config = ParallelConfig {
+            max_concurrent: 8,
+            buffer_size: 32,
+        };
+        assert_eq!(config.max_concurrent, 8);
+        assert_eq!(config.buffer_size, 32);
+    }
+
+    #[test]
+    fn test_chunk_result_success() {
+        let result = ChunkResult {
+            chunk_index: 42,
+            success: true,
+            bytes_sent: 65536,
+            error: None,
+        };
+        assert!(result.success);
+        assert!(result.error.is_none());
+        assert_eq!(result.bytes_sent, 65536);
+    }
+
+    #[test]
+    fn test_chunk_result_failure() {
+        let result = ChunkResult {
+            chunk_index: 7,
+            success: false,
+            bytes_sent: 0,
+            error: Some("timeout exceeded".to_string()),
+        };
+        assert!(!result.success);
+        assert!(result.error.is_some());
+        assert_eq!(result.error.as_ref().unwrap(), "timeout exceeded");
+    }
+
+    #[test]
+    fn test_delta_empty_modification() {
+        use std::io::{Cursor, Seek, SeekFrom};
+
+        let original = b""; // Empty file
+        let modified = b"new content";
+
+        let mut source = Cursor::new(original);
+        let mut new_file = Cursor::new(modified);
+
+        let sig = FileSignature::compute(&mut source, 8).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let delta = Delta::compute(&sig, &mut new_file).unwrap();
+        let stats = delta.stats();
+
+        // Should have insert operations for new content
+        assert!(stats.total_ops > 0);
+    }
+
+    #[test]
+    fn test_file_signature_block_size() {
+        use std::io::Cursor;
+
+        let data = b"0123456789ABCDEF0123456789ABCDEF"; // 32 bytes
+        let mut cursor = Cursor::new(data);
+
+        let sig = FileSignature::compute(&mut cursor, 8).unwrap();
+        assert_eq!(sig.file_size, 32);
+        assert_eq!(sig.blocks.len(), 4); // 32 / 8 = 4 blocks
+    }
+
+    #[test]
+    fn test_delta_large_block_size() {
+        use std::io::{Cursor, Seek, SeekFrom};
+
+        let data = b"small data";
+        let mut cursor = Cursor::new(data);
+
+        // Block size larger than data
+        let sig = FileSignature::compute(&mut cursor, 1024).unwrap();
+        cursor.seek(SeekFrom::Start(0)).unwrap();
+
+        assert_eq!(sig.file_size, data.len() as u64);
+        assert_eq!(sig.blocks.len(), 1); // Single block
+    }
 }

@@ -335,4 +335,101 @@ mod tests {
         let event = rx.recv().await.unwrap();
         assert!(matches!(event, FileEvent::Created(_)));
     }
+
+    #[test]
+    fn test_file_event_variants() {
+        let created = FileEvent::Created(PathBuf::from("/a/b.txt"));
+        let modified = FileEvent::Modified(PathBuf::from("/a/c.txt"));
+        let deleted = FileEvent::Deleted(PathBuf::from("/a/d.txt"));
+
+        assert!(matches!(created, FileEvent::Created(_)));
+        assert!(matches!(modified, FileEvent::Modified(_)));
+        assert!(matches!(deleted, FileEvent::Deleted(_)));
+
+        // Test equality
+        let created2 = FileEvent::Created(PathBuf::from("/a/b.txt"));
+        assert_eq!(created, created2);
+
+        let created3 = FileEvent::Created(PathBuf::from("/a/other.txt"));
+        assert_ne!(created, created3);
+    }
+
+    #[test]
+    fn test_watch_config_with_values() {
+        let config = WatchConfig {
+            path: PathBuf::from("/data/outbox"),
+            pattern: Some("*.xml".to_string()),
+            server_name: "partner-server".to_string(),
+            our_identity: "our-company".to_string(),
+            virtual_file: "invoices".to_string(),
+            poll_interval_secs: 60,
+            delete_after_send: true,
+            move_to: Some(PathBuf::from("/data/sent")),
+        };
+
+        assert_eq!(config.path, PathBuf::from("/data/outbox"));
+        assert_eq!(config.pattern, Some("*.xml".to_string()));
+        assert_eq!(config.server_name, "partner-server");
+        assert!(config.delete_after_send);
+        assert!(config.move_to.is_some());
+    }
+
+    #[test]
+    fn test_glob_match_empty_pattern() {
+        assert!(glob_match("", ""));
+        assert!(!glob_match("", "file.txt"));
+    }
+
+    #[test]
+    fn test_glob_match_star_only() {
+        assert!(glob_match("*", "anything"));
+        assert!(glob_match("*", ""));
+        assert!(glob_match("*", "file.txt"));
+    }
+
+    #[test]
+    fn test_glob_match_multiple_wildcards() {
+        assert!(glob_match("*.*.txt", "file.backup.txt"));
+        assert!(glob_match("*.*.*", "a.b.c"));
+        assert!(!glob_match("*.*.txt", "file.txt"));
+    }
+
+    #[tokio::test]
+    async fn test_multiple_file_events() {
+        let (tx, mut rx) = mpsc::channel(10);
+
+        tx.send(FileEvent::Created(PathBuf::from("/a.txt")))
+            .await
+            .unwrap();
+        tx.send(FileEvent::Modified(PathBuf::from("/b.txt")))
+            .await
+            .unwrap();
+        tx.send(FileEvent::Deleted(PathBuf::from("/c.txt")))
+            .await
+            .unwrap();
+
+        let e1 = rx.recv().await.unwrap();
+        let e2 = rx.recv().await.unwrap();
+        let e3 = rx.recv().await.unwrap();
+
+        assert!(matches!(e1, FileEvent::Created(_)));
+        assert!(matches!(e2, FileEvent::Modified(_)));
+        assert!(matches!(e3, FileEvent::Deleted(_)));
+    }
+
+    #[test]
+    fn test_file_event_debug() {
+        let event = FileEvent::Created(PathBuf::from("/test/file.txt"));
+        let debug_str = format!("{:?}", event);
+        assert!(debug_str.contains("Created"));
+        assert!(debug_str.contains("file.txt"));
+    }
+
+    #[test]
+    fn test_watch_config_clone() {
+        let config = WatchConfig::default();
+        let cloned = config.clone();
+        assert_eq!(config.poll_interval_secs, cloned.poll_interval_secs);
+        assert_eq!(config.delete_after_send, cloned.delete_after_send);
+    }
 }

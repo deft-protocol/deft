@@ -255,4 +255,58 @@ mod tests {
         assert!(sig.is_some());
         assert!(sig.unwrap().starts_with("sha256:"));
     }
+
+    #[test]
+    fn test_signature_algorithm_default() {
+        let algo = SignatureAlgorithm::default();
+        assert_eq!(algo, SignatureAlgorithm::Ed25519);
+    }
+
+    #[test]
+    fn test_signature_algorithm_eq() {
+        assert_eq!(SignatureAlgorithm::Sha256, SignatureAlgorithm::Sha256);
+        assert_eq!(SignatureAlgorithm::Ed25519, SignatureAlgorithm::Ed25519);
+        assert_ne!(SignatureAlgorithm::Sha256, SignatureAlgorithm::Ed25519);
+    }
+
+    #[test]
+    fn test_signer_default() {
+        let signer = ReceiptSigner::default();
+        assert!(!signer.has_key());
+    }
+
+    #[test]
+    fn test_verify_invalid_signature_format() {
+        let signer = ReceiptSigner::with_new_ed25519_key().unwrap();
+
+        // Invalid signature format should fail
+        assert!(!signer.verify_signature("data", "invalid-signature"));
+        assert!(!signer.verify_signature("data", "ed25519:notbase64!@#"));
+    }
+
+    #[test]
+    fn test_verify_with_invalid_public_key() {
+        let result = ReceiptSigner::verify_with_public_key(
+            "data",
+            "ed25519:c2lnbmF0dXJl",
+            "invalid-base64!@#",
+        );
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_sign_empty_data() {
+        let signer = ReceiptSigner::with_new_ed25519_key().unwrap();
+        let sig = signer.sign_receipt("");
+        assert!(sig.is_some());
+    }
+
+    #[test]
+    fn test_sign_large_data() {
+        let signer = ReceiptSigner::with_new_ed25519_key().unwrap();
+        let large_data = "x".repeat(10000);
+        let sig = signer.sign_receipt(&large_data);
+        assert!(sig.is_some());
+        assert!(signer.verify_signature(&large_data, &sig.unwrap()));
+    }
 }

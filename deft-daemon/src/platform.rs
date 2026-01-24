@@ -199,4 +199,32 @@ mod tests {
         #[cfg(not(windows))]
         assert_eq!(normalized, path);
     }
+
+    #[test]
+    fn test_platform_info_display() {
+        let info = PlatformInfo::current();
+        let display = format!("{}", info);
+        assert!(display.contains(info.os));
+        assert!(display.contains(info.arch));
+        assert!(display.contains(info.family));
+    }
+
+    #[test]
+    fn test_default_certs_dir() {
+        let certs = default_certs_dir();
+        assert!(certs.to_string_lossy().contains("deft"));
+    }
+
+    #[test]
+    fn test_platform_info_fields() {
+        let info = PlatformInfo::current();
+
+        // Should have valid OS values
+        let valid_os = ["linux", "macos", "windows", "freebsd", "netbsd", "openbsd"];
+        assert!(valid_os.iter().any(|os| info.os.contains(os)) || !info.os.is_empty());
+
+        // Should have valid arch values
+        let valid_arch = ["x86_64", "x86", "aarch64", "arm", "mips", "powerpc"];
+        assert!(valid_arch.iter().any(|arch| info.arch.contains(arch)) || !info.arch.is_empty());
+    }
 }

@@ -194,4 +194,75 @@ mod tests {
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn test_load_nonexistent() {
+        let temp_dir = env::temp_dir().join("deft_test_receipts_load");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let store = ReceiptStore::new(&temp_dir).unwrap();
+        let result = store.load("nonexistent");
+        assert!(result.is_err());
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_receipt_with_signature() {
+        let temp_dir = env::temp_dir().join("deft_test_receipts_sig");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let store = ReceiptStore::new(&temp_dir).unwrap();
+
+        let receipt = TransferReceipt {
+            transfer_id: "tx-signed".into(),
+            virtual_file: "signed-file".into(),
+            sender_partner: "alice".into(),
+            receiver_partner: "bob".into(),
+            timestamp_start: "2026-01-01T00:00:00Z".into(),
+            timestamp_complete: "2026-01-01T00:05:00Z".into(),
+            chunks_total: 100,
+            total_bytes: 102400,
+            file_hash: "sha256:xyz".into(),
+            signature: Some("ed25519:signature123".into()),
+        };
+
+        store.store(&receipt).unwrap();
+        let loaded = store.load("tx-signed").unwrap();
+        assert_eq!(loaded.signature, Some("ed25519:signature123".into()));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_store_multiple_receipts() {
+        let temp_dir = env::temp_dir().join("deft_test_receipts_multi");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let store = ReceiptStore::new(&temp_dir).unwrap();
+
+        for i in 0..3 {
+            let receipt = TransferReceipt {
+                transfer_id: format!("tx-multi-{}", i),
+                virtual_file: "file".into(),
+                sender_partner: "sender".into(),
+                receiver_partner: "receiver".into(),
+                timestamp_start: "2026-01-01T00:00:00Z".into(),
+                timestamp_complete: "2026-01-01T00:01:00Z".into(),
+                chunks_total: 10,
+                total_bytes: 1024,
+                file_hash: "hash".into(),
+                signature: None,
+            };
+            store.store(&receipt).unwrap();
+        }
+
+        // Verify all can be loaded
+        for i in 0..3 {
+            let loaded = store.load(&format!("tx-multi-{}", i)).unwrap();
+            assert_eq!(loaded.transfer_id, format!("tx-multi-{}", i));
+        }
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }

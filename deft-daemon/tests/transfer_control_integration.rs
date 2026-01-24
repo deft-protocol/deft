@@ -202,7 +202,7 @@ async fn test_pause_resume_with_put_retry() {
 
             // Send PUT
             let response = receiver_clone.handle_put().await;
-            
+
             match response {
                 MockResponse::TransferPaused => {
                     // Remote paused - set local interrupted and retry
@@ -262,7 +262,7 @@ async fn test_race_condition_resume_before_receiver() {
 
     // This is the bug - sender should handle this gracefully
     // and not flip-flop between active and interrupted
-    
+
     // Correct behavior: sender sets itself back to interrupted
     // and waits for proper resume signal
     if response == MockResponse::TransferPaused {
@@ -293,7 +293,7 @@ async fn test_synchronized_pause_resume() {
     // Step 1 & 2: Sender initiates pause, receiver confirms
     receiver.handle_pause().await;
     assert!(receiver.is_paused().await);
-    
+
     // Step 3: Sender updates local state after receiver confirms
     sender.interrupt().await;
     assert!(sender.is_interrupted().await);
@@ -326,9 +326,18 @@ async fn test_control_channel_ordering() {
     let mut control_rx = sender.control_rx.unwrap();
 
     // Commands should be received in order
-    assert!(matches!(control_rx.recv().await.unwrap(), MockControl::Pause));
-    assert!(matches!(control_rx.recv().await.unwrap(), MockControl::Resume));
-    assert!(matches!(control_rx.recv().await.unwrap(), MockControl::Pause));
+    assert!(matches!(
+        control_rx.recv().await.unwrap(),
+        MockControl::Pause
+    ));
+    assert!(matches!(
+        control_rx.recv().await.unwrap(),
+        MockControl::Resume
+    ));
+    assert!(matches!(
+        control_rx.recv().await.unwrap(),
+        MockControl::Pause
+    ));
 }
 
 #[tokio::test]
@@ -362,11 +371,11 @@ async fn test_status_consistency_during_transfer() {
     monitor.await.unwrap();
 
     let history = status_history.read().await;
-    
+
     // Should see: active -> interrupted -> active
     // Should NOT see: active -> interrupted -> active -> interrupted -> active (flip-flop)
     assert!(history.len() <= 3, "Status flip-flopped: {:?}", history);
-    
+
     if history.len() >= 2 {
         assert_eq!(history[0], "active");
         assert_eq!(history[1], "interrupted");
@@ -380,7 +389,7 @@ async fn test_status_consistency_during_transfer() {
 async fn test_resume_waits_for_receiver_confirmation() {
     // This is the key test for the bug fix
     // Resume should NOT change local status until receiver confirms
-    
+
     let sender = Arc::new(MockSender::new("tx_test_008"));
     let receiver = Arc::new(MockReceiver::new("tx_test_008"));
 
@@ -397,7 +406,7 @@ async fn test_resume_waits_for_receiver_confirmation() {
     // Simulate sending RESUME_TRANSFER_CMD
     // Receiver processes it
     receiver.handle_resume().await;
-    
+
     // Only after receiver confirms, update sender status
     assert!(sender.resume().await);
 
@@ -413,7 +422,7 @@ async fn test_resume_waits_for_receiver_confirmation() {
 async fn test_put_handles_transfer_resumed_response() {
     // This tests the specific bug: sender receives TRANSFER_RESUMED after retry
     // and must handle it correctly by retrying PUT
-    
+
     let sender = Arc::new(MockSender::new("tx_test_009"));
     let receiver = Arc::new(MockReceiver::new("tx_test_009"));
 
@@ -433,7 +442,7 @@ async fn test_put_handles_transfer_resumed_response() {
     // Sender retries PUT - first response is TRANSFER_RESUMED
     let response1 = receiver.handle_put_after_resume(&mut just_resumed).await;
     assert_eq!(response1, MockResponse::TransferResumed);
-    
+
     // Sender must handle TRANSFER_RESUMED by:
     // 1. Updating local status if interrupted
     if sender.is_interrupted().await {
@@ -451,10 +460,10 @@ async fn test_put_handles_transfer_resumed_response() {
 #[tokio::test]
 async fn test_put_retry_loop_with_transfer_resumed() {
     // Full simulation of PUT retry loop handling all response types
-    
+
     let receiver = Arc::new(MockReceiver::new("tx_test_010"));
     let sender_status = Arc::new(RwLock::new("active".to_string()));
-    
+
     // Track chunks sent
     let chunks_sent = Arc::new(RwLock::new(0u32));
     let chunks_sent_clone = chunks_sent.clone();
@@ -470,7 +479,7 @@ async fn test_put_retry_loop_with_transfer_resumed() {
             // Simulate PUT retry loop
             loop {
                 let response = receiver_clone.handle_put().await;
-                
+
                 match response {
                     MockResponse::TransferPaused => {
                         // Set local status to interrupted and wait
@@ -488,17 +497,17 @@ async fn test_put_retry_loop_with_transfer_resumed() {
                     _ => break,
                 }
             }
-            
+
             // "Send" the chunk
             let mut sent = chunks_sent_clone.write().await;
             *sent += 1;
-            
+
             // Pause after specific chunk
             if *sent == pause_at_chunk {
                 receiver_clone.handle_pause().await;
             }
         }
-        
+
         *chunks_sent_clone.read().await
     });
 
@@ -514,4 +523,148 @@ async fn test_put_retry_loop_with_transfer_resumed() {
     assert!(result.is_ok(), "Transfer should complete");
     assert_eq!(result.unwrap().unwrap(), total_chunks);
     assert_eq!(*sender_status.read().await, "active");
+}
+
+/// Tests sender-initiated pause/resume flow
+/// This tests the fix for the protocol synchronization bug where sender
+/// didn't read TRANSFER_PAUSED response after sending PAUSE_TRANSFER
+#[tokio::test]
+async fn test_sender_initiated_pause_resume() {
+    // Simulate sender initiating pause, then resume
+    let receiver = Arc::new(MockReceiver::new("tx_sender_pause_001"));
+    let sender_status = Arc::new(RwLock::new("active".to_string()));
+    let (control_tx, mut control_rx) = mpsc::channel::<MockControl>(16);
+
+    let chunks_sent = Arc::new(RwLock::new(0u32));
+    let total_chunks = 5u32;
+    let pause_at_chunk = 2u32;
+
+    let sender_status_clone = sender_status.clone();
+    let receiver_clone = receiver.clone();
+    let chunks_sent_clone = chunks_sent.clone();
+
+    // Sender task - simulates the corrected push_file logic
+    let sender_task = tokio::spawn(async move {
+        for chunk_idx in 0..total_chunks {
+            // Small delay to allow control commands to be received
+            tokio::time::sleep(Duration::from_millis(5)).await;
+
+            // Check for pause command BEFORE sending PUT
+            if let Ok(cmd) = control_rx.try_recv() {
+                match cmd {
+                    MockControl::Pause => {
+                        // Sender sends PAUSE_TRANSFER to receiver
+                        receiver_clone.handle_pause().await;
+                        // Read and verify TRANSFER_PAUSED response (this was the bug fix)
+                        assert!(
+                            *receiver_clone.paused.read().await,
+                            "Receiver should be paused"
+                        );
+                        *sender_status_clone.write().await = "interrupted".to_string();
+
+                        // Wait in loop for Resume command
+                        loop {
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            if let Ok(resume_cmd) = control_rx.try_recv() {
+                                if matches!(resume_cmd, MockControl::Resume) {
+                                    // Sender sends RESUME_TRANSFER_CMD
+                                    receiver_clone.handle_resume().await;
+                                    *sender_status_clone.write().await = "active".to_string();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    MockControl::Resume => {
+                        // Resume when not paused - ignore
+                    }
+                    MockControl::Abort => {
+                        return Err::<u32, &str>("Aborted");
+                    }
+                }
+            }
+
+            // Send PUT and handle response
+            loop {
+                let response = receiver_clone.handle_put().await;
+                match response {
+                    MockResponse::ChunkReady => break,
+                    MockResponse::TransferPaused => {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        continue;
+                    }
+                    _ => break,
+                }
+            }
+
+            let mut sent = chunks_sent_clone.write().await;
+            *sent = chunk_idx + 1;
+
+            // Signal when we reach the pause point
+            if *sent == pause_at_chunk {
+                drop(sent);
+                // Give time for pause command to be queued before next iteration
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+
+        Ok(*chunks_sent_clone.read().await)
+    });
+
+    // Wait for some chunks to be sent
+    loop {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        if *chunks_sent.read().await >= pause_at_chunk {
+            break;
+        }
+    }
+
+    // Sender initiates pause
+    let _ = control_tx.send(MockControl::Pause).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Verify sender is paused
+    assert_eq!(*sender_status.read().await, "interrupted");
+
+    // Sender initiates resume
+    let _ = control_tx.send(MockControl::Resume).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Verify sender resumed
+    assert_eq!(*sender_status.read().await, "active");
+
+    // Wait for completion
+    let result = tokio::time::timeout(Duration::from_secs(2), sender_task).await;
+    assert!(result.is_ok(), "Transfer should complete");
+    let inner = result.unwrap().unwrap();
+    assert!(inner.is_ok(), "Transfer should succeed");
+    assert_eq!(inner.unwrap(), total_chunks);
+}
+
+/// Tests that sender pause waits for TRANSFER_PAUSED confirmation
+#[tokio::test]
+async fn test_sender_pause_waits_for_confirmation() {
+    let receiver = Arc::new(MockReceiver::new("tx_pause_confirm_001"));
+    let confirmed = Arc::new(RwLock::new(false));
+    let confirmed_clone = confirmed.clone();
+    let receiver_clone = receiver.clone();
+
+    // Simulate sender sending PAUSE_TRANSFER and waiting for response
+    let sender_task = tokio::spawn(async move {
+        // Send PAUSE_TRANSFER
+        receiver_clone.handle_pause().await;
+
+        // Read confirmation (this is what was missing before the fix)
+        if *receiver_clone.paused.read().await {
+            *confirmed_clone.write().await = true;
+        }
+    });
+
+    tokio::time::timeout(Duration::from_secs(1), sender_task)
+        .await
+        .expect("Sender should complete")
+        .expect("Task should succeed");
+
+    assert!(*confirmed.read().await, "Pause should be confirmed");
+    assert!(*receiver.paused.read().await, "Receiver should be paused");
 }

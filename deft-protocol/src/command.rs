@@ -391,7 +391,10 @@ impl fmt::Display for Command {
             Command::ResumeTransferCmd { transfer_id } => {
                 write!(f, "DEFT RESUME_TRANSFER_CMD {}", transfer_id)
             }
-            Command::AbortTransfer { transfer_id, reason } => {
+            Command::AbortTransfer {
+                transfer_id,
+                reason,
+            } => {
                 if let Some(r) = reason {
                     write!(f, "DEFT ABORT_TRANSFER {} REASON:{}", transfer_id, r)
                 } else {
@@ -399,5 +402,204 @@ impl fmt::Display for Command {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chunk_range_new() {
+        let range = ChunkRange::new(5, 10);
+        assert_eq!(range.start, 5);
+        assert_eq!(range.end, 10);
+        assert_eq!(range.count(), 6);
+    }
+
+    #[test]
+    fn test_chunk_range_single() {
+        let range = ChunkRange::single(42);
+        assert_eq!(range.start, 42);
+        assert_eq!(range.end, 42);
+        assert_eq!(range.count(), 1);
+    }
+
+    #[test]
+    fn test_chunk_range_display() {
+        let range = ChunkRange::new(1, 10);
+        assert_eq!(format!("{}", range), "1-10");
+
+        let single = ChunkRange::single(5);
+        assert_eq!(format!("{}", single), "5");
+    }
+
+    #[test]
+    fn test_chunk_range_from_str() {
+        let range: ChunkRange = "1-10".parse().unwrap();
+        assert_eq!(range.start, 1);
+        assert_eq!(range.end, 10);
+
+        let single: ChunkRange = "42".parse().unwrap();
+        assert_eq!(single.start, 42);
+        assert_eq!(single.end, 42);
+    }
+
+    #[test]
+    fn test_chunk_range_invalid() {
+        let result: Result<ChunkRange, _> = "abc".parse();
+        assert!(result.is_err());
+
+        let result: Result<ChunkRange, _> = "10-5".parse(); // Invalid: start > end
+        assert!(result.is_err());
+
+        let result: Result<ChunkRange, _> = "1-abc".parse();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_command_hello_display() {
+        let cmd = Command::Hello {
+            version: "2.0".to_string(),
+            capabilities: Capabilities::new(),
+        };
+        let s = format!("{}", cmd);
+        assert!(s.contains("DEFT HELLO"));
+        assert!(s.contains("2.0"));
+    }
+
+    #[test]
+    fn test_command_auth_display() {
+        let cmd = Command::Auth {
+            partner_id: "partner-a".to_string(),
+        };
+        assert_eq!(format!("{}", cmd), "DEFT AUTH partner-a");
+    }
+
+    #[test]
+    fn test_command_discover_display() {
+        let cmd = Command::Discover;
+        assert_eq!(format!("{}", cmd), "DEFT DISCOVER");
+    }
+
+    #[test]
+    fn test_command_describe_display() {
+        let cmd = Command::Describe {
+            virtual_file: "invoices".to_string(),
+        };
+        assert_eq!(format!("{}", cmd), "DEFT DESCRIBE invoices");
+    }
+
+    #[test]
+    fn test_command_bye_display() {
+        let cmd = Command::Bye;
+        assert_eq!(format!("{}", cmd), "DEFT BYE");
+    }
+
+    #[test]
+    fn test_command_pause_transfer_display() {
+        let cmd = Command::PauseTransfer {
+            transfer_id: "tx-123".to_string(),
+        };
+        assert_eq!(format!("{}", cmd), "DEFT PAUSE_TRANSFER tx-123");
+    }
+
+    #[test]
+    fn test_command_resume_transfer_cmd_display() {
+        let cmd = Command::ResumeTransferCmd {
+            transfer_id: "tx-456".to_string(),
+        };
+        assert_eq!(format!("{}", cmd), "DEFT RESUME_TRANSFER_CMD tx-456");
+    }
+
+    #[test]
+    fn test_command_abort_transfer_with_reason() {
+        let cmd = Command::AbortTransfer {
+            transfer_id: "tx-789".to_string(),
+            reason: Some("user cancelled".to_string()),
+        };
+        let s = format!("{}", cmd);
+        assert!(s.contains("DEFT ABORT_TRANSFER tx-789"));
+        assert!(s.contains("REASON:user cancelled"));
+    }
+
+    #[test]
+    fn test_command_abort_transfer_without_reason() {
+        let cmd = Command::AbortTransfer {
+            transfer_id: "tx-abc".to_string(),
+            reason: None,
+        };
+        assert_eq!(format!("{}", cmd), "DEFT ABORT_TRANSFER tx-abc");
+    }
+
+    #[test]
+    fn test_command_put_display() {
+        let cmd = Command::Put {
+            virtual_file: "data".to_string(),
+            chunk_index: 5,
+            size: 1024,
+            hash: "sha256:abc".to_string(),
+            nonce: None,
+            compressed: false,
+        };
+        let s = format!("{}", cmd);
+        assert!(s.contains("DEFT PUT data CHUNK 5"));
+        assert!(s.contains("SIZE:1024"));
+        assert!(s.contains("HASH:sha256:abc"));
+    }
+
+    #[test]
+    fn test_command_put_with_nonce_and_compressed() {
+        let cmd = Command::Put {
+            virtual_file: "data".to_string(),
+            chunk_index: 3,
+            size: 512,
+            hash: "hash".to_string(),
+            nonce: Some(12345),
+            compressed: true,
+        };
+        let s = format!("{}", cmd);
+        assert!(s.contains("NONCE:12345"));
+        assert!(s.contains("COMPRESSED"));
+    }
+
+    #[test]
+    fn test_command_delta_sig_req_display() {
+        let cmd = Command::DeltaSigReq {
+            virtual_file: "file".to_string(),
+            block_size: 4096,
+        };
+        assert_eq!(format!("{}", cmd), "DEFT DELTA_SIG_REQ file 4096");
+    }
+
+    #[test]
+    fn test_command_delta_put_display() {
+        let cmd = Command::DeltaPut {
+            virtual_file: "file".to_string(),
+            delta_data: "base64data".to_string(),
+            final_hash: "finalhash".to_string(),
+        };
+        let s = format!("{}", cmd);
+        assert!(s.contains("DEFT DELTA_PUT file"));
+        assert!(s.contains("HASH:finalhash"));
+        assert!(s.contains("DATA:base64data"));
+    }
+
+    #[test]
+    fn test_command_serialization() {
+        let cmd = Command::Auth {
+            partner_id: "test".to_string(),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(cmd, parsed);
+    }
+
+    #[test]
+    fn test_chunk_range_serialization() {
+        let range = ChunkRange::new(10, 20);
+        let json = serde_json::to_string(&range).unwrap();
+        let parsed: ChunkRange = serde_json::from_str(&json).unwrap();
+        assert_eq!(range, parsed);
     }
 }

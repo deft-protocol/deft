@@ -206,6 +206,9 @@ mod base64_bytes {
     }
 }
 
+/// Maximum default delta size (256 MB) to prevent DOS attacks
+pub const MAX_DELTA_SIZE: usize = 256 * 1024 * 1024;
+
 /// Delta between two files
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Delta {
@@ -219,6 +222,15 @@ impl Delta {
     pub fn compute<R: Read + Seek>(
         signature: &FileSignature,
         new_file: &mut R,
+    ) -> std::io::Result<Self> {
+        Self::compute_with_limit(signature, new_file, MAX_DELTA_SIZE)
+    }
+
+    /// Compute delta with a custom size limit to prevent DOS attacks
+    pub fn compute_with_limit<R: Read + Seek>(
+        signature: &FileSignature,
+        new_file: &mut R,
+        max_delta_size: usize,
     ) -> std::io::Result<Self> {
         let lookup = signature.build_lookup();
         let block_size = signature.block_size;
@@ -301,6 +313,25 @@ impl Delta {
 
         if !pending_data.is_empty() {
             operations.push(DeltaOp::Insert { data: pending_data });
+        }
+
+        // Check delta size limit to prevent DOS
+        let delta_size: usize = operations
+            .iter()
+            .map(|op| match op {
+                DeltaOp::Copy { .. } => 8,
+                DeltaOp::Insert { data } => data.len() + 4,
+            })
+            .sum();
+
+        if delta_size > max_delta_size {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Delta size {} exceeds maximum allowed size {}",
+                    delta_size, max_delta_size
+                ),
+            ));
         }
 
         Ok(Delta {
@@ -467,5 +498,232 @@ mod tests {
         delta.apply(&mut source, &mut output).unwrap();
 
         assert_eq!(output, modified);
+    }
+
+    #[test]
+    fn test_delta_empty_file() {
+        let original = b"some content here";
+        let modified = b"";
+
+        let mut source = Cursor::new(original);
+        let mut new_file = Cursor::new(modified.as_slice());
+
+        let sig = FileSignature::compute(&mut source, 8).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let delta = Delta::compute(&sig, &mut new_file).unwrap();
+        assert_eq!(delta.target_size, 0);
+        assert!(delta.operations.is_empty());
+    }
+
+    #[test]
+    fn test_delta_file_smaller_than_block() {
+        let original = b"AB";
+        let modified = b"XY";
+
+        let mut source = Cursor::new(original);
+        let mut new_file = Cursor::new(modified.as_slice());
+
+        let sig = FileSignature::compute(&mut source, 8).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let delta = Delta::compute(&sig, &mut new_file).unwrap();
+
+        source.seek(SeekFrom::Start(0)).unwrap();
+        let mut output = Vec::new();
+        delta.apply(&mut source, &mut output).unwrap();
+
+        assert_eq!(output, modified);
+    }
+
+    #[test]
+    fn test_delta_file_larger_than_original() {
+        let original = b"AAAABBBB";
+        let modified = b"AAAABBBBCCCCDDDD";
+
+        let mut source = Cursor::new(original);
+        let mut new_file = Cursor::new(modified.as_slice());
+
+        let sig = FileSignature::compute(&mut source, 4).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let delta = Delta::compute(&sig, &mut new_file).unwrap();
+
+        source.seek(SeekFrom::Start(0)).unwrap();
+        let mut output = Vec::new();
+        delta.apply(&mut source, &mut output).unwrap();
+
+        assert_eq!(output, modified);
+
+        // Should have Copy ops for matching blocks plus Insert for new data
+        let stats = delta.stats();
+        assert!(stats.copy_blocks >= 2);
+        assert!(stats.insert_bytes > 0);
+    }
+
+    #[test]
+    fn test_delta_file_smaller_than_original() {
+        let original = b"AAAABBBBCCCCDDDD";
+        let modified = b"AAAABBBB";
+
+        let mut source = Cursor::new(original);
+        let mut new_file = Cursor::new(modified.as_slice());
+
+        let sig = FileSignature::compute(&mut source, 4).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let delta = Delta::compute(&sig, &mut new_file).unwrap();
+
+        source.seek(SeekFrom::Start(0)).unwrap();
+        let mut output = Vec::new();
+        delta.apply(&mut source, &mut output).unwrap();
+
+        assert_eq!(output, modified);
+    }
+
+    #[test]
+    fn test_delta_completely_different() {
+        let original = b"AAAAAAAA";
+        let modified = b"ZZZZZZZZ";
+
+        let mut source = Cursor::new(original);
+        let mut new_file = Cursor::new(modified.as_slice());
+
+        let sig = FileSignature::compute(&mut source, 4).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let delta = Delta::compute(&sig, &mut new_file).unwrap();
+
+        source.seek(SeekFrom::Start(0)).unwrap();
+        let mut output = Vec::new();
+        delta.apply(&mut source, &mut output).unwrap();
+
+        assert_eq!(output, modified);
+
+        // Should be all Insert ops since nothing matches
+        let stats = delta.stats();
+        assert_eq!(stats.copy_blocks, 0);
+        assert_eq!(stats.insert_bytes, modified.len() as u64);
+    }
+
+    #[test]
+    fn test_delta_changes_at_end() {
+        let original = b"AAAABBBBCCCC";
+        let modified = b"AAAABBBBZZZZ";
+
+        let mut source = Cursor::new(original);
+        let mut new_file = Cursor::new(modified.as_slice());
+
+        let sig = FileSignature::compute(&mut source, 4).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let delta = Delta::compute(&sig, &mut new_file).unwrap();
+
+        source.seek(SeekFrom::Start(0)).unwrap();
+        let mut output = Vec::new();
+        delta.apply(&mut source, &mut output).unwrap();
+
+        assert_eq!(output, modified);
+    }
+
+    #[test]
+    fn test_delta_changes_at_start() {
+        let original = b"AAAABBBBCCCC";
+        let modified = b"ZZZZBBBBCCCC";
+
+        let mut source = Cursor::new(original);
+        let mut new_file = Cursor::new(modified.as_slice());
+
+        let sig = FileSignature::compute(&mut source, 4).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let delta = Delta::compute(&sig, &mut new_file).unwrap();
+
+        source.seek(SeekFrom::Start(0)).unwrap();
+        let mut output = Vec::new();
+        delta.apply(&mut source, &mut output).unwrap();
+
+        assert_eq!(output, modified);
+    }
+
+    #[test]
+    fn test_delta_size_limit() {
+        // Create a large "modified" file that would exceed the limit
+        let original = b"small";
+        let modified = vec![b'X'; 1000]; // 1KB of new data
+
+        let mut source = Cursor::new(original);
+        let mut new_file = Cursor::new(modified.as_slice());
+
+        let sig = FileSignature::compute(&mut source, 8).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        // Should succeed with default limit
+        let result = Delta::compute(&sig, &mut new_file);
+        assert!(result.is_ok());
+
+        // Should fail with tiny limit
+        new_file.seek(SeekFrom::Start(0)).unwrap();
+        let result = Delta::compute_with_limit(&sig, &mut new_file, 100);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rolling_checksum_roll() {
+        // Test that roll() produces consistent results
+        let data = b"ABCDEFGH";
+
+        // Compute checksum for "BCDE" using update
+        let mut rolling1 = RollingChecksum::new();
+        rolling1.update(&data[1..5]);
+
+        // Compute checksum for "BCDE" using roll from "ABCD"
+        let mut rolling2 = RollingChecksum::new();
+        rolling2.update(&data[0..4]);
+        rolling2.roll(data[0], data[4]); // Roll out 'A', roll in 'E'
+
+        assert_eq!(rolling1.value(), rolling2.value());
+    }
+
+    #[test]
+    fn test_delta_savings() {
+        // Use larger file so Copy ops (8 bytes each) provide actual savings
+        let original: Vec<u8> = (0..1024).map(|i| (i % 256) as u8).collect();
+        let modified = original.clone();
+
+        let mut source = Cursor::new(original.as_slice());
+        let mut new_file = Cursor::new(modified.as_slice());
+
+        let sig = FileSignature::compute(&mut source, 64).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let delta = Delta::compute(&sig, &mut new_file).unwrap();
+
+        let savings = delta.savings(original.len() as u64);
+        // For identical 1KB file with 64-byte blocks (16 blocks),
+        // delta = 16 * 8 = 128 bytes, savings = 1 - 128/1024 = 87.5%
+        assert!(
+            savings > 0.5,
+            "Savings should be > 50% for identical file, got {}",
+            savings
+        );
+    }
+
+    #[test]
+    fn test_delta_stats() {
+        let original = b"AAAABBBB";
+        let modified = b"AAAAZZZZBBBB";
+
+        let mut source = Cursor::new(original);
+        let mut new_file = Cursor::new(modified.as_slice());
+
+        let sig = FileSignature::compute(&mut source, 4).unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+
+        let delta = Delta::compute(&sig, &mut new_file).unwrap();
+        let stats = delta.stats();
+
+        assert!(stats.total_ops > 0);
+        assert!(stats.copy_blocks > 0 || stats.insert_bytes > 0);
     }
 }

@@ -281,4 +281,154 @@ mod tests {
         store.delete("transfer-1").unwrap();
         assert!(!store.exists("transfer-1"));
     }
+
+    #[test]
+    fn test_transfer_state_progress() {
+        let mut state = TransferState::new(
+            "tx-progress".into(),
+            "data.bin".into(),
+            "alice".into(),
+            "bob".into(),
+            100,
+            102400,
+            1024,
+            "sha256:abc".into(),
+            vec![],
+        );
+
+        assert!(!state.is_complete());
+
+        // Mark 50% progress
+        for i in 0..50 {
+            state.mark_chunk_received(i);
+        }
+        assert_eq!(state.received_count(), 50);
+        assert_eq!(state.pending_chunks().len(), 50);
+        assert!(!state.is_complete());
+
+        // Complete the rest
+        for i in 50..100 {
+            state.mark_chunk_received(i);
+        }
+        assert!(state.is_complete());
+    }
+
+    #[test]
+    fn test_transfer_state_serialization() {
+        let state = TransferState::new(
+            "tx-serial".into(),
+            "file.txt".into(),
+            "sender".into(),
+            "receiver".into(),
+            10,
+            10240,
+            1024,
+            "hash".into(),
+            vec![(0, "chunk0hash".into()), (1, "chunk1hash".into())],
+        );
+
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("tx-serial"));
+        assert!(json.contains("file.txt"));
+
+        let parsed: TransferState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.transfer_id, "tx-serial");
+        assert_eq!(parsed.chunk_hashes.len(), 2);
+    }
+
+    #[test]
+    fn test_store_load_nonexistent() {
+        let temp = TempDir::new().unwrap();
+        let store = TransferStateStore::new(temp.path()).unwrap();
+
+        let result = store.load("nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_store_exists() {
+        let temp = TempDir::new().unwrap();
+        let store = TransferStateStore::new(temp.path()).unwrap();
+
+        assert!(!store.exists("not-there"));
+
+        let state = TransferState::new(
+            "exists-test".into(),
+            "vf".into(),
+            "s".into(),
+            "r".into(),
+            5,
+            5000,
+            1024,
+            "hash".into(),
+            vec![],
+        );
+        store.save(&state).unwrap();
+        assert!(store.exists("exists-test"));
+    }
+
+    #[test]
+    fn test_find_by_virtual_file_not_found() {
+        let temp = TempDir::new().unwrap();
+        let store = TransferStateStore::new(temp.path()).unwrap();
+
+        let result = store.find_by_virtual_file("nonexistent").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_delete_nonexistent() {
+        let temp = TempDir::new().unwrap();
+        let store = TransferStateStore::new(temp.path()).unwrap();
+
+        // Should not panic
+        let result = store.delete("nonexistent");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_transfer_state_chunk_hashes() {
+        let hashes = vec![
+            (0, "hash0".to_string()),
+            (1, "hash1".to_string()),
+            (2, "hash2".to_string()),
+        ];
+
+        let state = TransferState::new(
+            "tx-hashes".into(),
+            "file".into(),
+            "s".into(),
+            "r".into(),
+            3,
+            3072,
+            1024,
+            "filehash".into(),
+            hashes.clone(),
+        );
+
+        assert_eq!(state.chunk_hashes.len(), 3);
+        assert_eq!(state.chunk_hashes[0], (0, "hash0".to_string()));
+    }
+
+    #[test]
+    fn test_mark_same_chunk_twice() {
+        let mut state = TransferState::new(
+            "tx-dup".into(),
+            "file".into(),
+            "s".into(),
+            "r".into(),
+            5,
+            5000,
+            1024,
+            "hash".into(),
+            vec![],
+        );
+
+        state.mark_chunk_received(2);
+        assert_eq!(state.received_count(), 1);
+
+        // Mark same chunk again - should be idempotent
+        state.mark_chunk_received(2);
+        assert_eq!(state.received_count(), 1);
+    }
 }

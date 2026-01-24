@@ -288,4 +288,68 @@ mod tests {
             RateLimitResult::Exceeded
         );
     }
+
+    #[test]
+    fn test_rate_limit_config_default() {
+        let config = RateLimitConfig::default();
+        assert_eq!(config.max_connections_per_ip, 10);
+        assert_eq!(config.max_requests_per_partner, 1000);
+        assert_eq!(config.max_bytes_per_partner, 1024 * 1024 * 1024);
+        assert_eq!(config.window_duration, Duration::from_secs(60));
+        assert_eq!(config.ban_duration, Duration::from_secs(300));
+    }
+
+    #[test]
+    fn test_rate_limit_result_is_allowed() {
+        assert!(RateLimitResult::Allowed.is_allowed());
+        assert!(!RateLimitResult::Exceeded.is_allowed());
+        assert!(!RateLimitResult::Banned.is_allowed());
+    }
+
+    #[tokio::test]
+    async fn test_multiple_ips() {
+        let config = RateLimitConfig {
+            max_connections_per_ip: 2,
+            ..Default::default()
+        };
+        let limiter = RateLimiter::new(config);
+
+        let ip1: IpAddr = "192.168.1.1".parse().unwrap();
+        let ip2: IpAddr = "192.168.1.2".parse().unwrap();
+
+        // Both IPs should be allowed independently
+        assert!(limiter.check_ip(ip1).await.is_allowed());
+        assert!(limiter.check_ip(ip2).await.is_allowed());
+        assert!(limiter.check_ip(ip1).await.is_allowed());
+        assert!(limiter.check_ip(ip2).await.is_allowed());
+
+        // ip1 should now be exceeded
+        assert_eq!(limiter.check_ip(ip1).await, RateLimitResult::Exceeded);
+        // ip2 should also be exceeded
+        assert_eq!(limiter.check_ip(ip2).await, RateLimitResult::Exceeded);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_partners() {
+        let config = RateLimitConfig {
+            max_requests_per_partner: 2,
+            ..Default::default()
+        };
+        let limiter = RateLimiter::new(config);
+
+        assert!(limiter.check_partner("partner-a").await.is_allowed());
+        assert!(limiter.check_partner("partner-b").await.is_allowed());
+        assert!(limiter.check_partner("partner-a").await.is_allowed());
+        assert!(limiter.check_partner("partner-b").await.is_allowed());
+
+        // Both should now be exceeded
+        assert_eq!(
+            limiter.check_partner("partner-a").await,
+            RateLimitResult::Exceeded
+        );
+        assert_eq!(
+            limiter.check_partner("partner-b").await,
+            RateLimitResult::Exceeded
+        );
+    }
 }

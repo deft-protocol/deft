@@ -211,4 +211,85 @@ mod tests {
         assert_eq!(partial.len(), 1);
         assert_eq!(partial[0].name, "vf1");
     }
+
+    #[test]
+    fn test_list_for_partner_empty() {
+        let manager = VirtualFileManager::new(1024);
+        let list = manager.list_for_partner(&[]);
+        assert!(list.is_empty());
+    }
+
+    #[test]
+    fn test_list_for_partner_nonexistent() {
+        let manager = VirtualFileManager::new(1024);
+        let list = manager.list_for_partner(&["nonexistent".to_string()]);
+        assert!(list.is_empty());
+    }
+
+    #[test]
+    fn test_virtual_file_struct() {
+        let vf = VirtualFile {
+            name: "test-vf".to_string(),
+            physical_path: PathBuf::from("/data/test.txt"),
+            direction: Direction::Send,
+            chunks: None,
+        };
+
+        assert_eq!(vf.name, "test-vf");
+        assert_eq!(vf.physical_path, PathBuf::from("/data/test.txt"));
+        assert!(matches!(vf.direction, Direction::Send));
+        assert!(vf.chunks.is_none());
+    }
+
+    #[test]
+    fn test_compute_chunks_file_not_found() {
+        let manager = VirtualFileManager::new(1024);
+        let result = manager.compute_chunks("nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_direction_conversion() {
+        let send_dir = Direction::Send;
+        let recv_dir = Direction::Receive;
+
+        let send_proto = match send_dir {
+            Direction::Send => FileDirection::Send,
+            Direction::Receive => FileDirection::Receive,
+        };
+        assert!(matches!(send_proto, FileDirection::Send));
+
+        let recv_proto = match recv_dir {
+            Direction::Send => FileDirection::Send,
+            Direction::Receive => FileDirection::Receive,
+        };
+        assert!(matches!(recv_proto, FileDirection::Receive));
+    }
+
+    #[test]
+    fn test_register_multiple_files() {
+        let temp = TempDir::new().unwrap();
+        let manager = VirtualFileManager::new(2048);
+
+        for i in 0..5 {
+            let path = create_test_file(&temp, &format!("file{}.txt", i), b"test content");
+            manager
+                .register(&VirtualFileConfig {
+                    name: format!("vf_{}", i),
+                    path: path.to_string_lossy().to_string(),
+                    direction: if i % 2 == 0 {
+                        Direction::Send
+                    } else {
+                        Direction::Receive
+                    },
+                })
+                .unwrap();
+        }
+
+        // Verify all registered
+        for i in 0..5 {
+            let info = manager.get_info(&format!("vf_{}", i));
+            assert!(info.is_some());
+        }
+    }
 }

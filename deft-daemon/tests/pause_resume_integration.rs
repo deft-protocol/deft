@@ -66,8 +66,22 @@ impl TestFixture {
         Self::generate_test_certs(&dir_a, &dir_b)?;
 
         // Create config files
-        Self::create_config(&dir_a, "instance-a", api_port_a, deft_port_a, &dir_b, deft_port_b)?;
-        Self::create_config(&dir_b, "instance-b", api_port_b, deft_port_b, &dir_a, deft_port_a)?;
+        Self::create_config(
+            &dir_a,
+            "instance-a",
+            api_port_a,
+            deft_port_a,
+            &dir_b,
+            deft_port_b,
+        )?;
+        Self::create_config(
+            &dir_b,
+            "instance-b",
+            api_port_b,
+            deft_port_b,
+            &dir_a,
+            deft_port_a,
+        )?;
 
         // Create a test file in instance-b's shares
         let test_file_path = dir_b.join("shares/test-pause-resume.bin");
@@ -80,10 +94,12 @@ impl TestFixture {
         let deftd_path = Self::find_deftd_binary()?;
 
         // Start instances
-        let instance_a = Self::start_instance(&deftd_path, &dir_a, "instance-a", api_port_a, deft_port_a)?;
+        let instance_a =
+            Self::start_instance(&deftd_path, &dir_a, "instance-a", api_port_a, deft_port_a)?;
         tokio::time::sleep(Duration::from_millis(500)).await;
-        
-        let instance_b = Self::start_instance(&deftd_path, &dir_b, "instance-b", api_port_b, deft_port_b)?;
+
+        let instance_b =
+            Self::start_instance(&deftd_path, &dir_b, "instance-b", api_port_b, deft_port_b)?;
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         let client = reqwest::Client::builder()
@@ -113,27 +129,27 @@ impl TestFixture {
             _temp_dir: temp_dir,
         })
     }
-    
+
     /// Use existing /tmp/deft-integration infrastructure (assumes instances are already running)
     async fn use_existing_infrastructure() -> Result<Self, Box<dyn std::error::Error>> {
         let dir_a = PathBuf::from("/tmp/deft-integration/instance-a");
         let dir_b = PathBuf::from("/tmp/deft-integration/instance-b");
-        
+
         // Read API ports from config files
         let config_a = std::fs::read_to_string(dir_a.join("config.toml"))?;
         let config_b = std::fs::read_to_string(dir_b.join("config.toml"))?;
-        
+
         let api_port_a = Self::extract_api_port(&config_a)?;
         let api_port_b = Self::extract_api_port(&config_b)?;
-        
+
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()?;
-            
+
         // Check if instances are running
         Self::wait_for_instance(&client, api_port_a).await?;
         Self::wait_for_instance(&client, api_port_b).await?;
-        
+
         // Create test file if it doesn't exist
         let shares_dir = dir_b.join("shares");
         std::fs::create_dir_all(&shares_dir).ok();
@@ -143,10 +159,10 @@ impl TestFixture {
             let data = vec![0xABu8; 50 * 1024 * 1024]; // 50MB file
             test_file.write_all(&data)?;
         }
-        
+
         // Create a dummy temp_dir that won't delete anything
         let temp_dir = tempfile::tempdir()?;
-        
+
         Ok(Self {
             instance_a: TestInstance {
                 process: Self::dummy_process()?,
@@ -166,7 +182,7 @@ impl TestFixture {
             _temp_dir: temp_dir,
         })
     }
-    
+
     fn extract_api_port(config: &str) -> Result<u16, Box<dyn std::error::Error>> {
         for line in config.lines() {
             if line.contains("api_listen") {
@@ -179,12 +195,10 @@ impl TestFixture {
         }
         Err("Could not find api_listen port in config".into())
     }
-    
+
     fn dummy_process() -> Result<Child, Box<dyn std::error::Error>> {
         // Create a dummy process that does nothing (sleep)
-        Ok(Command::new("sleep")
-            .arg("0")
-            .spawn()?)
+        Ok(Command::new("sleep").arg("0").spawn()?)
     }
 
     fn find_deftd_binary() -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -205,7 +219,10 @@ impl TestFixture {
         Err("deftd binary not found. Run 'cargo build --release' first.".into())
     }
 
-    fn generate_test_certs(dir_a: &PathBuf, dir_b: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    fn generate_test_certs(
+        dir_a: &PathBuf,
+        dir_b: &PathBuf,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Use openssl to generate test certificates
         let ca_key = dir_a.join("certs/ca.key");
         let ca_cert = dir_a.join("certs/ca.crt");
@@ -230,7 +247,7 @@ impl TestFixture {
 
         // Generate certs for instance-a
         Self::generate_instance_cert(dir_a, "instance-a", &ca_key, &ca_cert)?;
-        
+
         // Generate certs for instance-b
         Self::generate_instance_cert(dir_b, "instance-b", &ca_key, &ca_cert)?;
 
@@ -287,9 +304,14 @@ impl TestFixture {
         remote_dir: &PathBuf,
         remote_deft_port: u16,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let remote_name = if name == "instance-a" { "instance-b" } else { "instance-a" };
-        
-        let config = format!(r#"
+        let remote_name = if name == "instance-a" {
+            "instance-b"
+        } else {
+            "instance-a"
+        };
+
+        let config = format!(
+            r#"
 [server]
 identity = "{name}"
 listen_address = "127.0.0.1"
@@ -360,7 +382,10 @@ allowed_partners = ["{remote_name}"]
         Ok(child)
     }
 
-    async fn wait_for_instance(client: &reqwest::Client, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    async fn wait_for_instance(
+        client: &reqwest::Client,
+        port: u16,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let url = format!("http://127.0.0.1:{}/api/transfers", port);
         for i in 0..30 {
             match client.get(&url).send().await {
@@ -383,8 +408,9 @@ allowed_partners = ["{remote_name}"]
         // Read config to find correct server name
         let config_b = std::fs::read_to_string(self.instance_b.config_dir.join("config.toml"))?;
         let server_name = Self::extract_trusted_server_name(&config_b).unwrap_or("A".to_string());
-        
-        let resp = self.client
+
+        let resp = self
+            .client
             .post(self.instance_b.api_url("/api/client/connect"))
             .json(&serde_json::json!({
                 "server_name": server_name,
@@ -396,7 +422,7 @@ allowed_partners = ["{remote_name}"]
             .await?;
         Ok(resp)
     }
-    
+
     fn extract_trusted_server_name(config: &str) -> Option<String> {
         // Find [[trusted_servers]] section and extract name
         let mut in_trusted_servers = false;
@@ -406,10 +432,7 @@ allowed_partners = ["{remote_name}"]
                 continue;
             }
             if in_trusted_servers && line.trim().starts_with("name = ") {
-                let name = line.split('=').nth(1)?
-                    .trim()
-                    .trim_matches('"')
-                    .to_string();
+                let name = line.split('=').nth(1)?.trim().trim_matches('"').to_string();
                 return Some(name);
             }
             if line.starts_with("[[") && in_trusted_servers {
@@ -420,9 +443,13 @@ allowed_partners = ["{remote_name}"]
     }
 
     async fn push_file_from_b(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let file_path = self.instance_b.config_dir.join("shares/test-pause-resume.bin");
+        let file_path = self
+            .instance_b
+            .config_dir
+            .join("shares/test-pause-resume.bin");
         // Use "files-to-a" which is the receive virtual file on instance-a
-        let resp = self.client
+        let resp = self
+            .client
             .post(self.instance_b.api_url("/api/client/push"))
             .json(&serde_json::json!({
                 "file_path": file_path.to_str().unwrap(),
@@ -436,8 +463,12 @@ allowed_partners = ["{remote_name}"]
         Ok(resp)
     }
 
-    async fn get_transfers(&self, instance: &TestInstance) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error>> {
-        let resp: Vec<serde_json::Value> = self.client
+    async fn get_transfers(
+        &self,
+        instance: &TestInstance,
+    ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error>> {
+        let resp: Vec<serde_json::Value> = self
+            .client
             .get(instance.api_url("/api/transfers"))
             .send()
             .await?
@@ -446,8 +477,13 @@ allowed_partners = ["{remote_name}"]
         Ok(resp)
     }
 
-    async fn interrupt_transfer(&self, instance: &TestInstance, transfer_id: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let resp = self.client
+    async fn interrupt_transfer(
+        &self,
+        instance: &TestInstance,
+        transfer_id: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let resp = self
+            .client
             .post(instance.api_url(&format!("/api/transfers/{}/interrupt", transfer_id)))
             .send()
             .await?
@@ -456,8 +492,13 @@ allowed_partners = ["{remote_name}"]
         Ok(resp)
     }
 
-    async fn resume_transfer(&self, instance: &TestInstance, transfer_id: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let resp = self.client
+    async fn resume_transfer(
+        &self,
+        instance: &TestInstance,
+        transfer_id: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let resp = self
+            .client
             .post(instance.api_url(&format!("/api/transfers/{}/resume", transfer_id)))
             .send()
             .await?
@@ -466,7 +507,13 @@ allowed_partners = ["{remote_name}"]
         Ok(resp)
     }
 
-    async fn wait_for_transfer_status(&self, instance: &TestInstance, transfer_id: &str, expected_status: &str, timeout_ms: u64) -> Result<bool, Box<dyn std::error::Error>> {
+    async fn wait_for_transfer_status(
+        &self,
+        instance: &TestInstance,
+        transfer_id: &str,
+        expected_status: &str,
+        timeout_ms: u64,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
         let start = std::time::Instant::now();
         while start.elapsed().as_millis() < timeout_ms as u128 {
             let transfers = self.get_transfers(instance).await?;
@@ -513,13 +560,20 @@ async fn test_pause_resume_from_receiver() {
     tokio::time::sleep(Duration::from_millis(1000)).await;
 
     // Check transfer exists on both sides - get transfer_id from receiver (A)
-    let transfers_a = fixture.get_transfers(&fixture.instance_a).await.unwrap_or_default();
-    let transfers_b = fixture.get_transfers(&fixture.instance_b).await.unwrap_or_default();
+    let transfers_a = fixture
+        .get_transfers(&fixture.instance_a)
+        .await
+        .unwrap_or_default();
+    let transfers_b = fixture
+        .get_transfers(&fixture.instance_b)
+        .await
+        .unwrap_or_default();
     println!("Transfers on A: {:?}", transfers_a);
     println!("Transfers on B: {:?}", transfers_b);
 
     // Get transfer_id from A (the receiver)
-    let transfer_id = transfers_a.first()
+    let transfer_id = transfers_a
+        .first()
         .and_then(|t| t["id"].as_str())
         .unwrap_or("unknown")
         .to_string();
@@ -532,35 +586,57 @@ async fn test_pause_resume_from_receiver() {
 
     // Pause from receiver (A)
     println!("Pausing transfer from receiver (A)...");
-    let pause_result = fixture.interrupt_transfer(&fixture.instance_a, &transfer_id).await;
+    let pause_result = fixture
+        .interrupt_transfer(&fixture.instance_a, &transfer_id)
+        .await;
     println!("Pause result: {:?}", pause_result);
 
     // Verify transfer is interrupted on A
     tokio::time::sleep(Duration::from_millis(200)).await;
-    let status_ok = fixture.wait_for_transfer_status(&fixture.instance_a, &transfer_id, "interrupted", 2000).await.unwrap_or(false);
+    let status_ok = fixture
+        .wait_for_transfer_status(&fixture.instance_a, &transfer_id, "interrupted", 2000)
+        .await
+        .unwrap_or(false);
     assert!(status_ok, "Transfer should be interrupted on A");
 
     // Wait a bit while paused
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     // Verify transfer is still interrupted (not completed)
-    let transfers_a = fixture.get_transfers(&fixture.instance_a).await.unwrap_or_default();
+    let transfers_a = fixture
+        .get_transfers(&fixture.instance_a)
+        .await
+        .unwrap_or_default();
     println!("Transfers on A after pause: {:?}", transfers_a);
-    let transfer_a = transfers_a.iter().find(|t| t["id"].as_str() == Some(&transfer_id));
+    let transfer_a = transfers_a
+        .iter()
+        .find(|t| t["id"].as_str() == Some(&transfer_id));
     assert!(transfer_a.is_some(), "Transfer should still exist on A");
-    assert_eq!(transfer_a.unwrap()["status"].as_str(), Some("interrupted"), "Transfer should still be interrupted");
+    assert_eq!(
+        transfer_a.unwrap()["status"].as_str(),
+        Some("interrupted"),
+        "Transfer should still be interrupted"
+    );
 
     // Resume from receiver (A)
     println!("Resuming transfer from receiver (A)...");
-    let resume_result = fixture.resume_transfer(&fixture.instance_a, &transfer_id).await;
+    let resume_result = fixture
+        .resume_transfer(&fixture.instance_a, &transfer_id)
+        .await;
     println!("Resume result: {:?}", resume_result);
 
     // Verify transfer resumes
-    let resumed = fixture.wait_for_transfer_status(&fixture.instance_a, &transfer_id, "active", 3000).await.unwrap_or(false);
+    let resumed = fixture
+        .wait_for_transfer_status(&fixture.instance_a, &transfer_id, "active", 3000)
+        .await
+        .unwrap_or(false);
     assert!(resumed, "Transfer should resume to active status");
 
     // Wait for transfer to complete
-    let completed = fixture.wait_for_transfer_status(&fixture.instance_a, &transfer_id, "completed", 30000).await.unwrap_or(false);
+    let completed = fixture
+        .wait_for_transfer_status(&fixture.instance_a, &transfer_id, "completed", 30000)
+        .await
+        .unwrap_or(false);
     println!("Transfer completed: {}", completed);
 
     println!("Test passed!");
@@ -590,10 +666,14 @@ async fn test_pause_resume_from_sender() {
     tokio::time::sleep(Duration::from_millis(1000)).await;
 
     // Get transfer_id from B's transfers list
-    let transfers_b = fixture.get_transfers(&fixture.instance_b).await.unwrap_or_default();
+    let transfers_b = fixture
+        .get_transfers(&fixture.instance_b)
+        .await
+        .unwrap_or_default();
     println!("Transfers on B: {:?}", transfers_b);
-    
-    let transfer_id = transfers_b.first()
+
+    let transfer_id = transfers_b
+        .first()
         .and_then(|t| t["id"].as_str())
         .unwrap_or("unknown")
         .to_string();
@@ -606,11 +686,16 @@ async fn test_pause_resume_from_sender() {
 
     // Pause from sender (B)
     println!("Pausing transfer from sender (B)...");
-    let pause_result = fixture.interrupt_transfer(&fixture.instance_b, &transfer_id).await;
+    let pause_result = fixture
+        .interrupt_transfer(&fixture.instance_b, &transfer_id)
+        .await;
     println!("Pause result: {:?}", pause_result);
 
     // Verify transfer is interrupted on B
-    let status_ok = fixture.wait_for_transfer_status(&fixture.instance_b, &transfer_id, "interrupted", 2000).await.unwrap_or(false);
+    let status_ok = fixture
+        .wait_for_transfer_status(&fixture.instance_b, &transfer_id, "interrupted", 2000)
+        .await
+        .unwrap_or(false);
     assert!(status_ok, "Transfer should be interrupted on B");
 
     // Wait a bit
@@ -618,11 +703,16 @@ async fn test_pause_resume_from_sender() {
 
     // Resume from sender (B)
     println!("Resuming transfer from sender (B)...");
-    let resume_result = fixture.resume_transfer(&fixture.instance_b, &transfer_id).await;
+    let resume_result = fixture
+        .resume_transfer(&fixture.instance_b, &transfer_id)
+        .await;
     println!("Resume result: {:?}", resume_result);
 
     // Verify transfer resumes
-    let resumed = fixture.wait_for_transfer_status(&fixture.instance_b, &transfer_id, "active", 3000).await.unwrap_or(false);
+    let resumed = fixture
+        .wait_for_transfer_status(&fixture.instance_b, &transfer_id, "active", 3000)
+        .await
+        .unwrap_or(false);
     assert!(resumed, "Transfer should resume to active status");
 
     println!("Test passed!");

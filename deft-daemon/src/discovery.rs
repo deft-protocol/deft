@@ -429,4 +429,78 @@ mod tests {
         let best = disc.get_endpoint("partner1").await;
         assert_eq!(best, Some("host2:7741".into()));
     }
+
+    #[test]
+    fn test_discovery_config_default() {
+        let config = DiscoveryConfig::default();
+        assert_eq!(config.strategy, FailoverStrategy::RoundRobin);
+        assert!(config.health_check_interval.as_secs() > 0);
+        assert_eq!(config.max_retries, 3);
+    }
+
+    #[test]
+    fn test_failover_strategy_eq() {
+        assert_eq!(FailoverStrategy::RoundRobin, FailoverStrategy::RoundRobin);
+        assert_eq!(FailoverStrategy::Sequential, FailoverStrategy::Sequential);
+        assert_ne!(FailoverStrategy::RoundRobin, FailoverStrategy::Sequential);
+    }
+
+    #[test]
+    fn test_endpoint_health_variants() {
+        let healthy = EndpointHealth::Healthy;
+        let degraded = EndpointHealth::Degraded;
+        let unhealthy = EndpointHealth::Unhealthy;
+
+        assert_eq!(healthy, EndpointHealth::Healthy);
+        assert_eq!(degraded, EndpointHealth::Degraded);
+        assert_eq!(unhealthy, EndpointHealth::Unhealthy);
+    }
+
+    #[tokio::test]
+    async fn test_get_endpoint_unknown_partner() {
+        let disc = EndpointDiscovery::new(DiscoveryConfig::default());
+        let result = disc.get_endpoint("unknown-partner").await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_all_endpoints_unknown_partner() {
+        let disc = EndpointDiscovery::new(DiscoveryConfig::default());
+        let endpoints = disc.get_all_endpoints("unknown-partner").await;
+        assert!(endpoints.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_record_on_unknown_partner() {
+        let disc = EndpointDiscovery::new(DiscoveryConfig::default());
+        // Should not panic
+        disc.record_success("unknown", "host:7741", 100).await;
+        disc.record_failure("unknown", "host:7741").await;
+    }
+
+    #[test]
+    fn test_endpoint_state_latency_tracking() {
+        let mut state = EndpointState::new("test:7741".into());
+
+        state.record_success(100);
+        state.record_success(200);
+        state.record_success(150);
+
+        assert!(state.avg_latency_ms.is_some());
+    }
+
+    #[test]
+    fn test_endpoint_recovery() {
+        let mut state = EndpointState::new("test:7741".into());
+
+        // Degrade the endpoint
+        for _ in 0..6 {
+            state.record_failure();
+        }
+        assert_eq!(state.health, EndpointHealth::Unhealthy);
+
+        // Recover with successes
+        state.record_success(50);
+        assert_eq!(state.consecutive_failures, 0);
+    }
 }

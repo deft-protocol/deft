@@ -1045,7 +1045,10 @@ mod tests {
     fn test_parse_abort_transfer_without_reason() {
         let cmd = Parser::parse_command("DEFT ABORT_TRANSFER tx_cancel123").unwrap();
         match cmd {
-            Command::AbortTransfer { transfer_id, reason } => {
+            Command::AbortTransfer {
+                transfer_id,
+                reason,
+            } => {
                 assert_eq!(transfer_id, "tx_cancel123");
                 assert!(reason.is_none());
             }
@@ -1055,9 +1058,13 @@ mod tests {
 
     #[test]
     fn test_parse_abort_transfer_with_reason() {
-        let cmd = Parser::parse_command("DEFT ABORT_TRANSFER tx_cancel456 REASON:user_requested").unwrap();
+        let cmd = Parser::parse_command("DEFT ABORT_TRANSFER tx_cancel456 REASON:user_requested")
+            .unwrap();
         match cmd {
-            Command::AbortTransfer { transfer_id, reason } => {
+            Command::AbortTransfer {
+                transfer_id,
+                reason,
+            } => {
                 assert_eq!(transfer_id, "tx_cancel456");
                 assert_eq!(reason, Some("user_requested".to_string()));
             }
@@ -1086,7 +1093,10 @@ mod tests {
             transfer_id: "tx_abort_test".to_string(),
             reason: Some("timeout".to_string()),
         };
-        assert_eq!(cmd.to_string(), "DEFT ABORT_TRANSFER tx_abort_test REASON:timeout");
+        assert_eq!(
+            cmd.to_string(),
+            "DEFT ABORT_TRANSFER tx_abort_test REASON:timeout"
+        );
     }
 
     #[test]
@@ -1115,7 +1125,10 @@ mod tests {
     fn test_parse_transfer_aborted_response_without_reason() {
         let resp = Parser::parse_response("DEFT TRANSFER_ABORTED tx_aborted789").unwrap();
         match resp {
-            Response::TransferAborted { transfer_id, reason } => {
+            Response::TransferAborted {
+                transfer_id,
+                reason,
+            } => {
                 assert_eq!(transfer_id, "tx_aborted789");
                 assert!(reason.is_none());
             }
@@ -1125,9 +1138,14 @@ mod tests {
 
     #[test]
     fn test_parse_transfer_aborted_response_with_reason() {
-        let resp = Parser::parse_response("DEFT TRANSFER_ABORTED tx_aborted789 REASON:network_error").unwrap();
+        let resp =
+            Parser::parse_response("DEFT TRANSFER_ABORTED tx_aborted789 REASON:network_error")
+                .unwrap();
         match resp {
-            Response::TransferAborted { transfer_id, reason } => {
+            Response::TransferAborted {
+                transfer_id,
+                reason,
+            } => {
                 assert_eq!(transfer_id, "tx_aborted789");
                 assert_eq!(reason, Some("network_error".to_string()));
             }

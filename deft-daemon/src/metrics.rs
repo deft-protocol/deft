@@ -235,4 +235,54 @@ mod tests {
         assert!(metrics.contains("deft_connections_total"));
         assert!(metrics.contains("deft_connections_active"));
     }
+
+    #[test]
+    fn test_chunk_metrics() {
+        register_metrics();
+
+        record_chunk_sent(0.01);
+        record_chunk_sent(0.02);
+        record_chunk_received();
+        record_chunk_failed("hash_mismatch");
+
+        let metrics = gather_metrics();
+        assert!(metrics.contains("deft_chunks_sent_total"));
+        assert!(metrics.contains("deft_chunks_received_total"));
+    }
+
+    #[test]
+    fn test_compression_metrics() {
+        register_metrics();
+        record_compression_saved(1024);
+
+        let metrics = gather_metrics();
+        assert!(metrics.contains("deft_bytes_compressed_saved_total"));
+    }
+
+    #[test]
+    fn test_error_metrics() {
+        register_metrics();
+        record_error("connection_reset");
+
+        let metrics = gather_metrics();
+        assert!(metrics.contains("deft_errors_total"));
+    }
+
+    #[test]
+    fn test_endpoint_health() {
+        register_metrics();
+        update_endpoint_health("partner-a", "10.0.0.1:7750", 1);
+
+        let metrics = gather_metrics();
+        assert!(metrics.contains("deft_endpoint_health"));
+    }
+
+    #[test]
+    fn test_transfer_failed() {
+        register_metrics();
+        record_transfer_complete("recv", false, 0, 0.5);
+
+        let metrics = gather_metrics();
+        assert!(metrics.contains("deft_transfers_total"));
+    }
 }
