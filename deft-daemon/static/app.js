@@ -80,20 +80,21 @@ function handleWsMessage(msg) {
 }
 
 function updateTransferProgress(transferId, bytesTransferred, totalBytes, progressPercent) {
-    // Update the progress bar for this transfer in the table
-    const rows = document.querySelectorAll('#transfers-table tr');
-    for (const row of rows) {
-        const idCell = row.querySelector('td:first-child code');
-        if (idCell && transferId.startsWith(idCell.textContent)) {
-            const progressFill = row.querySelector('.progress-fill');
-            const progressText = row.querySelector('small');
-            if (progressFill) {
-                progressFill.style.width = `${progressPercent}%`;
-            }
-            if (progressText) {
-                progressText.textContent = `${progressPercent}% (${formatBytes(bytesTransferred)} / ${formatBytes(totalBytes)})`;
-            }
-            break;
+    // Update progress in unified transfer cards
+    const card = document.querySelector(`.transfer-card[data-transfer-id="${transferId}"]`);
+    if (card) {
+        const progressFill = card.querySelector('.progress-fill');
+        const progressText = card.querySelector('.progress-text');
+        const metaBytes = card.querySelector('.transfer-meta span:last-child');
+
+        if (progressFill) {
+            progressFill.style.width = `${progressPercent}%`;
+        }
+        if (progressText) {
+            progressText.textContent = `${progressPercent}%`;
+        }
+        if (metaBytes) {
+            metaBytes.textContent = `${formatBytes(bytesTransferred)} / ${formatBytes(totalBytes)}`;
         }
     }
 }

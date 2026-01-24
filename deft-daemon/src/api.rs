@@ -546,7 +546,11 @@ impl ApiState {
 
     /// Get transfer status for debugging
     pub async fn get_transfer_status(&self, id: &str) -> Option<String> {
-        self.transfers.read().await.get(id).map(|t| t.status.clone())
+        self.transfers
+            .read()
+            .await
+            .get(id)
+            .map(|t| t.status.clone())
     }
 
     pub async fn fail_transfer(&self, id: &str, error: &str) {
@@ -2889,10 +2893,37 @@ async fn push_file(
                     .as_bytes(),
                 )
                 .await?;
-            reader.read_line(&mut line).await?;
+
+            // Read response, consuming any stale TRANSFER_PAUSED from previous retries
+            let mut paused = false;
+            for _ in 0..5 {
+                line.clear();
+                reader.read_line(&mut line).await?;
+
+                if line.contains("CHUNK_READY") {
+                    // Receiver accepted, exit the consume loop
+                    break;
+                } else if line.contains("TRANSFER_PAUSED") {
+                    // Might be stale, try reading one more time with short timeout
+                    paused = true;
+                    // Check if there's more data immediately available
+                    use tokio::time::{timeout, Duration};
+                    line.clear();
+                    match timeout(Duration::from_millis(50), reader.read_line(&mut line)).await {
+                        Ok(Ok(_)) if line.contains("CHUNK_READY") => {
+                            paused = false;
+                            break;
+                        }
+                        _ => break, // No more data or still paused
+                    }
+                } else {
+                    // Other response (TRANSFER_RESUMED, error, etc.)
+                    break;
+                }
+            }
 
             // Handle TRANSFER_PAUSED response - remote paused the transfer
-            if line.contains("TRANSFER_PAUSED") {
+            if paused || line.contains("TRANSFER_PAUSED") {
                 tracing::info!(
                     "Remote paused transfer {}, will retry PUT periodically",
                     transfer_id
@@ -2917,17 +2948,33 @@ async fn push_file(
                                 )
                                 .await;
                             tracing::info!("Sent RESUME_TRANSFER_CMD {} to remote", transfer_id);
-                            line.clear();
-                            if reader.read_line(&mut line).await.is_ok()
-                                && line.contains("TRANSFER_RESUMED")
-                            {
-                                state.resume_transfer(transfer_id).await;
-                                tracing::info!(
-                                    "Transfer {} resumed via sender command",
-                                    transfer_id
-                                );
-                                break;
+
+                            // Read response, consuming any stale TRANSFER_PAUSED
+                            for _ in 0..3 {
+                                line.clear();
+                                if reader.read_line(&mut line).await.is_ok() {
+                                    if line.contains("TRANSFER_RESUMED") {
+                                        state.resume_transfer(transfer_id).await;
+                                        tracing::info!(
+                                            "Transfer {} resumed via sender command",
+                                            transfer_id
+                                        );
+                                        break;
+                                    } else if line.contains("TRANSFER_PAUSED") {
+                                        // Stale response, read again
+                                        tracing::debug!("Consumed stale TRANSFER_PAUSED");
+                                        continue;
+                                    } else {
+                                        tracing::warn!(
+                                            "Unexpected RESUME response: {}",
+                                            line.trim()
+                                        );
+                                        break;
+                                    }
+                                }
                             }
+                            // Always break to retry PUT after resume command
+                            break;
                         }
                     }
 

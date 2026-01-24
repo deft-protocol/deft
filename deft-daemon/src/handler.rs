@@ -822,8 +822,10 @@ impl CommandHandler {
                 let transfer_id_clone = transfer.id.clone();
                 tokio::task::block_in_place(|| {
                     let rt = tokio::runtime::Handle::current();
-                    let interrupted = rt.block_on(api_state_clone.is_transfer_interrupted(&transfer_id_clone));
-                    let status = rt.block_on(api_state_clone.get_transfer_status(&transfer_id_clone));
+                    let interrupted =
+                        rt.block_on(api_state_clone.is_transfer_interrupted(&transfer_id_clone));
+                    let status =
+                        rt.block_on(api_state_clone.get_transfer_status(&transfer_id_clone));
                     (interrupted, status)
                 })
             } else {
@@ -832,12 +834,19 @@ impl CommandHandler {
 
             tracing::debug!(
                 "PUT check: transfer={}, session.paused={}, api_interrupted={}, api_status={:?}",
-                transfer.id, transfer.paused, is_api_interrupted, api_status
+                transfer.id,
+                transfer.paused,
+                is_api_interrupted,
+                api_status
             );
 
             // If API says interrupted, reject
             if is_api_interrupted {
-                tracing::info!("PUT rejected: transfer {} is paused (API, status={:?})", transfer.id, api_status);
+                tracing::info!(
+                    "PUT rejected: transfer {} is paused (API, status={:?})",
+                    transfer.id,
+                    api_status
+                );
                 return Response::TransferPaused {
                     transfer_id: transfer.id.clone(),
                 };
@@ -845,7 +854,10 @@ impl CommandHandler {
 
             // If session says paused but API says active, sync session state (receiver resumed locally)
             if transfer.paused && !is_api_interrupted {
-                tracing::info!("Transfer {} resumed via API, syncing session state", transfer.id);
+                tracing::info!(
+                    "Transfer {} resumed via API, syncing session state",
+                    transfer.id
+                );
                 transfer.paused = false;
             }
 
