@@ -636,7 +636,7 @@ async function interruptTransfer(id) {
 
 async function resumeTransfer(id) {
     const result = await apiPost(`/api/transfers/${id}/resume`, {});
-    if (result && result.status === 'resumed') {
+    if (result && (result.status === 'resumed' || result.status === 'resuming')) {
         addLogEntry(`Resumed transfer: ${id.substring(0, 8)}`);
         showNotification('Transfer resumed', 'success');
         await updateTransfers();
