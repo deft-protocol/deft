@@ -107,6 +107,8 @@ pub enum Command {
     DeltaSigReq {
         virtual_file: String,
         block_size: usize,
+        /// Optional filename for directory-based virtual files
+        filename: Option<String>,
     },
     /// Send delta data to update existing file (v2.0)
     DeltaPut {
@@ -265,10 +267,15 @@ impl Command {
     }
 
     /// Request file signature for delta sync (v2.0)
-    pub fn delta_sig_req(virtual_file: impl Into<String>, block_size: usize) -> Self {
+    pub fn delta_sig_req(
+        virtual_file: impl Into<String>,
+        block_size: usize,
+        filename: Option<String>,
+    ) -> Self {
         Command::DeltaSigReq {
             virtual_file: virtual_file.into(),
             block_size,
+            filename,
         }
     }
 
@@ -371,8 +378,13 @@ impl fmt::Display for Command {
             Command::DeltaSigReq {
                 virtual_file,
                 block_size,
+                filename,
             } => {
-                write!(f, "DEFT DELTA_SIG_REQ {} {}", virtual_file, block_size)
+                write!(f, "DEFT DELTA_SIG_REQ {} {}", virtual_file, block_size)?;
+                if let Some(fname) = filename {
+                    write!(f, " FILE:{}", fname)?;
+                }
+                Ok(())
             }
             Command::DeltaPut {
                 virtual_file,
@@ -568,8 +580,19 @@ mod tests {
         let cmd = Command::DeltaSigReq {
             virtual_file: "file".to_string(),
             block_size: 4096,
+            filename: None,
         };
         assert_eq!(format!("{}", cmd), "DEFT DELTA_SIG_REQ file 4096");
+
+        let cmd_with_file = Command::DeltaSigReq {
+            virtual_file: "vf".to_string(),
+            block_size: 4096,
+            filename: Some("test.bin".to_string()),
+        };
+        assert_eq!(
+            format!("{}", cmd_with_file),
+            "DEFT DELTA_SIG_REQ vf 4096 FILE:test.bin"
+        );
     }
 
     #[test]

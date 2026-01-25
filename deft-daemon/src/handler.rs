@@ -326,7 +326,8 @@ impl CommandHandler {
             Command::DeltaSigReq {
                 virtual_file,
                 block_size,
-            } => self.handle_delta_sig_req(session, virtual_file, block_size),
+                filename,
+            } => self.handle_delta_sig_req(session, virtual_file, block_size, filename),
             Command::DeltaPut {
                 virtual_file,
                 delta_data,
@@ -1230,6 +1231,7 @@ impl CommandHandler {
         session: &Session,
         virtual_file: String,
         block_size: usize,
+        filename: Option<String>,
     ) -> Response {
         use crate::delta::FileSignature;
         use base64::Engine;
@@ -1249,8 +1251,27 @@ impl CommandHandler {
         }
 
         // Find the file path for this virtual file
+        // If virtual file points to a directory, find the most recent matching file
         let file_path = match self.resolve_virtual_file_path(session, &virtual_file) {
-            Some(p) => p,
+            Some(p) => {
+                if p.is_dir() {
+                    // Virtual file is a directory - find most recent file matching pattern
+                    // Files are named: virtual_file_YYYYMMDD_HHMMSS.dat
+                    match self.find_most_recent_file(&p, &virtual_file) {
+                        Some(recent) => recent,
+                        None => {
+                            // No matching file found
+                            return Response::DeltaSig {
+                                virtual_file,
+                                signature_data: String::new(),
+                                file_exists: false,
+                            };
+                        }
+                    }
+                } else {
+                    p
+                }
+            }
             None => {
                 // File doesn't exist - return empty signature indicating new file
                 return Response::DeltaSig {
@@ -1342,9 +1363,23 @@ impl CommandHandler {
             }
         };
 
-        // Get file path
+        // Get file path - for directories, find the most recent file
         let file_path = match self.resolve_virtual_file_path_for_write(session, &virtual_file) {
-            Some(p) => p,
+            Some(p) => {
+                if p.is_dir() {
+                    match self.find_most_recent_file(&p, &virtual_file) {
+                        Some(recent) => recent,
+                        None => {
+                            return Response::error(
+                                DeftErrorCode::NotFound,
+                                Some(format!("No existing file found for delta: {}", virtual_file)),
+                            )
+                        }
+                    }
+                } else {
+                    p
+                }
+            }
             None => {
                 return Response::error(
                     DeftErrorCode::NotFound,
@@ -1417,6 +1452,36 @@ impl CommandHandler {
             }
         }
         None
+    }
+
+    /// Find the most recent file in a directory matching virtual_file pattern
+    /// Files are named: {virtual_file}_{YYYYMMDD}_{HHMMSS}.dat
+    fn find_most_recent_file(&self, dir: &PathBuf, virtual_file: &str) -> Option<PathBuf> {
+        let prefix = format!("{}_", virtual_file);
+        let mut most_recent: Option<(PathBuf, std::time::SystemTime)> = None;
+
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with(&prefix) && name.ends_with(".dat") {
+                        if let Ok(metadata) = path.metadata() {
+                            if let Ok(modified) = metadata.modified() {
+                                match &most_recent {
+                                    None => most_recent = Some((path, modified)),
+                                    Some((_, prev_time)) if modified > *prev_time => {
+                                        most_recent = Some((path, modified));
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        most_recent.map(|(p, _)| p)
     }
 
     /// Resolve virtual file to actual path (for writing)

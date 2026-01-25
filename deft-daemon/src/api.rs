@@ -2621,11 +2621,23 @@ async fn push_file(
     }
 
     // v2.0: Try delta sync first - request signature from server
+    // Include source filename so receiver can find the file in receive directories
+    let source_filename = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
     line.clear();
     write_half
-        .write_all(format!("DEFT DELTA_SIG_REQ {} 4096\n", virtual_file).as_bytes())
+        .write_all(
+            format!(
+                "DEFT DELTA_SIG_REQ {} 4096 FILE:{}\n",
+                virtual_file, source_filename
+            )
+            .as_bytes(),
+        )
         .await?;
     reader.read_line(&mut line).await?;
+    tracing::debug!("DELTA_SIG_REQ response: {}", line.trim());
 
     // Check if delta sync is possible
     if line.contains("DELTA_SIG") && line.contains("EXISTS:true") {
@@ -2670,6 +2682,7 @@ async fn push_file(
                                     )
                                     .await?;
                                 reader.read_line(&mut line).await?;
+                                tracing::debug!("DELTA_PUT response: {}", line.trim());
 
                                 if line.contains("DELTA_ACK") {
                                     tracing::info!("Delta sync successful for {}", virtual_file);

@@ -222,7 +222,7 @@ impl Parser {
         })
     }
 
-    /// Parse DELTA_SIG_REQ <virtual_file> <block_size>
+    /// Parse DELTA_SIG_REQ <virtual_file> <block_size> [FILE:<filename>]
     fn parse_delta_sig_req(parts: &[&str]) -> Result<Command, DeftError> {
         if parts.len() < 2 {
             return Err(DeftError::ParseError(
@@ -235,9 +235,15 @@ impl Parser {
             .parse()
             .map_err(|_| DeftError::ParseError("Invalid block_size".into()))?;
 
+        // Parse optional FILE:<filename> parameter
+        let filename = parts.iter().skip(2).find_map(|p| {
+            p.strip_prefix("FILE:").map(|f| f.to_string())
+        });
+
         Ok(Command::DeltaSigReq {
             virtual_file,
             block_size,
+            filename,
         })
     }
 
