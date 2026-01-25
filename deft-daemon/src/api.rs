@@ -1,7 +1,9 @@
 use futures_util::{SinkExt, StreamExt};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -40,6 +42,98 @@ impl Default for ApiConfig {
             api_key: None,
         }
     }
+}
+
+/// API Key Manager - handles generation, storage, and rotation of API keys
+pub struct ApiKeyManager {
+    key_path: PathBuf,
+    current_key: RwLock<String>,
+}
+
+impl ApiKeyManager {
+    /// Create a new API key manager, loading or generating a key
+    pub fn new(data_dir: &std::path::Path) -> std::io::Result<Self> {
+        let key_path = data_dir.join("api.key");
+        let current_key = if key_path.exists() {
+            // Load existing key
+            let key = std::fs::read_to_string(&key_path)?;
+            let key = key.trim().to_string();
+            info!("Loaded API key from {:?}", key_path);
+            key
+        } else {
+            // Generate new key
+            let key = Self::generate_key();
+            Self::save_key_to_file(&key_path, &key)?;
+            info!("Generated new API key, saved to {:?}", key_path);
+            key
+        };
+
+        Ok(Self {
+            key_path,
+            current_key: RwLock::new(current_key),
+        })
+    }
+
+    /// Generate a cryptographically secure random API key (256-bit, hex encoded)
+    fn generate_key() -> String {
+        let mut rng = rand::thread_rng();
+        let bytes: [u8; 32] = rng.gen();
+        hex::encode(bytes)
+    }
+
+    /// Save key to file with restricted permissions (Unix: 600)
+    fn save_key_to_file(path: &PathBuf, key: &str) -> std::io::Result<()> {
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        // Write key to file
+        std::fs::write(path, key)?;
+
+        // Set restrictive permissions on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o600);
+            std::fs::set_permissions(path, perms)?;
+        }
+
+        Ok(())
+    }
+
+    /// Get the current API key
+    pub async fn get_key(&self) -> String {
+        self.current_key.read().await.clone()
+    }
+
+    /// Rotate the API key - generates a new key and saves it
+    pub async fn rotate(&self) -> std::io::Result<String> {
+        let new_key = Self::generate_key();
+        Self::save_key_to_file(&self.key_path, &new_key)?;
+        *self.current_key.write().await = new_key.clone();
+        info!("API key rotated successfully");
+        Ok(new_key)
+    }
+
+    /// Verify an API key
+    pub async fn verify(&self, provided_key: &str) -> bool {
+        let current = self.current_key.read().await;
+        // Constant-time comparison to prevent timing attacks
+        constant_time_eq(current.as_bytes(), provided_key.as_bytes())
+    }
+}
+
+/// Constant-time string comparison to prevent timing attacks
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut result = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        result |= x ^ y;
+    }
+    result == 0
 }
 
 /// Chunk status for visualization
@@ -577,8 +671,12 @@ impl ApiState {
     }
 }
 
-/// Run the API server
-pub async fn run_api_server(addr: &str, state: Arc<ApiState>, api_key: Option<String>) {
+/// Run the API server with API key authentication
+pub async fn run_api_server(
+    addr: &str,
+    state: Arc<ApiState>,
+    key_manager: Option<Arc<ApiKeyManager>>,
+) {
     let listener = match TcpListener::bind(addr).await {
         Ok(l) => l,
         Err(e) => {
@@ -587,15 +685,22 @@ pub async fn run_api_server(addr: &str, state: Arc<ApiState>, api_key: Option<St
         }
     };
 
-    info!("API server listening on {}", addr);
+    if key_manager.is_some() {
+        info!("API server listening on {} (authentication enabled)", addr);
+    } else {
+        warn!(
+            "API server listening on {} (NO AUTHENTICATION - use api_key for security)",
+            addr
+        );
+    }
 
     loop {
         match listener.accept().await {
             Ok((stream, peer)) => {
                 let state = Arc::clone(&state);
-                let key = api_key.clone();
+                let km = key_manager.clone();
                 tokio::spawn(async move {
-                    handle_request(stream, peer, state, key).await;
+                    handle_request(stream, peer, state, km).await;
                 });
             }
             Err(e) => {
@@ -609,7 +714,7 @@ async fn handle_request(
     mut stream: TcpStream,
     peer: SocketAddr,
     state: Arc<ApiState>,
-    api_key: Option<String>,
+    key_manager: Option<Arc<ApiKeyManager>>,
 ) {
     let mut buf = vec![0u8; 8192];
     let n = match stream.read(&mut buf).await {
@@ -646,26 +751,48 @@ async fn handle_request(
         }
     }
 
-    // Check API key if configured
-    if let Some(ref key) = api_key {
-        let auth_header = lines
-            .iter()
-            .find(|l| l.to_lowercase().starts_with("authorization:"))
-            .map(|l| l.split(':').nth(1).unwrap_or("").trim());
+    // Endpoints that don't require authentication
+    let public_endpoints = [
+        "/api/health",
+        "/api/metrics",
+        "/api/auth/key", // For initial key retrieval (localhost only)
+    ];
 
-        let valid = auth_header
-            .map(|h| h.strip_prefix("Bearer ").unwrap_or(h) == key)
-            .unwrap_or(false);
+    // Check API key if configured (skip for public endpoints)
+    if let Some(ref km) = key_manager {
+        let is_public = public_endpoints.iter().any(|e| path == *e);
 
-        if !valid {
-            send_response(
-                &mut stream,
-                401,
-                "Unauthorized",
-                r#"{"error":"Invalid API key"}"#,
-            )
-            .await;
-            return;
+        if !is_public {
+            // Extract API key from X-API-Key header or Authorization: Bearer
+            let api_key = lines
+                .iter()
+                .find(|l| l.to_lowercase().starts_with("x-api-key:"))
+                .map(|l| l.splitn(2, ':').nth(1).unwrap_or("").trim().to_string())
+                .or_else(|| {
+                    lines
+                        .iter()
+                        .find(|l| l.to_lowercase().starts_with("authorization:"))
+                        .and_then(|l| {
+                            let value = l.splitn(2, ':').nth(1).unwrap_or("").trim();
+                            value.strip_prefix("Bearer ").map(|s| s.to_string())
+                        })
+                });
+
+            let valid = match api_key {
+                Some(key) => km.verify(&key).await,
+                None => false,
+            };
+
+            if !valid {
+                send_response(
+                    &mut stream,
+                    401,
+                    "Unauthorized",
+                    r#"{"error":"Invalid or missing API key. Use X-API-Key header."}"#,
+                )
+                .await;
+                return;
+            }
         }
     }
 
@@ -679,6 +806,32 @@ async fn handle_request(
 
     // Route request
     let (status, body) = match (method, path) {
+        // Authentication endpoints (public)
+        ("GET", "/api/health") => (200, r#"{"status":"ok"}"#.to_string()),
+        ("GET", "/api/auth/key") => {
+            // Only allow from localhost for security
+            if peer.ip().is_loopback() {
+                if let Some(ref km) = key_manager {
+                    let key = km.get_key().await;
+                    (200, format!(r#"{{"api_key":"{}"}}"#, key))
+                } else {
+                    (200, r#"{"api_key":null,"message":"Authentication disabled"}"#.to_string())
+                }
+            } else {
+                (403, r#"{"error":"Key retrieval only allowed from localhost"}"#.to_string())
+            }
+        }
+        ("POST", "/api/auth/rotate") => {
+            if let Some(ref km) = key_manager {
+                match km.rotate().await {
+                    Ok(new_key) => (200, format!(r#"{{"api_key":"{}","rotated":true}}"#, new_key)),
+                    Err(e) => (500, format!(r#"{{"error":"Failed to rotate key: {}"}}"#, e)),
+                }
+            } else {
+                (400, r#"{"error":"Authentication not enabled"}"#.to_string())
+            }
+        }
+
         // System endpoints
         ("GET", "/api/status") => handle_status(&state).await,
         ("GET", "/api/config") => handle_config(&state).await,

@@ -90,6 +90,13 @@ pub struct LimitsConfig {
     pub api_listen: String,
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Enable API key authentication (default: true)
+    #[serde(default = "default_api_key_enabled")]
+    pub api_key_enabled: Option<bool>,
+}
+
+fn default_api_key_enabled() -> Option<bool> {
+    Some(true)
 }
 
 fn default_api_listen() -> String {
@@ -236,6 +243,7 @@ impl Default for LimitsConfig {
             api_enabled: false,
             api_listen: default_api_listen(),
             api_key: None,
+            api_key_enabled: default_api_key_enabled(),
         }
     }
 }

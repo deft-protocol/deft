@@ -10,6 +10,7 @@ let refreshPaused = false;
 let ws = null;
 let wsReconnectTimer = null;
 let activeChunkMatrices = {}; // transfer_id -> chunk statuses array
+let apiKey = null; // API authentication key
 
 // Pause refresh when any modal is open or form input is focused
 function pauseRefresh() { refreshPaused = true; }
@@ -210,15 +211,50 @@ function escapeHtml(text) {
 
 async function apiFetch(endpoint, options = {}) {
     try {
+        const headers = { 'Content-Type': 'application/json', ...options.headers };
+        // Add API key if available (not needed for /api/auth/key)
+        if (apiKey && !endpoint.startsWith('/api/auth/')) {
+            headers['X-API-Key'] = apiKey;
+        }
         const response = await fetch(`${API_BASE}${endpoint}`, {
-            headers: { 'Content-Type': 'application/json', ...options.headers },
+            headers,
             ...options
         });
+        if (response.status === 401) {
+            // API key invalid or missing - try to refresh it
+            console.warn('API authentication failed, refreshing key...');
+            await initApiKey();
+            // Retry the request
+            if (apiKey) {
+                headers['X-API-Key'] = apiKey;
+                const retryResponse = await fetch(`${API_BASE}${endpoint}`, { headers, ...options });
+                if (!retryResponse.ok) throw new Error(`HTTP ${retryResponse.status}`);
+                return options.method === 'DELETE' ? true : await retryResponse.json();
+            }
+        }
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return options.method === 'DELETE' ? true : await response.json();
     } catch (error) {
         console.error(`API error (${endpoint}):`, error);
         return null;
+    }
+}
+
+// Initialize API key from server (only works from localhost)
+async function initApiKey() {
+    try {
+        const response = await fetch(`${API_BASE}/api/auth/key`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.api_key) {
+                apiKey = data.api_key;
+                console.log('API key initialized');
+            } else {
+                console.log('API authentication disabled');
+            }
+        }
+    } catch (error) {
+        console.warn('Could not fetch API key:', error);
     }
 }
 
@@ -1037,12 +1073,15 @@ async function updateNetworkInfo() {
 }
 
 // ============ Initialize ============
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     // Pause refresh when any input/textarea/select is focused
     document.querySelectorAll('input, textarea, select').forEach(el => {
         el.addEventListener('focus', pauseRefresh);
         el.addEventListener('blur', resumeRefresh);
     });
+
+    // Initialize API key for authentication
+    await initApiKey();
 
     // Initial load via HTTP
     refreshAll();

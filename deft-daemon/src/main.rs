@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use config::LogFormat;
@@ -238,10 +238,25 @@ async fn run_daemon(config: Config, config_path: String) -> Result<()> {
     // Start API server if enabled
     if let Some(ref state) = api_state {
         let api_listen = config.limits.api_listen.clone();
-        let api_key = config.limits.api_key.clone();
         let state_clone = state.clone();
+
+        // Initialize API key manager for authentication
+        let key_manager = if config.limits.api_key_enabled.unwrap_or(true) {
+            let data_dir = std::path::Path::new(&config.storage.temp_dir);
+            match api::ApiKeyManager::new(data_dir) {
+                Ok(km) => Some(std::sync::Arc::new(km)),
+                Err(e) => {
+                    warn!("Failed to initialize API key manager: {} - API will run without authentication", e);
+                    None
+                }
+            }
+        } else {
+            info!("API key authentication disabled by configuration");
+            None
+        };
+
         tokio::spawn(async move {
-            api::run_api_server(&api_listen, state_clone, api_key).await;
+            api::run_api_server(&api_listen, state_clone, key_manager).await;
         });
         info!("API server started on {}", config.limits.api_listen);
     }
