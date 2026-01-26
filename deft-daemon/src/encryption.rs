@@ -6,12 +6,16 @@
 //! - Secure key storage
 //! - Transparent encryption/decryption
 
+#![allow(dead_code)]
+
+use ring::aead::{
+    Aad, BoundKey, Nonce, NonceSequence, OpeningKey, SealingKey, UnboundKey, AES_256_GCM,
+};
+use ring::error::Unspecified;
+use ring::rand::{SecureRandom, SystemRandom};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use ring::aead::{self, Aad, BoundKey, Nonce, NonceSequence, SealingKey, OpeningKey, UnboundKey, AES_256_GCM};
-use ring::rand::{SecureRandom, SystemRandom};
-use ring::error::Unspecified;
 use tracing::{debug, info, warn};
 
 /// Encryption configuration
@@ -96,7 +100,9 @@ impl EncryptionManager {
     /// Generate a new encryption key
     fn generate_key(&mut self) -> anyhow::Result<()> {
         let mut key = vec![0u8; 32]; // 256 bits
-        self.rng.fill(&mut key).map_err(|_| anyhow::anyhow!("Failed to generate random key"))?;
+        self.rng
+            .fill(&mut key)
+            .map_err(|_| anyhow::anyhow!("Failed to generate random key"))?;
 
         // Save key to file with restrictive permissions
         let mut file = File::create(&self.config.key_path)?;
@@ -137,12 +143,15 @@ impl EncryptionManager {
 
     /// Encrypt data in place
     pub fn encrypt(&self, plaintext: &[u8]) -> anyhow::Result<Vec<u8>> {
-        let key = self.key.as_ref()
+        let key = self
+            .key
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Encryption key not initialized"))?;
 
         // Generate random nonce
         let mut nonce_bytes = [0u8; 12];
-        self.rng.fill(&mut nonce_bytes)
+        self.rng
+            .fill(&mut nonce_bytes)
             .map_err(|_| anyhow::anyhow!("Failed to generate nonce"))?;
 
         let unbound_key = UnboundKey::new(&AES_256_GCM, key)
@@ -152,8 +161,9 @@ impl EncryptionManager {
 
         // Prepare output buffer: nonce + ciphertext + tag
         let mut in_out = plaintext.to_vec();
-        
-        sealing_key.seal_in_place_append_tag(Aad::empty(), &mut in_out)
+
+        sealing_key
+            .seal_in_place_append_tag(Aad::empty(), &mut in_out)
             .map_err(|_| anyhow::anyhow!("Encryption failed"))?;
 
         // Prepend nonce
@@ -165,7 +175,9 @@ impl EncryptionManager {
 
     /// Decrypt data
     pub fn decrypt(&self, ciphertext: &[u8]) -> anyhow::Result<Vec<u8>> {
-        let key = self.key.as_ref()
+        let key = self
+            .key
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Encryption key not initialized"))?;
 
         if ciphertext.len() < 12 + 16 {
@@ -179,14 +191,17 @@ impl EncryptionManager {
         let unbound_key = UnboundKey::new(&AES_256_GCM, key)
             .map_err(|_| anyhow::anyhow!("Failed to create decryption key"))?;
 
-        let nonce = Nonce::try_assume_unique_for_key(&nonce_bytes)
+        let _nonce = Nonce::try_assume_unique_for_key(&nonce_bytes)
             .map_err(|_| anyhow::anyhow!("Invalid nonce"))?;
 
         let mut opening_key = OpeningKey::new(unbound_key, CounterNonceSequence::new());
-        
+
         let mut in_out = encrypted_data.to_vec();
-        let decrypted = opening_key.open_within(Aad::empty(), &mut in_out, 0..)
-            .map_err(|_| anyhow::anyhow!("Decryption failed - data may be corrupted or tampered"))?;
+        let decrypted = opening_key
+            .open_within(Aad::empty(), &mut in_out, 0..)
+            .map_err(|_| {
+                anyhow::anyhow!("Decryption failed - data may be corrupted or tampered")
+            })?;
 
         Ok(decrypted.to_vec())
     }
@@ -242,7 +257,9 @@ impl EncryptionManager {
             return Err(anyhow::anyhow!("Encryption is not enabled"));
         }
 
-        let old_key = self.key.take()
+        let old_key = self
+            .key
+            .take()
             .ok_or_else(|| anyhow::anyhow!("No existing key to rotate"))?;
 
         // Generate new key
@@ -250,19 +267,19 @@ impl EncryptionManager {
 
         // Clone new key for later use
         let new_key = self.key.clone().unwrap();
-        
+
         info!("Starting key rotation for files in {:?}", data_dir);
-        
+
         let mut rotated_count = 0;
         for entry in fs::read_dir(data_dir)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.is_file() && Self::is_encrypted_file(&path) {
                 // Decrypt with old key
                 self.key = Some(old_key.clone());
                 let temp_path = path.with_extension("tmp");
-                
+
                 if let Err(e) = self.decrypt_file(&path, &temp_path) {
                     warn!("Failed to decrypt {:?} during key rotation: {}", path, e);
                     continue;
@@ -285,7 +302,10 @@ impl EncryptionManager {
         }
 
         self.key = Some(new_key);
-        info!("Key rotation complete: {} files re-encrypted", rotated_count);
+        info!(
+            "Key rotation complete: {} files re-encrypted",
+            rotated_count
+        );
         Ok(())
     }
 }
@@ -311,7 +331,7 @@ mod tests {
 
         let plaintext = b"Hello, DEFT encryption!";
         let ciphertext = manager.encrypt(plaintext).unwrap();
-        
+
         assert_ne!(&ciphertext[12..], plaintext); // Should be different
         assert!(ciphertext.len() > plaintext.len()); // Should have nonce + tag overhead
 
@@ -342,14 +362,16 @@ mod tests {
 
         // Encrypt
         manager.encrypt_file(&input_path, &encrypted_path).unwrap();
-        
+
         // Verify encrypted file is different
         let encrypted_content = fs::read(&encrypted_path).unwrap();
         assert_ne!(&encrypted_content, content);
 
         // Decrypt
-        manager.decrypt_file(&encrypted_path, &decrypted_path).unwrap();
-        
+        manager
+            .decrypt_file(&encrypted_path, &decrypted_path)
+            .unwrap();
+
         // Verify decrypted content matches original
         let decrypted_content = fs::read(&decrypted_path).unwrap();
         assert_eq!(decrypted_content, content);
@@ -357,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_encryption_disabled() {
-        let temp_dir = tempdir().unwrap();
+        let _temp_dir = tempdir().unwrap();
 
         let config = EncryptionConfig {
             enabled: false,

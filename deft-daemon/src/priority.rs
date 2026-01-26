@@ -5,6 +5,8 @@
 //! - Normal: Standard FIFO order
 //! - Batch: Processed when no higher priority transfers are pending
 
+#![allow(dead_code)]
+
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::sync::Arc;
@@ -12,20 +14,15 @@ use std::time::Instant;
 use tokio::sync::Mutex;
 
 /// Transfer priority levels
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TransferPriority {
     /// Highest priority - processed immediately
     Urgent = 0,
     /// Normal priority - standard FIFO
+    #[default]
     Normal = 1,
     /// Lowest priority - processed when idle
     Batch = 2,
-}
-
-impl Default for TransferPriority {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 impl std::str::FromStr for TransferPriority {
@@ -127,7 +124,7 @@ impl TransferQueue {
         direction: TransferDirection,
     ) -> Result<String, String> {
         let mut queue = self.queue.lock().await;
-        
+
         if queue.len() >= self.max_size {
             return Err("Transfer queue is full".to_string());
         }
@@ -180,7 +177,7 @@ impl TransferQueue {
         let mut queue = self.queue.lock().await;
         let items: Vec<_> = queue.drain().collect();
         let mut removed = None;
-        
+
         for item in items {
             if item.id == id {
                 removed = Some(item);
@@ -188,7 +185,7 @@ impl TransferQueue {
                 queue.push(item);
             }
         }
-        
+
         removed
     }
 
@@ -197,7 +194,7 @@ impl TransferQueue {
         let mut queue = self.queue.lock().await;
         let items: Vec<_> = queue.drain().collect();
         let mut found = false;
-        
+
         for mut item in items {
             if item.id == id {
                 item.priority = new_priority;
@@ -205,7 +202,7 @@ impl TransferQueue {
             }
             queue.push(item);
         }
-        
+
         found
     }
 
@@ -215,7 +212,7 @@ impl TransferQueue {
         let mut urgent = 0;
         let mut normal = 0;
         let mut batch = 0;
-        
+
         for item in queue.iter() {
             match item.priority {
                 TransferPriority::Urgent => urgent += 1,
@@ -223,7 +220,7 @@ impl TransferQueue {
                 TransferPriority::Batch => batch += 1,
             }
         }
-        
+
         (urgent, normal, batch)
     }
 }
@@ -243,17 +240,44 @@ mod tests {
         let queue = TransferQueue::new(100);
 
         // Add transfers in random order
-        queue.enqueue("file1".into(), "p1".into(), None, TransferPriority::Batch, TransferDirection::Push).await.unwrap();
-        queue.enqueue("file2".into(), "p2".into(), None, TransferPriority::Urgent, TransferDirection::Push).await.unwrap();
-        queue.enqueue("file3".into(), "p3".into(), None, TransferPriority::Normal, TransferDirection::Push).await.unwrap();
+        queue
+            .enqueue(
+                "file1".into(),
+                "p1".into(),
+                None,
+                TransferPriority::Batch,
+                TransferDirection::Push,
+            )
+            .await
+            .unwrap();
+        queue
+            .enqueue(
+                "file2".into(),
+                "p2".into(),
+                None,
+                TransferPriority::Urgent,
+                TransferDirection::Push,
+            )
+            .await
+            .unwrap();
+        queue
+            .enqueue(
+                "file3".into(),
+                "p3".into(),
+                None,
+                TransferPriority::Normal,
+                TransferDirection::Push,
+            )
+            .await
+            .unwrap();
 
         // Should dequeue in priority order: Urgent, Normal, Batch
         let t1 = queue.dequeue().await.unwrap();
         assert_eq!(t1.priority, TransferPriority::Urgent);
-        
+
         let t2 = queue.dequeue().await.unwrap();
         assert_eq!(t2.priority, TransferPriority::Normal);
-        
+
         let t3 = queue.dequeue().await.unwrap();
         assert_eq!(t3.priority, TransferPriority::Batch);
     }
@@ -262,13 +286,31 @@ mod tests {
     async fn test_fifo_same_priority() {
         let queue = TransferQueue::new(100);
 
-        queue.enqueue("first".into(), "p1".into(), None, TransferPriority::Normal, TransferDirection::Push).await.unwrap();
+        queue
+            .enqueue(
+                "first".into(),
+                "p1".into(),
+                None,
+                TransferPriority::Normal,
+                TransferDirection::Push,
+            )
+            .await
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        queue.enqueue("second".into(), "p2".into(), None, TransferPriority::Normal, TransferDirection::Push).await.unwrap();
+        queue
+            .enqueue(
+                "second".into(),
+                "p2".into(),
+                None,
+                TransferPriority::Normal,
+                TransferDirection::Push,
+            )
+            .await
+            .unwrap();
 
         let t1 = queue.dequeue().await.unwrap();
         let t2 = queue.dequeue().await.unwrap();
-        
+
         assert_eq!(t1.virtual_file, "first");
         assert_eq!(t2.virtual_file, "second");
     }
@@ -277,11 +319,29 @@ mod tests {
     async fn test_remove_transfer() {
         let queue = TransferQueue::new(100);
 
-        let id1 = queue.enqueue("file1".into(), "p1".into(), None, TransferPriority::Normal, TransferDirection::Push).await.unwrap();
-        let _id2 = queue.enqueue("file2".into(), "p2".into(), None, TransferPriority::Normal, TransferDirection::Push).await.unwrap();
+        let id1 = queue
+            .enqueue(
+                "file1".into(),
+                "p1".into(),
+                None,
+                TransferPriority::Normal,
+                TransferDirection::Push,
+            )
+            .await
+            .unwrap();
+        let _id2 = queue
+            .enqueue(
+                "file2".into(),
+                "p2".into(),
+                None,
+                TransferPriority::Normal,
+                TransferDirection::Push,
+            )
+            .await
+            .unwrap();
 
         assert_eq!(queue.len().await, 2);
-        
+
         let removed = queue.remove(&id1).await;
         assert!(removed.is_some());
         assert_eq!(removed.unwrap().virtual_file, "file1");
@@ -292,8 +352,26 @@ mod tests {
     async fn test_update_priority() {
         let queue = TransferQueue::new(100);
 
-        let id = queue.enqueue("file1".into(), "p1".into(), None, TransferPriority::Batch, TransferDirection::Push).await.unwrap();
-        queue.enqueue("file2".into(), "p2".into(), None, TransferPriority::Normal, TransferDirection::Push).await.unwrap();
+        let id = queue
+            .enqueue(
+                "file1".into(),
+                "p1".into(),
+                None,
+                TransferPriority::Batch,
+                TransferDirection::Push,
+            )
+            .await
+            .unwrap();
+        queue
+            .enqueue(
+                "file2".into(),
+                "p2".into(),
+                None,
+                TransferPriority::Normal,
+                TransferDirection::Push,
+            )
+            .await
+            .unwrap();
 
         // file2 should come first (Normal > Batch)
         let peek = queue.peek().await.unwrap();
@@ -311,10 +389,36 @@ mod tests {
     async fn test_queue_full() {
         let queue = TransferQueue::new(2);
 
-        queue.enqueue("f1".into(), "p".into(), None, TransferPriority::Normal, TransferDirection::Push).await.unwrap();
-        queue.enqueue("f2".into(), "p".into(), None, TransferPriority::Normal, TransferDirection::Push).await.unwrap();
-        
-        let result = queue.enqueue("f3".into(), "p".into(), None, TransferPriority::Normal, TransferDirection::Push).await;
+        queue
+            .enqueue(
+                "f1".into(),
+                "p".into(),
+                None,
+                TransferPriority::Normal,
+                TransferDirection::Push,
+            )
+            .await
+            .unwrap();
+        queue
+            .enqueue(
+                "f2".into(),
+                "p".into(),
+                None,
+                TransferPriority::Normal,
+                TransferDirection::Push,
+            )
+            .await
+            .unwrap();
+
+        let result = queue
+            .enqueue(
+                "f3".into(),
+                "p".into(),
+                None,
+                TransferPriority::Normal,
+                TransferDirection::Push,
+            )
+            .await;
         assert!(result.is_err());
     }
 }

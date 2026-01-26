@@ -39,11 +39,19 @@ impl ApiKeyTestFixture {
 
         Command::new("openssl")
             .args([
-                "req", "-x509", "-newkey", "rsa:2048", "-nodes",
-                "-keyout", ca_key.to_str().unwrap(),
-                "-out", ca_cert.to_str().unwrap(),
-                "-days", "1",
-                "-subj", "/CN=TestCA",
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-keyout",
+                ca_key.to_str().unwrap(),
+                "-out",
+                ca_cert.to_str().unwrap(),
+                "-days",
+                "1",
+                "-subj",
+                "/CN=TestCA",
             ])
             .output()?;
 
@@ -57,22 +65,32 @@ impl ApiKeyTestFixture {
 
         Command::new("openssl")
             .args([
-                "req", "-new",
-                "-key", key_path.to_str().unwrap(),
-                "-out", csr_path.to_str().unwrap(),
-                "-subj", "/CN=test-instance",
+                "req",
+                "-new",
+                "-key",
+                key_path.to_str().unwrap(),
+                "-out",
+                csr_path.to_str().unwrap(),
+                "-subj",
+                "/CN=test-instance",
             ])
             .output()?;
 
         Command::new("openssl")
             .args([
-                "x509", "-req",
-                "-in", csr_path.to_str().unwrap(),
-                "-CA", ca_cert.to_str().unwrap(),
-                "-CAkey", ca_key.to_str().unwrap(),
+                "x509",
+                "-req",
+                "-in",
+                csr_path.to_str().unwrap(),
+                "-CA",
+                ca_cert.to_str().unwrap(),
+                "-CAkey",
+                ca_key.to_str().unwrap(),
                 "-CAcreateserial",
-                "-out", cert_path.to_str().unwrap(),
-                "-days", "1",
+                "-out",
+                cert_path.to_str().unwrap(),
+                "-days",
+                "1",
             ])
             .output()?;
 
@@ -81,7 +99,8 @@ impl ApiKeyTestFixture {
     }
 
     fn write_config(&self) -> std::io::Result<()> {
-        let config = format!(r#"
+        let config = format!(
+            r#"
 [server]
 enabled = true
 listen = "127.0.0.1:19751"
@@ -104,9 +123,14 @@ api_enabled = true
 api_listen = "127.0.0.1:{}"
 api_key_enabled = true
 "#,
-            self.temp_dir.display(), self.temp_dir.display(), self.temp_dir.display(),
-            self.temp_dir.display(), self.temp_dir.display(), self.temp_dir.display(),
-            self.temp_dir.display(), self.api_port
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.api_port
         );
 
         std::fs::write(self.temp_dir.join("config.toml"), config)?;
@@ -124,14 +148,16 @@ api_key_enabled = true
             .iter()
             .find(|p| p.exists())
             .cloned()
-            .ok_or_else(|| std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "deftd binary not found",
-            ))?;
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::NotFound, "deftd binary not found")
+            })?;
 
         self.instance = Some(
             Command::new(&deftd_path)
-                .args(["--config", self.temp_dir.join("config.toml").to_str().unwrap()])
+                .args([
+                    "--config",
+                    self.temp_dir.join("config.toml").to_str().unwrap(),
+                ])
                 .spawn()?,
         );
 
@@ -146,21 +172,27 @@ api_key_enabled = true
     fn get_api_key(&self) -> Result<String, Box<dyn std::error::Error>> {
         let client = reqwest::blocking::Client::new();
         let resp = client
-            .get(&self.api_url("/api/auth/key"))
+            .get(self.api_url("/api/auth/key"))
             .timeout(Duration::from_secs(5))
             .send()?;
         let json: serde_json::Value = resp.json()?;
         Ok(json["api_key"].as_str().unwrap_or("").to_string())
     }
 
-    fn request_with_key(&self, path: &str, key: Option<&str>) -> Result<(u16, String), Box<dyn std::error::Error>> {
+    fn request_with_key(
+        &self,
+        path: &str,
+        key: Option<&str>,
+    ) -> Result<(u16, String), Box<dyn std::error::Error>> {
         let client = reqwest::blocking::Client::new();
-        let mut req = client.get(&self.api_url(path)).timeout(Duration::from_secs(5));
-        
+        let mut req = client
+            .get(self.api_url(path))
+            .timeout(Duration::from_secs(5));
+
         if let Some(k) = key {
             req = req.header("X-API-Key", k);
         }
-        
+
         let resp = req.send()?;
         let status = resp.status().as_u16();
         let body = resp.text()?;
@@ -170,7 +202,7 @@ api_key_enabled = true
     fn rotate_key(&self, current_key: &str) -> Result<String, Box<dyn std::error::Error>> {
         let client = reqwest::blocking::Client::new();
         let resp = client
-            .post(&self.api_url("/api/auth/rotate"))
+            .post(self.api_url("/api/auth/rotate"))
             .header("X-API-Key", current_key)
             .timeout(Duration::from_secs(5))
             .send()?;
@@ -197,10 +229,15 @@ fn test_rejection_without_api_key() {
     fixture.start_instance().expect("Failed to start instance");
 
     // Request without API key should be rejected
-    let (status, body) = fixture.request_with_key("/api/status", None).expect("Request failed");
-    
+    let (status, body) = fixture
+        .request_with_key("/api/status", None)
+        .expect("Request failed");
+
     assert_eq!(status, 401, "Should return 401 Unauthorized");
-    assert!(body.contains("Invalid or missing API key"), "Should mention API key error");
+    assert!(
+        body.contains("Invalid or missing API key"),
+        "Should mention API key error"
+    );
 }
 
 #[test]
@@ -214,13 +251,22 @@ fn test_acceptance_with_valid_key() {
     // Get the API key
     let api_key = fixture.get_api_key().expect("Failed to get API key");
     assert!(!api_key.is_empty(), "API key should not be empty");
-    assert_eq!(api_key.len(), 64, "API key should be 64 hex chars (256 bits)");
+    assert_eq!(
+        api_key.len(),
+        64,
+        "API key should be 64 hex chars (256 bits)"
+    );
 
     // Request with valid API key should succeed
-    let (status, body) = fixture.request_with_key("/api/status", Some(&api_key)).expect("Request failed");
-    
+    let (status, body) = fixture
+        .request_with_key("/api/status", Some(&api_key))
+        .expect("Request failed");
+
     assert_eq!(status, 200, "Should return 200 OK with valid key");
-    assert!(body.contains("version"), "Should return status with version");
+    assert!(
+        body.contains("version"),
+        "Should return status with version"
+    );
 }
 
 #[test]
@@ -232,8 +278,10 @@ fn test_rejection_with_invalid_key() {
     fixture.start_instance().expect("Failed to start instance");
 
     // Request with invalid API key should be rejected
-    let (status, _) = fixture.request_with_key("/api/status", Some("invalid_key_12345")).expect("Request failed");
-    
+    let (status, _) = fixture
+        .request_with_key("/api/status", Some("invalid_key_12345"))
+        .expect("Request failed");
+
     assert_eq!(status, 401, "Should return 401 with invalid key");
 }
 
@@ -246,8 +294,10 @@ fn test_key_retrieval_localhost_only() {
     fixture.start_instance().expect("Failed to start instance");
 
     // From localhost, should work
-    let (status, body) = fixture.request_with_key("/api/auth/key", None).expect("Request failed");
-    
+    let (status, body) = fixture
+        .request_with_key("/api/auth/key", None)
+        .expect("Request failed");
+
     assert_eq!(status, 200, "Should return 200 from localhost");
     assert!(body.contains("api_key"), "Should return API key");
 }
@@ -262,19 +312,25 @@ fn test_key_rotation() {
 
     // Get initial key
     let initial_key = fixture.get_api_key().expect("Failed to get initial key");
-    
+
     // Rotate key
-    let new_key = fixture.rotate_key(&initial_key).expect("Failed to rotate key");
-    
+    let new_key = fixture
+        .rotate_key(&initial_key)
+        .expect("Failed to rotate key");
+
     assert_ne!(initial_key, new_key, "New key should be different");
     assert_eq!(new_key.len(), 64, "New key should be 64 hex chars");
 
     // Old key should no longer work
-    let (status, _) = fixture.request_with_key("/api/status", Some(&initial_key)).expect("Request failed");
+    let (status, _) = fixture
+        .request_with_key("/api/status", Some(&initial_key))
+        .expect("Request failed");
     assert_eq!(status, 401, "Old key should be rejected after rotation");
 
     // New key should work
-    let (status, _) = fixture.request_with_key("/api/status", Some(&new_key)).expect("Request failed");
+    let (status, _) = fixture
+        .request_with_key("/api/status", Some(&new_key))
+        .expect("Request failed");
     assert_eq!(status, 200, "New key should work after rotation");
 }
 
@@ -287,18 +343,25 @@ fn test_public_endpoints_no_auth() {
     fixture.start_instance().expect("Failed to start instance");
 
     // Health endpoint should work without auth
-    let (status, body) = fixture.request_with_key("/api/health", None).expect("Request failed");
+    let (status, body) = fixture
+        .request_with_key("/api/health", None)
+        .expect("Request failed");
     assert_eq!(status, 200, "/api/health should work without auth");
     assert!(body.contains("ok"), "Health should return ok");
 
     // Metrics endpoint should work without auth
-    let (status, _) = fixture.request_with_key("/api/metrics", None).expect("Request failed");
+    let (status, _) = fixture
+        .request_with_key("/api/metrics", None)
+        .expect("Request failed");
     assert_eq!(status, 200, "/api/metrics should work without auth");
 
     // Dashboard should work without auth
     let (status, body) = fixture.request_with_key("/", None).expect("Request failed");
     assert_eq!(status, 200, "/ should work without auth");
-    assert!(body.contains("DOCTYPE") || body.contains("html"), "Should return HTML");
+    assert!(
+        body.contains("DOCTYPE") || body.contains("html"),
+        "Should return HTML"
+    );
 }
 
 #[test]
@@ -314,13 +377,17 @@ fn test_authorization_bearer_header() {
     // Test with Authorization: Bearer header instead of X-API-Key
     let client = reqwest::blocking::Client::new();
     let resp = client
-        .get(&fixture.api_url("/api/status"))
+        .get(fixture.api_url("/api/status"))
         .header("Authorization", format!("Bearer {}", api_key))
         .timeout(Duration::from_secs(5))
         .send()
         .expect("Request failed");
-    
-    assert_eq!(resp.status().as_u16(), 200, "Authorization: Bearer should also work");
+
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "Authorization: Bearer should also work"
+    );
 }
 
 #[test]
@@ -345,5 +412,9 @@ fn test_api_key_stored_with_correct_permissions() {
 
     // Key file should contain a valid key
     let key_content = std::fs::read_to_string(&key_path).expect("Failed to read key file");
-    assert_eq!(key_content.trim().len(), 64, "Key file should contain 64-char hex key");
+    assert_eq!(
+        key_content.trim().len(),
+        64,
+        "Key file should contain 64-char hex key"
+    );
 }

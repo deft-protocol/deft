@@ -1231,7 +1231,7 @@ impl CommandHandler {
         session: &Session,
         virtual_file: String,
         block_size: usize,
-        filename: Option<String>,
+        _filename: Option<String>,
     ) -> Response {
         use crate::delta::FileSignature;
         use base64::Engine;
@@ -1372,7 +1372,10 @@ impl CommandHandler {
                         None => {
                             return Response::error(
                                 DeftErrorCode::NotFound,
-                                Some(format!("No existing file found for delta: {}", virtual_file)),
+                                Some(format!(
+                                    "No existing file found for delta: {}",
+                                    virtual_file
+                                )),
                             )
                         }
                     }

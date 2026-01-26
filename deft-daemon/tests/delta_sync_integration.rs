@@ -6,6 +6,8 @@
 //! - Large modification (delta sync with significant changes)
 //! - File hash verification after delta sync
 
+#![allow(dead_code, unused_variables, clippy::ptr_arg)]
+
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command};
@@ -35,12 +37,12 @@ impl DeltaSyncTestFixture {
         let instance_a_received = instance_a_dir.join("received");
         let instance_b_shares = instance_b_dir.join("shares");
 
-        std::fs::create_dir_all(&instance_a_dir.join("certs"))?;
+        std::fs::create_dir_all(instance_a_dir.join("certs"))?;
         std::fs::create_dir_all(&instance_a_received)?;
-        std::fs::create_dir_all(&instance_a_dir.join("tmp"))?;
-        std::fs::create_dir_all(&instance_b_dir.join("certs"))?;
+        std::fs::create_dir_all(instance_a_dir.join("tmp"))?;
+        std::fs::create_dir_all(instance_b_dir.join("certs"))?;
         std::fs::create_dir_all(&instance_b_shares)?;
-        std::fs::create_dir_all(&instance_b_dir.join("tmp"))?;
+        std::fs::create_dir_all(instance_b_dir.join("tmp"))?;
 
         Ok(Self {
             instance_a: None,
@@ -59,11 +61,19 @@ impl DeltaSyncTestFixture {
         // Generate CA key and cert
         Command::new("openssl")
             .args([
-                "req", "-x509", "-newkey", "rsa:2048", "-nodes",
-                "-keyout", ca_key.to_str().unwrap(),
-                "-out", ca_cert.to_str().unwrap(),
-                "-days", "1",
-                "-subj", "/CN=TestCA",
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-keyout",
+                ca_key.to_str().unwrap(),
+                "-out",
+                ca_cert.to_str().unwrap(),
+                "-days",
+                "1",
+                "-subj",
+                "/CN=TestCA",
             ])
             .output()?;
 
@@ -79,38 +89,51 @@ impl DeltaSyncTestFixture {
         Ok(())
     }
 
-    fn generate_cert(&self, name: &str, ca_key: &PathBuf, ca_cert: &PathBuf) -> std::io::Result<()> {
+    fn generate_cert(
+        &self,
+        name: &str,
+        ca_key: &PathBuf,
+        ca_cert: &PathBuf,
+    ) -> std::io::Result<()> {
         let key_path = self.temp_dir.join(format!("{}/certs/server.key", name));
         let csr_path = self.temp_dir.join(format!("{}/certs/server.csr", name));
         let cert_path = self.temp_dir.join(format!("{}/certs/server.crt", name));
 
         // Generate key
         Command::new("openssl")
-            .args([
-                "genrsa", "-out", key_path.to_str().unwrap(), "2048",
-            ])
+            .args(["genrsa", "-out", key_path.to_str().unwrap(), "2048"])
             .output()?;
 
         // Generate CSR
         Command::new("openssl")
             .args([
-                "req", "-new",
-                "-key", key_path.to_str().unwrap(),
-                "-out", csr_path.to_str().unwrap(),
-                "-subj", &format!("/CN={}", name),
+                "req",
+                "-new",
+                "-key",
+                key_path.to_str().unwrap(),
+                "-out",
+                csr_path.to_str().unwrap(),
+                "-subj",
+                &format!("/CN={}", name),
             ])
             .output()?;
 
         // Sign with CA
         Command::new("openssl")
             .args([
-                "x509", "-req",
-                "-in", csr_path.to_str().unwrap(),
-                "-CA", ca_cert.to_str().unwrap(),
-                "-CAkey", ca_key.to_str().unwrap(),
+                "x509",
+                "-req",
+                "-in",
+                csr_path.to_str().unwrap(),
+                "-CA",
+                ca_cert.to_str().unwrap(),
+                "-CAkey",
+                ca_key.to_str().unwrap(),
                 "-CAcreateserial",
-                "-out", cert_path.to_str().unwrap(),
-                "-days", "1",
+                "-out",
+                cert_path.to_str().unwrap(),
+                "-days",
+                "1",
             ])
             .output()?;
 
@@ -119,7 +142,8 @@ impl DeltaSyncTestFixture {
 
     fn write_configs(&self) -> std::io::Result<()> {
         // Instance A config (receiver)
-        let config_a = format!(r#"
+        let config_a = format!(
+            r#"
 [server]
 enabled = true
 listen = "127.0.0.1:17751"
@@ -150,15 +174,21 @@ name = "delta-test-files"
 path = "{}/instance-a/received/"
 direction = "receive"
 "#,
-            self.temp_dir.display(), self.temp_dir.display(), self.temp_dir.display(),
-            self.temp_dir.display(), self.temp_dir.display(), self.temp_dir.display(),
-            self.temp_dir.display(), self.temp_dir.display()
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display()
         );
 
         std::fs::write(self.temp_dir.join("instance-a/config.toml"), config_a)?;
 
         // Instance B config (sender)
-        let config_b = format!(r#"
+        let config_b = format!(
+            r#"
 [server]
 enabled = true
 listen = "127.0.0.1:17761"
@@ -194,9 +224,14 @@ name = "A"
 address = "127.0.0.1:17751"
 skip_verify = true
 "#,
-            self.temp_dir.display(), self.temp_dir.display(), self.temp_dir.display(),
-            self.temp_dir.display(), self.temp_dir.display(), self.temp_dir.display(),
-            self.temp_dir.display(), self.temp_dir.display()
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display(),
+            self.temp_dir.display()
         );
 
         std::fs::write(self.temp_dir.join("instance-b/config.toml"), config_b)?;
@@ -213,27 +248,41 @@ skip_verify = true
             std::env::current_dir()?.join("../target/debug/deftd"),
             PathBuf::from("/home/cpo/deft/deft/target/release/deftd"),
         ];
-        
+
         let deftd_path = possible_paths
             .iter()
             .find(|p| p.exists())
             .cloned()
-            .ok_or_else(|| std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("deftd binary not found. Checked: {:?}", possible_paths),
-            ))?;
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("deftd binary not found. Checked: {:?}", possible_paths),
+                )
+            })?;
 
         // Start instance A
         self.instance_a = Some(
             Command::new(&deftd_path)
-                .args(["--config", self.temp_dir.join("instance-a/config.toml").to_str().unwrap()])
+                .args([
+                    "--config",
+                    self.temp_dir
+                        .join("instance-a/config.toml")
+                        .to_str()
+                        .unwrap(),
+                ])
                 .spawn()?,
         );
 
         // Start instance B
         self.instance_b = Some(
             Command::new(&deftd_path)
-                .args(["--config", self.temp_dir.join("instance-b/config.toml").to_str().unwrap()])
+                .args([
+                    "--config",
+                    self.temp_dir
+                        .join("instance-b/config.toml")
+                        .to_str()
+                        .unwrap(),
+                ])
                 .spawn()?,
         );
 
@@ -246,26 +295,31 @@ skip_verify = true
     fn create_test_file(&self, name: &str, size_bytes: usize) -> std::io::Result<PathBuf> {
         let path = self.instance_b_shares.join(name);
         let mut file = std::fs::File::create(&path)?;
-        
+
         // Create deterministic content
         let mut data = vec![0u8; size_bytes];
         for (i, byte) in data.iter_mut().enumerate() {
             *byte = (i % 256) as u8;
         }
         file.write_all(&data)?;
-        
+
         Ok(path)
     }
 
-    fn modify_file_small(&self, name: &str, offset: usize, change_size: usize) -> std::io::Result<()> {
+    fn modify_file_small(
+        &self,
+        name: &str,
+        offset: usize,
+        change_size: usize,
+    ) -> std::io::Result<()> {
         let path = self.instance_b_shares.join(name);
         let mut data = std::fs::read(&path)?;
-        
+
         // Modify a small section
         for i in 0..change_size.min(data.len() - offset) {
             data[offset + i] = data[offset + i].wrapping_add(1);
         }
-        
+
         std::fs::write(&path, &data)?;
         Ok(())
     }
@@ -273,15 +327,15 @@ skip_verify = true
     fn modify_file_large(&self, name: &str, change_percent: usize) -> std::io::Result<()> {
         let path = self.instance_b_shares.join(name);
         let mut data = std::fs::read(&path)?;
-        
+
         // Modify a percentage of the file
         let change_bytes = (data.len() * change_percent) / 100;
         let step = data.len() / change_bytes.max(1);
-        
+
         for i in (0..data.len()).step_by(step.max(1)) {
             data[i] = data[i].wrapping_add(1);
         }
-        
+
         std::fs::write(&path, &data)?;
         Ok(())
     }
@@ -304,22 +358,25 @@ skip_verify = true
     fn connect_b_to_a(&self) -> Result<bool, Box<dyn std::error::Error>> {
         let client = reqwest::blocking::Client::new();
         let resp = client
-            .post(&format!("{}/api/client/connect", Self::API_B))
+            .post(format!("{}/api/client/connect", Self::API_B))
             .json(&serde_json::json!({
                 "server_name": "A",
                 "our_identity": "instance-b"
             }))
             .timeout(Duration::from_secs(10))
             .send()?;
-        
+
         let json: serde_json::Value = resp.json()?;
         Ok(json["success"].as_bool().unwrap_or(false))
     }
 
-    fn push_file(&self, file_path: &PathBuf) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    fn push_file(
+        &self,
+        file_path: &PathBuf,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
         let client = reqwest::blocking::Client::new();
         let resp = client
-            .post(&format!("{}/api/client/push", Self::API_B))
+            .post(format!("{}/api/client/push", Self::API_B))
             .json(&serde_json::json!({
                 "file_path": file_path.to_str().unwrap(),
                 "partner_id": "instance-a",
@@ -327,7 +384,7 @@ skip_verify = true
             }))
             .timeout(Duration::from_secs(60))
             .send()?;
-        
+
         Ok(resp.json()?)
     }
 
@@ -374,7 +431,9 @@ fn test_delta_sync_new_file() {
     let mut fixture = DeltaSyncTestFixture::new().expect("Failed to create fixture");
     fixture.setup_certificates().expect("Failed to setup certs");
     fixture.write_configs().expect("Failed to write configs");
-    fixture.start_instances().expect("Failed to start instances");
+    fixture
+        .start_instances()
+        .expect("Failed to start instances");
 
     // Create a 1MB test file
     let test_file = fixture
@@ -383,19 +442,28 @@ fn test_delta_sync_new_file() {
     let source_hash = DeltaSyncTestFixture::compute_file_hash(&test_file).expect("Failed to hash");
 
     // Connect and push
-    assert!(fixture.connect_b_to_a().expect("Connect failed"), "Connection should succeed");
-    
+    assert!(
+        fixture.connect_b_to_a().expect("Connect failed"),
+        "Connection should succeed"
+    );
+
     let result = fixture.push_file(&test_file).expect("Push failed");
-    assert!(result["success"].as_bool().unwrap_or(false), "Push should succeed");
+    assert!(
+        result["success"].as_bool().unwrap_or(false),
+        "Push should succeed"
+    );
 
     // Wait for transfer
     std::thread::sleep(Duration::from_secs(2));
 
     // Verify file received
-    let received = fixture.get_most_recent_received().expect("Failed to get received");
+    let received = fixture
+        .get_most_recent_received()
+        .expect("Failed to get received");
     assert!(received.is_some(), "Should have received file");
-    
-    let received_hash = DeltaSyncTestFixture::compute_file_hash(&received.unwrap()).expect("Hash failed");
+
+    let received_hash =
+        DeltaSyncTestFixture::compute_file_hash(&received.unwrap()).expect("Hash failed");
     assert_eq!(source_hash, received_hash, "File hashes should match");
 }
 
@@ -405,7 +473,9 @@ fn test_delta_sync_small_modification() {
     let mut fixture = DeltaSyncTestFixture::new().expect("Failed to create fixture");
     fixture.setup_certificates().expect("Failed to setup certs");
     fixture.write_configs().expect("Failed to write configs");
-    fixture.start_instances().expect("Failed to start instances");
+    fixture
+        .start_instances()
+        .expect("Failed to start instances");
 
     // Create initial 5MB file
     let test_file = fixture
@@ -421,21 +491,32 @@ fn test_delta_sync_small_modification() {
     let files_before = fixture.get_received_files().expect("Failed to list").len();
 
     // Modify 4KB in the middle of the file
-    fixture.modify_file_small("delta-small.bin", 2 * 1024 * 1024, 4096).expect("Modify failed");
+    fixture
+        .modify_file_small("delta-small.bin", 2 * 1024 * 1024, 4096)
+        .expect("Modify failed");
     let modified_hash = DeltaSyncTestFixture::compute_file_hash(&test_file).expect("Hash failed");
 
     // Push modified file (should use delta sync)
     let result = fixture.push_file(&test_file).expect("Push failed");
-    assert!(result["success"].as_bool().unwrap_or(false), "Delta push should succeed");
+    assert!(
+        result["success"].as_bool().unwrap_or(false),
+        "Delta push should succeed"
+    );
     std::thread::sleep(Duration::from_secs(3));
 
     // Verify new file received
     let files_after = fixture.get_received_files().expect("Failed to list").len();
     assert!(files_after > files_before, "Should have new received file");
 
-    let received = fixture.get_most_recent_received().expect("Failed to get").unwrap();
+    let received = fixture
+        .get_most_recent_received()
+        .expect("Failed to get")
+        .unwrap();
     let received_hash = DeltaSyncTestFixture::compute_file_hash(&received).expect("Hash failed");
-    assert_eq!(modified_hash, received_hash, "Modified file hash should match");
+    assert_eq!(
+        modified_hash, received_hash,
+        "Modified file hash should match"
+    );
 }
 
 #[test]
@@ -444,7 +525,9 @@ fn test_delta_sync_large_modification() {
     let mut fixture = DeltaSyncTestFixture::new().expect("Failed to create fixture");
     fixture.setup_certificates().expect("Failed to setup certs");
     fixture.write_configs().expect("Failed to write configs");
-    fixture.start_instances().expect("Failed to start instances");
+    fixture
+        .start_instances()
+        .expect("Failed to start instances");
 
     // Create initial 5MB file
     let test_file = fixture
@@ -458,18 +541,29 @@ fn test_delta_sync_large_modification() {
     std::thread::sleep(Duration::from_secs(3));
 
     // Modify 50% of the file
-    fixture.modify_file_large("delta-large.bin", 50).expect("Modify failed");
+    fixture
+        .modify_file_large("delta-large.bin", 50)
+        .expect("Modify failed");
     let modified_hash = DeltaSyncTestFixture::compute_file_hash(&test_file).expect("Hash failed");
 
     // Push modified file
     let result = fixture.push_file(&test_file).expect("Push failed");
-    assert!(result["success"].as_bool().unwrap_or(false), "Large delta push should succeed");
+    assert!(
+        result["success"].as_bool().unwrap_or(false),
+        "Large delta push should succeed"
+    );
     std::thread::sleep(Duration::from_secs(5));
 
     // Verify received
-    let received = fixture.get_most_recent_received().expect("Failed to get").unwrap();
+    let received = fixture
+        .get_most_recent_received()
+        .expect("Failed to get")
+        .unwrap();
     let received_hash = DeltaSyncTestFixture::compute_file_hash(&received).expect("Hash failed");
-    assert_eq!(modified_hash, received_hash, "Large modified file hash should match");
+    assert_eq!(
+        modified_hash, received_hash,
+        "Large modified file hash should match"
+    );
 }
 
 #[test]
@@ -478,7 +572,9 @@ fn test_delta_sync_preserves_integrity() {
     let mut fixture = DeltaSyncTestFixture::new().expect("Failed to create fixture");
     fixture.setup_certificates().expect("Failed to setup certs");
     fixture.write_configs().expect("Failed to write configs");
-    fixture.start_instances().expect("Failed to start instances");
+    fixture
+        .start_instances()
+        .expect("Failed to start instances");
 
     // Create 2MB file with specific pattern
     let test_file = fixture
@@ -491,16 +587,26 @@ fn test_delta_sync_preserves_integrity() {
     for i in 0..3 {
         if i > 0 {
             // Modify 1KB at different offsets
-            fixture.modify_file_small("delta-integrity.bin", i * 100_000, 1024).expect("Modify failed");
+            fixture
+                .modify_file_small("delta-integrity.bin", i * 100_000, 1024)
+                .expect("Modify failed");
         }
-        
+
         let source_hash = DeltaSyncTestFixture::compute_file_hash(&test_file).expect("Hash failed");
         let result = fixture.push_file(&test_file).expect("Push failed");
-        assert!(result["success"].as_bool().unwrap_or(false), "Transfer {} should succeed", i);
+        assert!(
+            result["success"].as_bool().unwrap_or(false),
+            "Transfer {} should succeed",
+            i
+        );
         std::thread::sleep(Duration::from_secs(2));
 
-        let received = fixture.get_most_recent_received().expect("Failed to get").unwrap();
-        let received_hash = DeltaSyncTestFixture::compute_file_hash(&received).expect("Hash failed");
+        let received = fixture
+            .get_most_recent_received()
+            .expect("Failed to get")
+            .unwrap();
+        let received_hash =
+            DeltaSyncTestFixture::compute_file_hash(&received).expect("Hash failed");
         assert_eq!(source_hash, received_hash, "Transfer {} hash mismatch", i);
     }
 }

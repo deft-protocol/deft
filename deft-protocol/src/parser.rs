@@ -236,9 +236,10 @@ impl Parser {
             .map_err(|_| DeftError::ParseError("Invalid block_size".into()))?;
 
         // Parse optional FILE:<filename> parameter
-        let filename = parts.iter().skip(2).find_map(|p| {
-            p.strip_prefix("FILE:").map(|f| f.to_string())
-        });
+        let filename = parts
+            .iter()
+            .skip(2)
+            .find_map(|p| p.strip_prefix("FILE:").map(|f| f.to_string()));
 
         Ok(Command::DeltaSigReq {
             virtual_file,

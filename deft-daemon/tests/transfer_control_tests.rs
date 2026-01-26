@@ -1,8 +1,10 @@
 //! Integration tests for transfer control (pause/resume/cancel)
 
+#![allow(dead_code, unused_variables, unused_assignments)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, watch, RwLock};
+use tokio::sync::{mpsc, watch, RwLock};
 
 /// Minimal ApiState for testing transfer control logic
 struct TestApiState {

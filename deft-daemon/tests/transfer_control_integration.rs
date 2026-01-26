@@ -3,7 +3,8 @@
 //! These tests simulate actual transfer scenarios to verify the pause/resume/cancel
 //! functionality works correctly end-to-end.
 
-use std::collections::HashMap;
+#![allow(dead_code, unused_variables)]
+
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, watch, RwLock};

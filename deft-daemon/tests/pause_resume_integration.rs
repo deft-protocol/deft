@@ -2,6 +2,8 @@
 //!
 //! These tests spawn two real deftd instances and test pause/resume via API calls.
 
+#![allow(dead_code, unused_variables, unused_assignments, clippy::ptr_arg)]
+
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -187,7 +189,7 @@ impl TestFixture {
         for line in config.lines() {
             if line.contains("api_listen") {
                 // Parse "api_listen = "127.0.0.1:7752""
-                if let Some(port_str) = line.split(':').last() {
+                if let Some(port_str) = line.split(':').next_back() {
                     let port_str = port_str.trim().trim_matches('"');
                     return Ok(port_str.parse()?);
                 }
@@ -518,10 +520,10 @@ allowed_partners = ["{remote_name}"]
         while start.elapsed().as_millis() < timeout_ms as u128 {
             let transfers = self.get_transfers(instance).await?;
             for t in &transfers {
-                if t["id"].as_str() == Some(transfer_id) {
-                    if t["status"].as_str() == Some(expected_status) {
-                        return Ok(true);
-                    }
+                if t["id"].as_str() == Some(transfer_id)
+                    && t["status"].as_str() == Some(expected_status)
+                {
+                    return Ok(true);
                 }
             }
             tokio::time::sleep(Duration::from_millis(100)).await;

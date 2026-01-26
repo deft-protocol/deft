@@ -19,6 +19,7 @@ use crate::transfer_state::TransferStateStore;
 
 /// Control commands that can be sent to an active transfer
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum TransferControl {
     Pause,
     Resume,
@@ -760,22 +761,32 @@ async fn handle_request(
 
     // Check API key if configured (skip for public endpoints and static files)
     if let Some(ref km) = key_manager {
-        let is_public = public_endpoints.iter().any(|e| path == *e);
-        let is_static = path == "/" || path == "/index.html" || path.starts_with("/static/") 
-            || path.ends_with(".js") || path.ends_with(".css") || path.ends_with(".html");
+        let is_public = public_endpoints.contains(&path);
+        let is_static = path == "/"
+            || path == "/index.html"
+            || path.starts_with("/static/")
+            || path.ends_with(".js")
+            || path.ends_with(".css")
+            || path.ends_with(".html");
 
         if !is_public && !is_static {
             // Extract API key from X-API-Key header or Authorization: Bearer
             let api_key = lines
                 .iter()
                 .find(|l| l.to_lowercase().starts_with("x-api-key:"))
-                .map(|l| l.splitn(2, ':').nth(1).unwrap_or("").trim().to_string())
+                .map(|l| {
+                    l.split_once(':')
+                        .map(|x| x.1)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string()
+                })
                 .or_else(|| {
                     lines
                         .iter()
                         .find(|l| l.to_lowercase().starts_with("authorization:"))
                         .and_then(|l| {
-                            let value = l.splitn(2, ':').nth(1).unwrap_or("").trim();
+                            let value = l.split_once(':').map(|x| x.1).unwrap_or("").trim();
                             value.strip_prefix("Bearer ").map(|s| s.to_string())
                         })
                 });
@@ -817,16 +828,25 @@ async fn handle_request(
                     let key = km.get_key().await;
                     (200, format!(r#"{{"api_key":"{}"}}"#, key))
                 } else {
-                    (200, r#"{"api_key":null,"message":"Authentication disabled"}"#.to_string())
+                    (
+                        200,
+                        r#"{"api_key":null,"message":"Authentication disabled"}"#.to_string(),
+                    )
                 }
             } else {
-                (403, r#"{"error":"Key retrieval only allowed from localhost"}"#.to_string())
+                (
+                    403,
+                    r#"{"error":"Key retrieval only allowed from localhost"}"#.to_string(),
+                )
             }
         }
         ("POST", "/api/auth/rotate") => {
             if let Some(ref km) = key_manager {
                 match km.rotate().await {
-                    Ok(new_key) => (200, format!(r#"{{"api_key":"{}","rotated":true}}"#, new_key)),
+                    Ok(new_key) => (
+                        200,
+                        format!(r#"{{"api_key":"{}","rotated":true}}"#, new_key),
+                    ),
                     Err(e) => (500, format!(r#"{{"error":"Failed to rotate key: {}"}}"#, e)),
                 }
             } else {
@@ -3064,29 +3084,23 @@ async fn push_file(
 
             // Read response, consuming any stale TRANSFER_PAUSED from previous retries
             let mut paused = false;
-            for _ in 0..5 {
-                line.clear();
-                reader.read_line(&mut line).await?;
+            line.clear();
+            reader.read_line(&mut line).await?;
 
-                if line.contains("CHUNK_READY") {
-                    // Receiver accepted, exit the consume loop
-                    break;
-                } else if line.contains("TRANSFER_PAUSED") {
-                    // Might be stale, try reading one more time with short timeout
-                    paused = true;
-                    // Check if there's more data immediately available
-                    use tokio::time::{timeout, Duration};
-                    line.clear();
-                    match timeout(Duration::from_millis(50), reader.read_line(&mut line)).await {
-                        Ok(Ok(_)) if line.contains("CHUNK_READY") => {
-                            paused = false;
-                            break;
-                        }
-                        _ => break, // No more data or still paused
+            if line.contains("CHUNK_READY") {
+                // Receiver accepted, continue
+            } else if line.contains("TRANSFER_PAUSED") {
+                // Might be stale, try reading one more time with short timeout
+                paused = true;
+                // Check if there's more data immediately available
+                use tokio::time::{timeout, Duration};
+                line.clear();
+                if let Ok(Ok(_)) =
+                    timeout(Duration::from_millis(50), reader.read_line(&mut line)).await
+                {
+                    if line.contains("CHUNK_READY") {
+                        paused = false;
                     }
-                } else {
-                    // Other response (TRANSFER_RESUMED, error, etc.)
-                    break;
                 }
             }
 
@@ -3100,6 +3114,7 @@ async fn push_file(
 
                 // Wait and retry - receiver might resume via its own API
                 // Check for sender-initiated resume command OR just wait and retry PUT
+                #[allow(unused_assignments)]
                 let mut retry_count = 0;
                 loop {
                     if *cancel_rx.borrow() {
@@ -3150,7 +3165,6 @@ async fn push_file(
                     retry_count += 1;
                     if retry_count >= 10 {
                         // Every ~1 second
-                        retry_count = 0;
                         tracing::debug!("Retrying PUT to check if receiver resumed");
                         break; // Exit inner loop to retry PUT
                     }

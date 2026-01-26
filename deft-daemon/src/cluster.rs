@@ -6,6 +6,8 @@
 //! - State synchronization
 //! - Health monitoring
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -108,13 +110,14 @@ pub struct ClusterManager {
 }
 
 impl ClusterManager {
-    pub fn new(config: ClusterConfig, local_address: String, api_port: u16, deft_port: u16) -> Self {
-        let local_node = ClusterNode::new(
-            config.node_id.clone(),
-            local_address,
-            api_port,
-            deft_port,
-        );
+    pub fn new(
+        config: ClusterConfig,
+        local_address: String,
+        api_port: u16,
+        deft_port: u16,
+    ) -> Self {
+        let local_node =
+            ClusterNode::new(config.node_id.clone(), local_address, api_port, deft_port);
 
         Self {
             config,
@@ -126,7 +129,10 @@ impl ClusterManager {
 
     /// Start the cluster manager
     pub async fn start(&self) -> anyhow::Result<()> {
-        info!("Starting cluster manager with node_id: {}", self.config.node_id);
+        info!(
+            "Starting cluster manager with node_id: {}",
+            self.config.node_id
+        );
 
         // Set local node as active
         {
@@ -143,7 +149,7 @@ impl ClusterManager {
         let nodes = self.nodes.clone();
         let config = self.config.clone();
         let local_node = self.local_node.clone();
-        
+
         tokio::spawn(async move {
             Self::heartbeat_loop(nodes, local_node, config).await;
         });
@@ -180,11 +186,11 @@ impl ClusterManager {
                         warn!("Node {} is now DOWN", node.id);
                         node.state = NodeState::Down;
                     }
-                } else if since_heartbeat > config.suspect_timeout {
-                    if node.state == NodeState::Active {
-                        warn!("Node {} is now SUSPECT", node.id);
-                        node.state = NodeState::Suspect;
-                    }
+                } else if since_heartbeat > config.suspect_timeout
+                    && node.state == NodeState::Active
+                {
+                    warn!("Node {} is now SUSPECT", node.id);
+                    node.state = NodeState::Suspect;
                 }
             }
 
@@ -259,7 +265,7 @@ impl ClusterManager {
     pub async fn sync_state(&self, key: &str, value: Vec<u8>) -> anyhow::Result<()> {
         let mut store = self.state_store.lock().await;
         store.set(key, value);
-        
+
         // In a real implementation, this would propagate to other nodes
         Ok(())
     }
@@ -314,12 +320,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cluster_node_creation() {
-        let node = ClusterNode::new(
-            "node-1".to_string(),
-            "192.168.1.1".to_string(),
-            7752,
-            7751,
-        );
+        let node = ClusterNode::new("node-1".to_string(), "192.168.1.1".to_string(), 7752, 7751);
 
         assert_eq!(node.id, "node-1");
         assert_eq!(node.state, NodeState::Initializing);
@@ -331,12 +332,7 @@ mod tests {
     #[tokio::test]
     async fn test_cluster_manager_basic() {
         let config = ClusterConfig::default();
-        let manager = ClusterManager::new(
-            config,
-            "127.0.0.1".to_string(),
-            7752,
-            7751,
-        );
+        let manager = ClusterManager::new(config, "127.0.0.1".to_string(), 7752, 7751);
 
         let status = manager.status().await;
         assert_eq!(status.active_nodes, 1);
@@ -346,19 +342,10 @@ mod tests {
     #[tokio::test]
     async fn test_register_node() {
         let config = ClusterConfig::default();
-        let manager = ClusterManager::new(
-            config,
-            "127.0.0.1".to_string(),
-            7752,
-            7751,
-        );
+        let manager = ClusterManager::new(config, "127.0.0.1".to_string(), 7752, 7751);
 
-        let mut remote_node = ClusterNode::new(
-            "node-2".to_string(),
-            "192.168.1.2".to_string(),
-            7752,
-            7751,
-        );
+        let mut remote_node =
+            ClusterNode::new("node-2".to_string(), "192.168.1.2".to_string(), 7752, 7751);
         remote_node.state = NodeState::Active;
 
         manager.register_node(remote_node).await;
@@ -370,15 +357,13 @@ mod tests {
     #[tokio::test]
     async fn test_state_store() {
         let config = ClusterConfig::default();
-        let manager = ClusterManager::new(
-            config,
-            "127.0.0.1".to_string(),
-            7752,
-            7751,
-        );
+        let manager = ClusterManager::new(config, "127.0.0.1".to_string(), 7752, 7751);
 
-        manager.sync_state("test-key", b"test-value".to_vec()).await.unwrap();
-        
+        manager
+            .sync_state("test-key", b"test-value".to_vec())
+            .await
+            .unwrap();
+
         let value = manager.get_state("test-key").await;
         assert_eq!(value, Some(b"test-value".to_vec()));
     }
