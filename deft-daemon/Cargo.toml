@@ -36,6 +36,7 @@ lazy_static = "1.4"
 ring = "0.17"
 base64 = "0.21"
 hex = "0.4"
+uuid = { version = "1.6", features = ["v4"] }
 clap.workspace = true
 chrono.workspace = true
 sha2.workspace = true

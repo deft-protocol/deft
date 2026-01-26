@@ -1,0 +1,39 @@
+{
+  "name": "@deft-protocol/client",
+  "version": "2.3.3",
+  "description": "DEFT Protocol JavaScript/TypeScript SDK - Delta-Enabled File Transfer Client",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "test": "vitest",
+    "lint": "eslint src"
+  },
+  "keywords": [
+    "deft",
+    "file-transfer",
+    "b2b",
+    "delta-sync",
+    "mtls"
+  ],
+  "author": "DEFT Protocol",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/deft-protocol/deft.git"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0",
+    "vitest": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

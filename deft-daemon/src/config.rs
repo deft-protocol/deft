@@ -93,6 +93,13 @@ pub struct LimitsConfig {
     /// Enable API key authentication (default: true)
     #[serde(default = "default_api_key_enabled")]
     pub api_key_enabled: Option<bool>,
+    /// Maximum parallel streams per transfer (default: 4)
+    #[serde(default = "default_max_parallel_streams")]
+    pub max_parallel_streams: usize,
+}
+
+fn default_max_parallel_streams() -> usize {
+    4
 }
 
 fn default_api_key_enabled() -> Option<bool> {
@@ -244,6 +251,7 @@ impl Default for LimitsConfig {
             api_listen: default_api_listen(),
             api_key: None,
             api_key_enabled: default_api_key_enabled(),
+            max_parallel_streams: default_max_parallel_streams(),
         }
     }
 }
