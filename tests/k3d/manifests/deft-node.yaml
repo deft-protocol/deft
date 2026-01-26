@@ -1,0 +1,134 @@
+# DEFT Node StatefulSet for parallel transfer testing
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deft-config
+  namespace: deft-test
+data:
+  config.toml: |
+    [server]
+    enabled = true
+    listen = "0.0.0.0:7741"
+    cert = "/etc/deft/certs/server.crt"
+    key = "/etc/deft/certs/server.key"
+    ca = "/etc/deft/certs/ca.crt"
+
+    [client]
+    enabled = true
+    cert = "/etc/deft/certs/client.crt"
+    key = "/etc/deft/certs/client.key"
+    ca = "/etc/deft/certs/ca.crt"
+
+    [storage]
+    chunk_size = 262144
+    temp_dir = "/var/lib/deft/tmp"
+
+    [limits]
+    api_enabled = true
+    api_listen = "0.0.0.0:7742"
+    api_key_enabled = false
+    max_parallel_streams = 4
+    parallel_chunks = 8
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: deft-node
+  namespace: deft-test
+spec:
+  serviceName: deft-nodes
+  replicas: 3
+  selector:
+    matchLabels:
+      app: deft-node
+  template:
+    metadata:
+      labels:
+        app: deft-node
+    spec:
+      containers:
+      - name: deftd
+        image: deft-daemon:test
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 7741
+          name: deft
+        - containerPort: 7742
+          name: api
+        volumeMounts:
+        - name: config
+          mountPath: /etc/deft/config.toml
+          subPath: config.toml
+        - name: certs
+          mountPath: /etc/deft/certs
+        - name: data
+          mountPath: /var/lib/deft
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 7742
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 7742
+          initialDelaySeconds: 15
+          periodSeconds: 20
+      volumes:
+      - name: config
+        configMap:
+          name: deft-config
+      - name: certs
+        secret:
+          secretName: deft-certs
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deft-nodes
+  namespace: deft-test
+spec:
+  clusterIP: None
+  selector:
+    app: deft-node
+  ports:
+  - port: 7741
+    name: deft
+  - port: 7742
+    name: api
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deft-lb
+  namespace: deft-test
+spec:
+  type: LoadBalancer
+  selector:
+    app: deft-node
+  ports:
+  - port: 7741
+    name: deft
+    targetPort: 7741
+  - port: 7742
+    name: api
+    targetPort: 7742

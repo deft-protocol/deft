@@ -1,0 +1,27 @@
+# k3d cluster configuration for DEFT parallelization tests
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: deft-test
+servers: 1
+agents: 3
+image: rancher/k3s:v1.28.5-k3s1
+ports:
+  - port: 7741:7741
+    nodeFilters:
+      - loadbalancer
+  - port: 7742:7742
+    nodeFilters:
+      - loadbalancer
+  - port: 7751:7751
+    nodeFilters:
+      - loadbalancer
+  - port: 7752:7752
+    nodeFilters:
+      - loadbalancer
+options:
+  k3s:
+    extraArgs:
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*

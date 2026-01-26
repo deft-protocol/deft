@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: deft-test
+  labels:
+    app: deft
+    purpose: testing
