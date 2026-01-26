@@ -758,11 +758,13 @@ async fn handle_request(
         "/api/auth/key", // For initial key retrieval (localhost only)
     ];
 
-    // Check API key if configured (skip for public endpoints)
+    // Check API key if configured (skip for public endpoints and static files)
     if let Some(ref km) = key_manager {
         let is_public = public_endpoints.iter().any(|e| path == *e);
+        let is_static = path == "/" || path == "/index.html" || path.starts_with("/static/") 
+            || path.ends_with(".js") || path.ends_with(".css") || path.ends_with(".html");
 
-        if !is_public {
+        if !is_public && !is_static {
             // Extract API key from X-API-Key header or Authorization: Bearer
             let api_key = lines
                 .iter()

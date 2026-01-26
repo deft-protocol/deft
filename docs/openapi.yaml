@@ -1,0 +1,950 @@
+openapi: 3.0.3
+info:
+  title: DEFT API
+  description: |
+    REST API for DEFT (Delta-Enabled File Transfer) daemon.
+    
+    ## Authentication
+    All endpoints except `/api/health`, `/api/metrics`, and `/api/auth/key` require authentication.
+    Use the `X-API-Key` header with the API key retrieved from `/api/auth/key` (localhost only).
+    
+    ## Features
+    - File transfer management (push/pull)
+    - Partner configuration
+    - Virtual file management
+    - Transfer monitoring and control (pause/resume)
+    - Delta-sync for incremental transfers
+  version: 2.3.3
+  contact:
+    name: DEFT Protocol
+    url: https://github.com/deft-protocol/deft
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://127.0.0.1:7742
+    description: Local DEFT daemon
+
+tags:
+  - name: Authentication
+    description: API key management
+  - name: System
+    description: System status and configuration
+  - name: Transfers
+    description: Transfer operations and monitoring
+  - name: Partners
+    description: Partner management
+  - name: Virtual Files
+    description: Virtual file configuration
+  - name: Client
+    description: Client operations (connect, push, pull)
+  - name: Trusted Servers
+    description: Outgoing connection configuration
+
+security:
+  - ApiKeyAuth: []
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for authentication (retrieve from /api/auth/key)
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+      required:
+        - error
+
+    ApiKey:
+      type: object
+      properties:
+        api_key:
+          type: string
+          description: The API key (256-bit hex encoded)
+          example: "a3b9d945ce2c97f276e93709f9b61ba1d841ddbeb35e8359c8fdb07cb61ba738"
+        message:
+          type: string
+          description: Additional message (when auth disabled)
+
+    ApiKeyRotated:
+      type: object
+      properties:
+        api_key:
+          type: string
+          description: The new API key
+        rotated:
+          type: boolean
+          description: Whether rotation was successful
+
+    Status:
+      type: object
+      properties:
+        version:
+          type: string
+          example: "2.3.3"
+        uptime_seconds:
+          type: integer
+          example: 3600
+        active_transfers:
+          type: integer
+          example: 2
+        server_enabled:
+          type: boolean
+        client_enabled:
+          type: boolean
+
+    Transfer:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "txn_1706234567_001"
+        virtual_file:
+          type: string
+          example: "invoices"
+        partner_id:
+          type: string
+          example: "partner-a"
+        direction:
+          type: string
+          enum: [send, receive]
+        status:
+          type: string
+          enum: [active, interrupted, complete, failed]
+        bytes_transferred:
+          type: integer
+        total_bytes:
+          type: integer
+        progress_percent:
+          type: number
+          format: float
+        started_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TransferHistory:
+      type: object
+      properties:
+        id:
+          type: string
+        virtual_file:
+          type: string
+        partner_id:
+          type: string
+        direction:
+          type: string
+        status:
+          type: string
+        total_bytes:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    Partner:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "partner-a"
+        allowed_certs:
+          type: array
+          items:
+            type: string
+          description: SHA-256 fingerprints of allowed client certificates
+        virtual_files:
+          type: array
+          items:
+            $ref: '#/components/schemas/VirtualFile'
+
+    PartnerCreate:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        allowed_certs:
+          type: array
+          items:
+            type: string
+
+    VirtualFile:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "invoices"
+        path:
+          type: string
+          example: "/data/invoices/"
+        direction:
+          type: string
+          enum: [send, receive]
+        partner_id:
+          type: string
+
+    VirtualFileCreate:
+      type: object
+      required:
+        - name
+        - path
+        - direction
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        direction:
+          type: string
+          enum: [send, receive]
+        partner_id:
+          type: string
+
+    TrustedServer:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "partner-server"
+        address:
+          type: string
+          example: "partner.example.com:7741"
+        cert_fingerprint:
+          type: string
+          description: Optional server certificate fingerprint
+
+    TrustedServerCreate:
+      type: object
+      required:
+        - name
+        - address
+      properties:
+        name:
+          type: string
+        address:
+          type: string
+        cert_fingerprint:
+          type: string
+
+    ConnectRequest:
+      type: object
+      required:
+        - server_name
+        - our_identity
+      properties:
+        server_name:
+          type: string
+          description: Name of trusted server to connect to
+        our_identity:
+          type: string
+          description: Our partner ID to use for authentication
+
+    ConnectResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        server_name:
+          type: string
+        server_address:
+          type: string
+        our_identity:
+          type: string
+        virtual_files:
+          type: array
+          items:
+            $ref: '#/components/schemas/VirtualFile'
+
+    PushRequest:
+      type: object
+      required:
+        - file_path
+        - virtual_file
+      properties:
+        file_path:
+          type: string
+          description: Local file path to send
+        virtual_file:
+          type: string
+          description: Target virtual file name
+        partner_id:
+          type: string
+          description: Target partner ID
+
+    PullRequest:
+      type: object
+      required:
+        - virtual_file
+        - output_path
+      properties:
+        virtual_file:
+          type: string
+          description: Virtual file to download
+        output_path:
+          type: string
+          description: Local path to save file
+
+    TransferResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        transfer_id:
+          type: string
+        bytes:
+          type: integer
+        virtual_file:
+          type: string
+        file_path:
+          type: string
+
+paths:
+  /api/health:
+    get:
+      tags:
+        - System
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+
+  /api/auth/key:
+    get:
+      tags:
+        - Authentication
+      summary: Get API key (localhost only)
+      description: Retrieve the current API key. Only accessible from localhost.
+      security: []
+      responses:
+        '200':
+          description: API key returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKey'
+        '403':
+          description: Not allowed from non-localhost
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/rotate:
+    post:
+      tags:
+        - Authentication
+      summary: Rotate API key
+      description: Generate a new API key, invalidating the old one.
+      responses:
+        '200':
+          description: Key rotated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyRotated'
+        '400':
+          description: Authentication not enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/status:
+    get:
+      tags:
+        - System
+      summary: Get daemon status
+      responses:
+        '200':
+          description: Status information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+
+  /api/config:
+    get:
+      tags:
+        - System
+      summary: Get configuration
+      responses:
+        '200':
+          description: Current configuration
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/config/reload:
+    post:
+      tags:
+        - System
+      summary: Reload configuration
+      responses:
+        '200':
+          description: Configuration reloaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+
+  /api/metrics:
+    get:
+      tags:
+        - System
+      summary: Get Prometheus metrics
+      security: []
+      responses:
+        '200':
+          description: Metrics in JSON format
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/transfers:
+    get:
+      tags:
+        - Transfers
+      summary: List active transfers
+      responses:
+        '200':
+          description: List of active transfers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transfer'
+
+    post:
+      tags:
+        - Transfers
+      summary: Create a new transfer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                partner_id:
+                  type: string
+                virtual_file:
+                  type: string
+      responses:
+        '200':
+          description: Transfer created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+
+  /api/transfers/{id}:
+    get:
+      tags:
+        - Transfers
+      summary: Get transfer details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transfer details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '404':
+          description: Transfer not found
+
+    delete:
+      tags:
+        - Transfers
+      summary: Cancel a transfer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transfer cancelled
+
+  /api/transfers/{id}/interrupt:
+    post:
+      tags:
+        - Transfers
+      summary: Pause a transfer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transfer paused
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "interrupted"
+
+  /api/transfers/{id}/resume:
+    post:
+      tags:
+        - Transfers
+      summary: Resume a paused transfer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transfer resumed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [resumed, resuming]
+
+  /api/transfers/{id}/retry:
+    post:
+      tags:
+        - Transfers
+      summary: Retry a failed transfer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transfer retried
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+
+  /api/history:
+    get:
+      tags:
+        - Transfers
+      summary: Get transfer history
+      responses:
+        '200':
+          description: Transfer history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TransferHistory'
+
+  /api/partners:
+    get:
+      tags:
+        - Partners
+      summary: List all partners
+      responses:
+        '200':
+          description: List of partners
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Partner'
+
+    post:
+      tags:
+        - Partners
+      summary: Create a partner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartnerCreate'
+      responses:
+        '200':
+          description: Partner created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Partner'
+
+  /api/partners/{id}:
+    put:
+      tags:
+        - Partners
+      summary: Update a partner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartnerCreate'
+      responses:
+        '200':
+          description: Partner updated
+
+    delete:
+      tags:
+        - Partners
+      summary: Delete a partner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Partner deleted
+
+  /api/partners/{id}/virtual-files:
+    get:
+      tags:
+        - Partners
+      summary: Get partner's virtual files
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Virtual files for partner
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VirtualFile'
+
+    post:
+      tags:
+        - Partners
+      summary: Add virtual file to partner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VirtualFileCreate'
+      responses:
+        '200':
+          description: Virtual file added
+
+  /api/virtual-files:
+    get:
+      tags:
+        - Virtual Files
+      summary: List all virtual files
+      responses:
+        '200':
+          description: List of virtual files
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VirtualFile'
+
+    post:
+      tags:
+        - Virtual Files
+      summary: Create a virtual file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VirtualFileCreate'
+      responses:
+        '200':
+          description: Virtual file created
+
+  /api/virtual-files/{name}:
+    get:
+      tags:
+        - Virtual Files
+      summary: Get virtual file details
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Virtual file details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VirtualFile'
+
+    put:
+      tags:
+        - Virtual Files
+      summary: Update a virtual file
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VirtualFileCreate'
+      responses:
+        '200':
+          description: Virtual file updated
+
+    delete:
+      tags:
+        - Virtual Files
+      summary: Delete a virtual file
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Virtual file deleted
+
+  /api/trusted-servers:
+    get:
+      tags:
+        - Trusted Servers
+      summary: List trusted servers
+      responses:
+        '200':
+          description: List of trusted servers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TrustedServer'
+
+    post:
+      tags:
+        - Trusted Servers
+      summary: Add a trusted server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrustedServerCreate'
+      responses:
+        '200':
+          description: Trusted server added
+
+  /api/trusted-servers/{name}:
+    put:
+      tags:
+        - Trusted Servers
+      summary: Update a trusted server
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrustedServerCreate'
+      responses:
+        '200':
+          description: Trusted server updated
+
+    delete:
+      tags:
+        - Trusted Servers
+      summary: Delete a trusted server
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Trusted server deleted
+
+  /api/client/connect:
+    post:
+      tags:
+        - Client
+      summary: Connect to a remote server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectRequest'
+      responses:
+        '200':
+          description: Connected successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectResponse'
+
+  /api/client/push:
+    post:
+      tags:
+        - Client
+      summary: Push a file to remote server
+      description: Send a local file to a connected remote server using delta-sync when possible.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushRequest'
+      responses:
+        '200':
+          description: File pushed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferResult'
+
+  /api/client/pull:
+    post:
+      tags:
+        - Client
+      summary: Pull a file from remote server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PullRequest'
+      responses:
+        '200':
+          description: File pulled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferResult'
+
+  /api/delta/signature:
+    post:
+      tags:
+        - Client
+      summary: Compute file signature for delta-sync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file_path:
+                  type: string
+                block_size:
+                  type: integer
+                  default: 4096
+      responses:
+        '200':
+          description: Signature computed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signature:
+                    type: string
+                    description: Base64-encoded signature
+
+  /api/server-fingerprint:
+    get:
+      tags:
+        - System
+      summary: Get server certificate fingerprint
+      responses:
+        '200':
+          description: Server fingerprint
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fingerprint:
+                    type: string
+                    description: SHA-256 fingerprint of server certificate

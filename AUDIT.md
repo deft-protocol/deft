@@ -133,6 +133,32 @@ Le répertoire `docs/` contient :
 | Extraction CN | ✅ Partner ID depuis cert | **Implémenté** |
 | CA validation | ✅ WebPkiClientVerifier | **Implémenté** |
 | Liste partenaires | ✅ Config TOML | **Implémenté** |
+| API Key REST | ✅ 256-bit auto-générée | **Implémenté** (v2.3.3) |
+
+### 2.1.1 API Key Authentication (v2.3.3)
+
+L'API REST est protégée par une clé API auto-générée.
+
+| Fonctionnalité | Implémentation | Détails |
+|----------------|----------------|---------|
+| Génération | ✅ 256-bit aléatoire | `rand::thread_rng()` au démarrage |
+| Stockage | ✅ Fichier permissions 600 | `{temp_dir}/api.key` |
+| Vérification | ✅ Header `X-API-Key` | Ou `Authorization: Bearer` |
+| Rotation | ✅ `POST /api/auth/rotate` | Génère nouvelle clé, invalide ancienne |
+| Récupération | ✅ `GET /api/auth/key` | Localhost uniquement |
+| Timing-safe | ✅ Comparaison constant-time | Prévient timing attacks |
+
+**Endpoints publics** (sans authentification) :
+- `/api/health` - Health check
+- `/api/metrics` - Métriques Prometheus
+- `/api/auth/key` - Récupération clé (localhost only)
+- `/`, `/index.html`, `*.js`, `*.css` - Dashboard statique
+
+**Configuration** :
+```toml
+[limits]
+api_key_enabled = true  # Défaut: true
+```
 
 ### 2.2 Intégrité des Données
 
