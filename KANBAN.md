@@ -9,8 +9,8 @@
 
 | ID | Tâche | Effort | Status | Assigné | Notes |
 |----|-------|--------|--------|---------|-------|
-| C1 | Tests automatisés delta-sync | 1j | ⏳ TODO | - | Tests d'intégration: fichier modifié, nouveau fichier, gros fichier |
-| C2 | Tests automatisés pause/resume | 1j | ⏳ TODO | - | Tests cross-party: pause sender → resume receiver |
+| C1 | Tests automatisés delta-sync | 1j | ✅ DONE | - | 4 tests: new file, small mod, large mod, integrity |
+| C2 | Tests automatisés pause/resume | 1j | ✅ DONE | - | 4 tests: same-party, cross-party, multi-cycle, long pause |
 
 ---
 
@@ -49,6 +49,8 @@
 
 | ID | Tâche | Date | Notes |
 |----|-------|------|-------|
+| ~~C1~~ | Tests automatisés delta-sync | 26/01/2026 | `delta_sync_integration.rs` - 4 tests |
+| ~~C2~~ | Tests automatisés pause/resume | 26/01/2026 | `pause_resume_full_integration.rs` - 4 tests |
 | ~~D1~~ | Sécurisation API REST | 26/01/2026 | API Key auto-générée, rotation, constant-time comparison |
 | ~~D2~~ | Fix delta-sync directories | 25/01/2026 | `find_most_recent_file()` pour virtual files = répertoires |
 | ~~D3~~ | Fix pause/resume cross-party | 25/01/2026 | Consommation réponses TRANSFER_PAUSED périmées |
@@ -60,11 +62,11 @@
 
 | Priorité | Total | TODO | En cours | Terminé |
 |----------|-------|------|----------|---------|
-| 🔴 Critique | 2 | 2 | 0 | 0 |
+| 🔴 Critique | 2 | 0 | 0 | 2 |
 | 🟠 Haute | 3 | 3 | 0 | 0 |
 | 🟡 Moyenne | 3 | 3 | 0 | 0 |
 | 🟢 Basse | 4 | 4 | 0 | 0 |
-| **Total** | **12** | **12** | **0** | **4** |
+| **Total** | **12** | **10** | **0** | **6** |
 
 ---
 
